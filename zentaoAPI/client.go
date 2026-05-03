@@ -12,7 +12,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/cenkalti/backoff/v4"
+	backoff "github.com/cenkalti/backoff/v4"
 )
 
 // jsonURL is a thin alias purely for test ergonomics; consumers use *url.URL.
@@ -25,6 +25,12 @@ type Client struct {
 
 	sessionMu sync.Mutex
 	sessionID string
+
+	// refreshMu serializes refreshSession attempts so that concurrent 401s
+	// trigger only a single Login round-trip. The first goroutine to acquire
+	// it performs Login; subsequent goroutines see a refreshed sessionID and
+	// no-op.
+	refreshMu sync.Mutex
 
 	http *http.Client
 

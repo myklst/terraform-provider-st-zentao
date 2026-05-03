@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -188,5 +189,49 @@ func TestSend_NoBackoffOn4xx(t *testing.T) {
 	}
 	if calls.Load() != 1 {
 		t.Fatalf("calls = %d, want 1 (no retry on 4xx)", calls.Load())
+	}
+}
+
+func TestDoRequest_ConcurrentExpiry_SingleLogin(t *testing.T) {
+	var loginCalls atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.Contains(r.URL.RawQuery, "f=apilogin") {
+			loginCalls.Add(1)
+			// Slow login to widen the window for races.
+			time.Sleep(50 * time.Millisecond)
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"status":"success","data":"{\"sessionID\":\"new-sid\"}"}`))
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Query().Get("zentaosid") == "old-sid" {
+			_, _ = w.Write([]byte(`{"status":"failed","reason":"please login"}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"status":"success","data":{"id":1}}`))
+	}))
+	defer srv.Close()
+
+	c := newTestClient(t, "old-sid", srv.URL)
+
+	var wg sync.WaitGroup
+	errs := make(chan error, 10)
+	for i := 0; i < 10; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_, err := c.doRequest(context.Background(), http.MethodGet, "api.php", nil, nil)
+			errs <- err
+		}()
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		if err != nil {
+			t.Fatalf("goroutine err: %v", err)
+		}
+	}
+	if loginCalls.Load() != 1 {
+		t.Fatalf("login calls = %d, want 1", loginCalls.Load())
 	}
 }

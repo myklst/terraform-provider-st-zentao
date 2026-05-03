@@ -82,14 +82,19 @@ func isSessionExpired(httpStatus int, body []byte) bool {
 	return bytes.Contains(bytes.ToLower([]byte(env.Reason)), []byte("please login"))
 }
 
-// refreshSession re-runs Login if the caller's observed sessionID is still current.
-// If another goroutine has already rotated the sessionID, this is a no-op (double-check).
+// refreshSession re-runs Login if the caller's observed sessionID is still
+// current. Concurrent callers serialize on refreshMu so only one Login is
+// in flight at a time; later callers re-check the sessionID under refreshMu
+// and no-op if a peer already rotated it.
 func (c *Client) refreshSession(ctx context.Context, observedSID string) error {
+	c.refreshMu.Lock()
+	defer c.refreshMu.Unlock()
+
 	c.sessionMu.Lock()
-	if c.sessionID != observedSID {
-		c.sessionMu.Unlock()
+	current := c.sessionID
+	c.sessionMu.Unlock()
+	if current != observedSID {
 		return nil
 	}
-	c.sessionMu.Unlock()
 	return c.Login(ctx)
 }
