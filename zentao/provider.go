@@ -100,7 +100,9 @@ func (p *zentaoProvider) Resources(_ context.Context) []func() resource.Resource
 }
 
 func (p *zentaoProvider) DataSources(_ context.Context) []func() datasource.DataSource {
-	return nil
+	return []func() datasource.DataSource{
+		NewProductDataSource,
+	}
 }
 
 func coalesce(primary, fallback string) string {
