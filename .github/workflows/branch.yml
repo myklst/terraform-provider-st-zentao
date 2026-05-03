@@ -18,7 +18,7 @@ concurrency:
 
 jobs:
   lint:
-    name: golangci-lint
+    name: go-lint
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -34,7 +34,7 @@ jobs:
         with:
           version: latest
           install-mode: binary
-          args: --version
+          args: version
 
       - name: make go-lint
         run: make go-lint
