@@ -33,7 +33,6 @@ jobs:
         uses: golangci/golangci-lint-action@v9
         with:
           install-mode: binary
-          args: version
 
       - name: make go-lint
         run: make go-lint
