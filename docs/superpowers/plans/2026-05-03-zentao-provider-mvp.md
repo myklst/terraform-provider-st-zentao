@@ -1454,7 +1454,18 @@ git commit -m "feat(zentaoapi): exponential backoff for transient 5xx and networ
 ## Task 8: `doRequest` — concurrent 401 produces single Login
 
 **Files:**
+- Modify: `zentaoAPI/client.go`
+- Modify: `zentaoAPI/auth.go`
 - Modify: `zentaoAPI/client_test.go`
+
+> **Implementation note (correction to original plan):** the original plan
+> claimed the existing `refreshSession` double-check alone enforces single
+> Login. Empirically (20/20 stress runs of the test below), 10 concurrent
+> goroutines all observe the same stale SID, all pass the lock-released
+> check, and all call Login — producing 10 logins. The fix is to add a
+> dedicated `refreshMu sync.Mutex` to `Client` that serializes refresh
+> attempts; after acquiring it, re-read sessionID and no-op if a peer
+> already rotated it.
 
 - [ ] **Step 1: Append the test**
 
@@ -1506,16 +1517,71 @@ func TestDoRequest_ConcurrentExpiry_SingleLogin(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run test**
+- [ ] **Step 2: Run test to verify it fails**
 
-Run: `go test -v ./zentaoAPI/... -run TestDoRequest_ConcurrentExpiry_SingleLogin`
-Expected: PASS (the existing `refreshSession` double-check already enforces this).
+Run: `go test -race -count=20 -run TestDoRequest_ConcurrentExpiry_SingleLogin ./zentaoAPI/...`
+Expected: 20/20 FAIL — `login calls = 10, want 1` (the bare double-check race).
 
-- [ ] **Step 3: Commit**
+- [ ] **Step 3: Add `refreshMu` field to `Client` (in `zentaoAPI/client.go`)**
+
+```go
+type Client struct {
+    baseURL  *url.URL
+    account  string
+    password string
+
+    sessionMu sync.Mutex
+    sessionID string
+
+    // refreshMu serializes refreshSession attempts so that concurrent 401s
+    // trigger only a single Login round-trip. The first goroutine to acquire
+    // it performs Login; subsequent goroutines see a refreshed sessionID and
+    // no-op.
+    refreshMu sync.Mutex
+
+    http *http.Client
+
+    backoffMaxElapsed      time.Duration
+    backoffInitialInterval time.Duration
+}
+```
+
+- [ ] **Step 4: Update `refreshSession` (in `zentaoAPI/auth.go`)**
+
+Replace the existing `refreshSession` body with:
+
+```go
+// refreshSession re-runs Login if the caller's observed sessionID is still
+// current. Concurrent callers serialize on refreshMu so only one Login is
+// in flight at a time; later callers re-check the sessionID under refreshMu
+// and no-op if a peer already rotated it.
+func (c *Client) refreshSession(ctx context.Context, observedSID string) error {
+    c.refreshMu.Lock()
+    defer c.refreshMu.Unlock()
+
+    c.sessionMu.Lock()
+    current := c.sessionID
+    c.sessionMu.Unlock()
+    if current != observedSID {
+        return nil
+    }
+    return c.Login(ctx)
+}
+```
+
+- [ ] **Step 5: Verify the test now passes (and stays passing under stress)**
 
 ```bash
-git add zentaoAPI/client_test.go
-git commit -m "test(zentaoapi): assert concurrent 401 triggers exactly one Login"
+go test -race -count=20 -run TestDoRequest_ConcurrentExpiry_SingleLogin ./zentaoAPI/...
+go test -race ./zentaoAPI/...
+```
+Expected: 20/20 PASS, full suite green.
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add zentaoAPI/client.go zentaoAPI/auth.go zentaoAPI/client_test.go
+git commit -m "feat(zentaoapi): serialize refreshSession with refreshMu so concurrent 401s share one Login"
 ```
 
 ---
