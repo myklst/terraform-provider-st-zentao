@@ -29,11 +29,15 @@ jobs:
           go-version-file: go.mod
           cache: true
 
-      - name: golangci-lint
+      - name: Install golangci-lint
         uses: golangci/golangci-lint-action@v6
         with:
           version: latest
-          args: --timeout=5m
+          install-mode: binary
+          args: --version
+
+      - name: make go-lint
+        run: make go-lint
 
   test:
     name: unit tests (race + cover)
@@ -50,11 +54,5 @@ jobs:
       - name: go mod download
         run: go mod download
 
-      - name: go vet
-        run: go vet ./...
-
-      - name: go build
-        run: go build ./...
-
-      - name: go test (race + cover)
-        run: go test -race -count=1 -cover ./zentao/... ./zentaoAPI/...
+      - name: make go-test-unit
+        run: make go-test-unit
