@@ -1,10 +1,14 @@
 package zentaoapi
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
+	"strings"
 	"sync"
 	"time"
 )
@@ -56,3 +60,56 @@ func NewClient(baseURL, account, password string) (*Client, error) {
 	}
 	return c, nil
 }
+
+func (c *Client) doRequest(ctx context.Context, method, path string, query map[string]string, body any) ([]byte, error) {
+	c.sessionMu.Lock()
+	observedSID := c.sessionID
+	c.sessionMu.Unlock()
+
+	return c.doRequestWithSID(ctx, method, path, query, body, observedSID)
+}
+
+func (c *Client) doRequestWithSID(ctx context.Context, method, path string, query map[string]string, body any, observedSID string) ([]byte, error) {
+	endpoint := *c.baseURL
+	endpoint.Path = strings.TrimRight(endpoint.Path, "/") + "/" + strings.TrimLeft(path, "/")
+	q := endpoint.Query()
+	for k, v := range query {
+		q.Set(k, v)
+	}
+	if observedSID != "" {
+		q.Set("zentaosid", observedSID)
+	}
+	endpoint.RawQuery = q.Encode()
+
+	var reqBody io.Reader
+	if body != nil {
+		buf, err := json.Marshal(body)
+		if err != nil {
+			return nil, fmt.Errorf("marshal body: %w", err)
+		}
+		reqBody = bytes.NewReader(buf)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, method, endpoint.String(), reqBody)
+	if err != nil {
+		return nil, fmt.Errorf("build request: %w", err)
+	}
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("http: %w", err)
+	}
+	defer resp.Body.Close()
+	rawBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("read body: %w", err)
+	}
+	return rawBody, nil
+}
+
+// silence unused-import linters until later tasks need them
+var _ = url.Values{}
