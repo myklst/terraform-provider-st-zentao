@@ -11,7 +11,6 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
-	"github.com/hashicorp/terraform-plugin-framework/resource/schema/int64default"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/int64planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/listplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
@@ -92,26 +91,26 @@ func (r *productResource) Schema(_ context.Context, _ resource.SchemaRequest, re
 				Required:    true,
 			},
 			"program": schema.Int64Attribute{
-				Description: "Associated program (portfolio) ID. 0 means unassigned. Required " +
-					"when running on ZenTao Biz/Max where products must belong to a program.",
+				Description: "Associated program (portfolio) ID. Server-determined when unset " +
+					"(ZenTao Biz/Max may auto-assign the user's default program).",
 				Optional:      true,
 				Computed:      true,
-				Default:       int64default.StaticInt64(0),
 				PlanModifiers: useStateForInt,
 			},
 			"line": schema.Int64Attribute{
-				Description:   "Associated product line ID. 0 means none.",
+				Description:   "Associated product line ID. Server-determined when unset.",
 				Optional:      true,
 				Computed:      true,
-				Default:       int64default.StaticInt64(0),
 				PlanModifiers: useStateForInt,
 			},
 			"type": schema.StringAttribute{
-				Description: "Product type. One of: " + commaJoin(productTypeEnum) + ". Defaults to \"normal\".",
-				Optional:    true,
-				Computed:    true,
-				Default:     stringdefault.StaticString("normal"),
-				Validators:  []validator.String{stringvalidator.OneOf(productTypeEnum...)},
+				Description: "Product type. One of: " + commaJoin(productTypeEnum) + ". " +
+					"Server-defaulted when unset (no static default here, to avoid drift " +
+					"if the server's default ever diverges from ours).",
+				Optional:      true,
+				Computed:      true,
+				PlanModifiers: useStateForString,
+				Validators:    []validator.String{stringvalidator.OneOf(productTypeEnum...)},
 			},
 			"description": schema.StringAttribute{
 				Description:   "Optional description (mapped to ZenTao 'desc'). Empty string when unset.",
@@ -121,31 +120,31 @@ func (r *productResource) Schema(_ context.Context, _ resource.SchemaRequest, re
 				PlanModifiers: useStateForString,
 			},
 			"acl": schema.StringAttribute{
-				Description: "Access control. One of: " + commaJoin(productACLEnum) + ". Defaults to \"open\".",
-				Optional:    true,
-				Computed:    true,
-				Default:     stringdefault.StaticString("open"),
-				Validators:  []validator.String{stringvalidator.OneOf(productACLEnum...)},
-			},
-			"po": schema.StringAttribute{
-				Description:   "Product Owner username.",
+				Description: "Access control. One of: " + commaJoin(productACLEnum) + ". " +
+					"Server-defaulted when unset (no static default here).",
 				Optional:      true,
 				Computed:      true,
-				Default:       stringdefault.StaticString(""),
+				PlanModifiers: useStateForString,
+				Validators:    []validator.String{stringvalidator.OneOf(productACLEnum...)},
+			},
+			"po": schema.StringAttribute{
+				Description: "Product Owner username. ZenTao auto-assigns the calling account " +
+					"when unset, so this stays Optional+Computed without a static default to " +
+					"avoid 'inconsistent result after apply' drift.",
+				Optional:      true,
+				Computed:      true,
 				PlanModifiers: useStateForString,
 			},
 			"qd": schema.StringAttribute{
-				Description:   "QA Lead username.",
+				Description:   "QA Lead username. Server may auto-assign; Optional+Computed without static default.",
 				Optional:      true,
 				Computed:      true,
-				Default:       stringdefault.StaticString(""),
 				PlanModifiers: useStateForString,
 			},
 			"rd": schema.StringAttribute{
-				Description:   "Release Lead username.",
+				Description:   "Release Lead username. Server may auto-assign; Optional+Computed without static default.",
 				Optional:      true,
 				Computed:      true,
-				Default:       stringdefault.StaticString(""),
 				PlanModifiers: useStateForString,
 			},
 			"reviewer": schema.ListAttribute{
