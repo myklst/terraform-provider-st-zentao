@@ -108,3 +108,31 @@ func (c *Client) UpdateProduct(ctx context.Context, p *Product) (*Product, error
 	}
 	return parseProductResponse(body, http.StatusOK)
 }
+
+func (c *Client) DeleteProduct(ctx context.Context, id int) error {
+	body, err := c.doRequest(ctx, http.MethodGet, "api.php", map[string]string{
+		"m":         "product",
+		"f":         "delete",
+		"productID": strconv.Itoa(id),
+		"confirm":   "yes",
+	}, nil)
+	if err != nil {
+		return err
+	}
+	var env ZentaoResponse
+	if err := json.Unmarshal(body, &env); err != nil {
+		return fmt.Errorf("parse envelope: %w (body=%s)", err, string(body))
+	}
+	if env.Status == "success" {
+		return nil
+	}
+	if isNotFound(env.Reason) {
+		return nil // idempotent
+	}
+	return &APIError{
+		HTTPStatus:   http.StatusOK,
+		ZentaoStatus: env.Status,
+		Reason:       env.Reason,
+		RawBody:      body,
+	}
+}

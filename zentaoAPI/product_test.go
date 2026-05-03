@@ -155,3 +155,53 @@ func TestUpdateProduct_SendsFullPayload(t *testing.T) {
 		t.Fatalf("body = %s", gotBody)
 	}
 }
+
+func TestDeleteProduct_Success(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("productID") != "9" {
+			t.Errorf("productID = %q", r.URL.Query().Get("productID"))
+		}
+		if r.URL.Query().Get("confirm") != "yes" {
+			t.Errorf("confirm = %q", r.URL.Query().Get("confirm"))
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"status":"success","data":""}`))
+	}))
+	defer srv.Close()
+
+	c := newTestClient(t, "sid-1", srv.URL)
+	if err := c.DeleteProduct(context.Background(), 9); err != nil {
+		t.Fatalf("DeleteProduct: %v", err)
+	}
+}
+
+func TestDeleteProduct_NotFoundIsSuccess(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"status":"failed","reason":"product does not exist"}`))
+	}))
+	defer srv.Close()
+
+	c := newTestClient(t, "sid-1", srv.URL)
+	if err := c.DeleteProduct(context.Background(), 9); err != nil {
+		t.Fatalf("DeleteProduct should be idempotent on not-found: %v", err)
+	}
+}
+
+func TestDeleteProduct_OtherFailure(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"status":"failed","reason":"forbidden"}`))
+	}))
+	defer srv.Close()
+
+	c := newTestClient(t, "sid-1", srv.URL)
+	err := c.DeleteProduct(context.Background(), 9)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	var apiErr *APIError
+	if !errors.As(err, &apiErr) || apiErr.Reason != "forbidden" {
+		t.Fatalf("err = %v", err)
+	}
+}
