@@ -7,14 +7,13 @@ on:
   push:
     branches-ignore:
       - main
-  # pull_request:
 
 permissions:
   contents: read
 
-# concurrency:
-#   group: branch-ci-${{ github.ref }}
-#   cancel-in-progress: true
+concurrency:
+  group: branch-ci-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   lint:
