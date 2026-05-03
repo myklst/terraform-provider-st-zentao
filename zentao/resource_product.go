@@ -115,10 +115,48 @@ func (r *productResource) Configure(_ context.Context, req resource.ConfigureReq
 	r.client = client
 }
 
-// Create / Read / Update / Delete / ImportState are implemented in the next tasks.
-func (r *productResource) Create(_ context.Context, _ resource.CreateRequest, _ *resource.CreateResponse) {
+func (r *productResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
+	var plan productResourceModel
+	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+	created, err := r.client.CreateProduct(ctx, plan.toAPI())
+	if err != nil {
+		resp.Diagnostics.AddError("Create product failed", err.Error())
+		return
+	}
+	// Re-fetch to populate computed fields the API may not echo back.
+	fetched, err := r.client.GetProduct(ctx, created.ID)
+	if err != nil {
+		resp.Diagnostics.AddError("Re-fetch after create failed", err.Error())
+		return
+	}
+	resp.Diagnostics.Append(resp.State.Set(ctx, fromAPI(fetched))...)
 }
-func (r *productResource) Read(_ context.Context, _ resource.ReadRequest, _ *resource.ReadResponse)       {}
+
+func (r *productResource) Read(ctx context.Context, req resource.ReadRequest, resp *resource.ReadResponse) {
+	var state productResourceModel
+	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+	id, err := strconv.Atoi(state.ID.ValueString())
+	if err != nil {
+		resp.Diagnostics.AddError("Invalid id in state", err.Error())
+		return
+	}
+	fetched, err := r.client.GetProduct(ctx, id)
+	if errors.Is(err, zentaoapi.ErrNotFound) {
+		resp.State.RemoveResource(ctx)
+		return
+	}
+	if err != nil {
+		resp.Diagnostics.AddError("Read product failed", err.Error())
+		return
+	}
+	resp.Diagnostics.Append(resp.State.Set(ctx, fromAPI(fetched))...)
+}
 func (r *productResource) Update(_ context.Context, _ resource.UpdateRequest, _ *resource.UpdateResponse) {
 }
 func (r *productResource) Delete(_ context.Context, _ resource.DeleteRequest, _ *resource.DeleteResponse) {
