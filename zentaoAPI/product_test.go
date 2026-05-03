@@ -129,3 +129,29 @@ func TestCreateProduct_ValidationError(t *testing.T) {
 		t.Fatalf("err = %v", err)
 	}
 }
+
+func TestUpdateProduct_SendsFullPayload(t *testing.T) {
+	var gotBody string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("productID") != "5" {
+			t.Errorf("productID = %q", r.URL.Query().Get("productID"))
+		}
+		b, _ := io.ReadAll(r.Body)
+		gotBody = string(b)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"status":"success","data":{"id":5,"name":"NewName","code":"alpha"}}`))
+	}))
+	defer srv.Close()
+
+	c := newTestClient(t, "sid-1", srv.URL)
+	out, err := c.UpdateProduct(context.Background(), &Product{ID: 5, Name: "NewName", Code: "alpha"})
+	if err != nil {
+		t.Fatalf("UpdateProduct: %v", err)
+	}
+	if out.Name != "NewName" {
+		t.Fatalf("name = %q", out.Name)
+	}
+	if !strings.Contains(gotBody, `"name":"NewName"`) {
+		t.Fatalf("body = %s", gotBody)
+	}
+}

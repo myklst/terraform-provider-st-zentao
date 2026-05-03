@@ -93,3 +93,18 @@ func (c *Client) CreateProduct(ctx context.Context, p *Product) (*Product, error
 	out.ID = int(id)
 	return &out, nil
 }
+
+func (c *Client) UpdateProduct(ctx context.Context, p *Product) (*Product, error) {
+	if p.ID == 0 {
+		return nil, fmt.Errorf("UpdateProduct: missing id")
+	}
+	body, err := c.doRequest(ctx, http.MethodPost, "api.php", map[string]string{
+		"m":         "product",
+		"f":         "edit",
+		"productID": strconv.Itoa(p.ID),
+	}, p)
+	if err != nil {
+		return nil, err
+	}
+	return parseProductResponse(body, http.StatusOK)
+}
