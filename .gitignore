@@ -1,0 +1,26 @@
+# Go
+*.exe
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+vendor/
+
+# Terraform
+*.tfstate
+*.tfstate.*
+.terraform/
+.terraform.lock.hcl
+crash.log
+crash.*.log
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# Local provider install artifacts
+dist/
+
+.envrc

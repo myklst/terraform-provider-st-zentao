@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+
+export ZENTAO_ACCOUNT=""
+export ZENTAO_PASSWORD=""

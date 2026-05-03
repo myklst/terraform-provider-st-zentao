@@ -1,0 +1,52 @@
+name: branch-ci
+
+# Triggered on every push to a non-default branch and on PRs targeting any
+# branch. Runs lint + unit tests only — acceptance tests need a live ZenTao
+# instance and run separately.
+on:
+  push:
+    branches-ignore:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: branch-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    name: go-lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Install golangci-lint
+        uses: golangci/golangci-lint-action@v9
+        with:
+          install-mode: binary
+
+      - name: make go-lint
+        run: make go-lint
+
+  test:
+    name: unit tests (race + cover)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: make go-test-unit
+        run: make go-test-unit

@@ -1,0 +1,360 @@
+package zentao
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"strconv"
+
+	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
+	"github.com/hashicorp/terraform-plugin-framework/diag"
+	"github.com/hashicorp/terraform-plugin-framework/path"
+	"github.com/hashicorp/terraform-plugin-framework/resource"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/int64default"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/int64planmodifier"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/listplanmodifier"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringdefault"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
+	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
+	"github.com/hashicorp/terraform-plugin-framework/types"
+
+	zentaoapi "github.com/myklst/terraform-provider-st-zentao/zentaoAPI"
+)
+
+var (
+	_ resource.Resource                = (*productResource)(nil)
+	_ resource.ResourceWithConfigure   = (*productResource)(nil)
+	_ resource.ResourceWithImportState = (*productResource)(nil)
+)
+
+// Allowed enums per ZenTao v2 API documentation.
+var (
+	productTypeEnum = []string{"normal", "branch", "platform"}
+	productACLEnum  = []string{"open", "private"}
+)
+
+type productResource struct {
+	client *zentaoapi.Client
+}
+
+type productResourceModel struct {
+	ID   types.String `tfsdk:"id"`
+	Code types.String `tfsdk:"code"`
+
+	Name        types.String `tfsdk:"name"`
+	Program     types.Int64  `tfsdk:"program"`
+	Line        types.Int64  `tfsdk:"line"`
+	Type        types.String `tfsdk:"type"`
+	Description types.String `tfsdk:"description"`
+	ACL         types.String `tfsdk:"acl"`
+	PO          types.String `tfsdk:"po"`
+	QD          types.String `tfsdk:"qd"`
+	RD          types.String `tfsdk:"rd"`
+	Reviewer    types.List   `tfsdk:"reviewer"`
+
+	Status      types.String `tfsdk:"status"`
+	CreatedBy   types.String `tfsdk:"created_by"`
+	CreatedDate types.String `tfsdk:"created_date"`
+	ProgramName types.String `tfsdk:"program_name"`
+}
+
+func NewProductResource() resource.Resource { return &productResource{} }
+
+func (r *productResource) Metadata(_ context.Context, req resource.MetadataRequest, resp *resource.MetadataResponse) {
+	resp.TypeName = req.ProviderTypeName + "_product"
+}
+
+func (r *productResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
+	useStateForString := []planmodifier.String{stringplanmodifier.UseStateForUnknown()}
+	useStateForInt := []planmodifier.Int64{int64planmodifier.UseStateForUnknown()}
+	useStateForList := []planmodifier.List{listplanmodifier.UseStateForUnknown()}
+
+	resp.Schema = schema.Schema{
+		Description: "Manages a ZenTao product via the v2 RESTful API. Fields not accepted by " +
+			"the v2 create/update endpoints (`code`, `status`, audit columns) are exposed as " +
+			"Computed read-only attributes.",
+		Attributes: map[string]schema.Attribute{
+			"id": schema.StringAttribute{
+				Description:   "Numeric ZenTao product ID (stringified).",
+				Computed:      true,
+				PlanModifiers: useStateForString,
+			},
+			"code": schema.StringAttribute{
+				Description: "Product short code. Server-managed in v2 (the v2 create/update " +
+					"endpoints do not accept this field), so it is read-only here.",
+				Computed:      true,
+				PlanModifiers: useStateForString,
+			},
+			"name": schema.StringAttribute{
+				Description: "Product display name.",
+				Required:    true,
+			},
+			"program": schema.Int64Attribute{
+				Description: "Associated program (portfolio) ID. 0 means unassigned. Required " +
+					"when running on ZenTao Biz/Max where products must belong to a program.",
+				Optional:      true,
+				Computed:      true,
+				Default:       int64default.StaticInt64(0),
+				PlanModifiers: useStateForInt,
+			},
+			"line": schema.Int64Attribute{
+				Description:   "Associated product line ID. 0 means none.",
+				Optional:      true,
+				Computed:      true,
+				Default:       int64default.StaticInt64(0),
+				PlanModifiers: useStateForInt,
+			},
+			"type": schema.StringAttribute{
+				Description: "Product type. One of: " + commaJoin(productTypeEnum) + ". Defaults to \"normal\".",
+				Optional:    true,
+				Computed:    true,
+				Default:     stringdefault.StaticString("normal"),
+				Validators:  []validator.String{stringvalidator.OneOf(productTypeEnum...)},
+			},
+			"description": schema.StringAttribute{
+				Description:   "Optional description (mapped to ZenTao 'desc'). Empty string when unset.",
+				Optional:      true,
+				Computed:      true,
+				Default:       stringdefault.StaticString(""),
+				PlanModifiers: useStateForString,
+			},
+			"acl": schema.StringAttribute{
+				Description: "Access control. One of: " + commaJoin(productACLEnum) + ". Defaults to \"open\".",
+				Optional:    true,
+				Computed:    true,
+				Default:     stringdefault.StaticString("open"),
+				Validators:  []validator.String{stringvalidator.OneOf(productACLEnum...)},
+			},
+			"po": schema.StringAttribute{
+				Description:   "Product Owner username.",
+				Optional:      true,
+				Computed:      true,
+				Default:       stringdefault.StaticString(""),
+				PlanModifiers: useStateForString,
+			},
+			"qd": schema.StringAttribute{
+				Description:   "QA Lead username.",
+				Optional:      true,
+				Computed:      true,
+				Default:       stringdefault.StaticString(""),
+				PlanModifiers: useStateForString,
+			},
+			"rd": schema.StringAttribute{
+				Description:   "Release Lead username.",
+				Optional:      true,
+				Computed:      true,
+				Default:       stringdefault.StaticString(""),
+				PlanModifiers: useStateForString,
+			},
+			"reviewer": schema.ListAttribute{
+				Description:   "Reviewer usernames.",
+				Optional:      true,
+				Computed:      true,
+				ElementType:   types.StringType,
+				PlanModifiers: useStateForList,
+			},
+			"status": schema.StringAttribute{
+				Description:   "Server-managed product status (e.g. \"normal\", \"closed\").",
+				Computed:      true,
+				PlanModifiers: useStateForString,
+			},
+			"created_by": schema.StringAttribute{
+				Description:   "Creator username (server-managed).",
+				Computed:      true,
+				PlanModifiers: useStateForString,
+			},
+			"created_date": schema.StringAttribute{
+				Description:   "Creation timestamp (server-managed).",
+				Computed:      true,
+				PlanModifiers: useStateForString,
+			},
+			"program_name": schema.StringAttribute{
+				Description:   "Associated program name (server-managed; resolved from `program`).",
+				Computed:      true,
+				PlanModifiers: useStateForString,
+			},
+		},
+	}
+}
+
+func (r *productResource) Configure(_ context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
+	if req.ProviderData == nil {
+		return
+	}
+	client, ok := req.ProviderData.(*zentaoapi.Client)
+	if !ok {
+		resp.Diagnostics.AddError(
+			"Unexpected provider data type",
+			fmt.Sprintf("got %T, want *zentaoapi.Client", req.ProviderData),
+		)
+		return
+	}
+	r.client = client
+}
+
+func (r *productResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
+	var plan productResourceModel
+	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+	apiInput, diags := plan.toAPI(ctx)
+	resp.Diagnostics.Append(diags...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+	created, err := r.client.CreateProduct(ctx, apiInput)
+	if err != nil {
+		resp.Diagnostics.AddError("Create product failed", err.Error())
+		return
+	}
+	fetched, err := r.client.GetProduct(ctx, created.ID)
+	if err != nil {
+		resp.Diagnostics.AddError("Re-fetch after create failed", err.Error())
+		return
+	}
+	state, diags := fromAPI(ctx, fetched)
+	resp.Diagnostics.Append(diags...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+	resp.Diagnostics.Append(resp.State.Set(ctx, state)...)
+}
+
+func (r *productResource) Read(ctx context.Context, req resource.ReadRequest, resp *resource.ReadResponse) {
+	var prior productResourceModel
+	resp.Diagnostics.Append(req.State.Get(ctx, &prior)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+	id, err := strconv.Atoi(prior.ID.ValueString())
+	if err != nil {
+		resp.Diagnostics.AddError("Invalid id in state", err.Error())
+		return
+	}
+	fetched, err := r.client.GetProduct(ctx, id)
+	if errors.Is(err, zentaoapi.ErrNotFound) {
+		resp.State.RemoveResource(ctx)
+		return
+	}
+	if err != nil {
+		resp.Diagnostics.AddError("Read product failed", err.Error())
+		return
+	}
+	state, diags := fromAPI(ctx, fetched)
+	resp.Diagnostics.Append(diags...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+	resp.Diagnostics.Append(resp.State.Set(ctx, state)...)
+}
+
+func (r *productResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
+	var plan, prior productResourceModel
+	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
+	resp.Diagnostics.Append(req.State.Get(ctx, &prior)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+	id, err := strconv.Atoi(prior.ID.ValueString())
+	if err != nil {
+		resp.Diagnostics.AddError("Invalid id in state", err.Error())
+		return
+	}
+	apiInput, diags := plan.toAPI(ctx)
+	resp.Diagnostics.Append(diags...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+	apiInput.ID = id
+	updated, err := r.client.UpdateProduct(ctx, apiInput)
+	if err != nil {
+		resp.Diagnostics.AddError("Update product failed", err.Error())
+		return
+	}
+	state, diags := fromAPI(ctx, updated)
+	resp.Diagnostics.Append(diags...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+	resp.Diagnostics.Append(resp.State.Set(ctx, state)...)
+}
+
+func (r *productResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {
+	var prior productResourceModel
+	resp.Diagnostics.Append(req.State.Get(ctx, &prior)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+	id, err := strconv.Atoi(prior.ID.ValueString())
+	if err != nil {
+		resp.Diagnostics.AddError("Invalid id in state", err.Error())
+		return
+	}
+	if err := r.client.DeleteProduct(ctx, id); err != nil {
+		resp.Diagnostics.AddError("Delete product failed", err.Error())
+		return
+	}
+}
+
+func (r *productResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
+	resource.ImportStatePassthroughID(ctx, path.Root("id"), req, resp)
+}
+
+// toAPI projects a Terraform plan into the API shape sent over the wire.
+// Server-managed read-only fields stay zero so json:"-" tags strip them.
+func (m *productResourceModel) toAPI(ctx context.Context) (*zentaoapi.Product, diag.Diagnostics) {
+	var reviewers []string
+	diags := m.Reviewer.ElementsAs(ctx, &reviewers, true)
+	return &zentaoapi.Product{
+		Name:        m.Name.ValueString(),
+		Program:     int(m.Program.ValueInt64()),
+		Line:        int(m.Line.ValueInt64()),
+		Type:        m.Type.ValueString(),
+		Description: m.Description.ValueString(),
+		ACL:         m.ACL.ValueString(),
+		PO:          m.PO.ValueString(),
+		QD:          m.QD.ValueString(),
+		RD:          m.RD.ValueString(),
+		Reviewer:    reviewers,
+	}, diags
+}
+
+func fromAPI(ctx context.Context, p *zentaoapi.Product) (productResourceModel, diag.Diagnostics) {
+	reviewerSrc := p.Reviewer
+	if reviewerSrc == nil {
+		reviewerSrc = []string{}
+	}
+	reviewers, diags := types.ListValueFrom(ctx, types.StringType, reviewerSrc)
+	return productResourceModel{
+		ID:          types.StringValue(strconv.Itoa(p.ID)),
+		Code:        types.StringValue(p.Code),
+		Name:        types.StringValue(p.Name),
+		Program:     types.Int64Value(int64(p.Program)),
+		Line:        types.Int64Value(int64(p.Line)),
+		Type:        types.StringValue(p.Type),
+		Description: types.StringValue(p.Description),
+		ACL:         types.StringValue(p.ACL),
+		PO:          types.StringValue(p.PO),
+		QD:          types.StringValue(p.QD),
+		RD:          types.StringValue(p.RD),
+		Reviewer:    reviewers,
+		Status:      types.StringValue(p.Status),
+		CreatedBy:   types.StringValue(p.CreatedBy),
+		CreatedDate: types.StringValue(p.CreatedDate),
+		ProgramName: types.StringValue(p.ProgramName),
+	}, diags
+}
+
+func commaJoin(in []string) string {
+	out := ""
+	for i, s := range in {
+		if i > 0 {
+			out += ", "
+		}
+		out += `"` + s + `"`
+	}
+	return out
+}
