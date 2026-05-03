@@ -1307,8 +1307,11 @@ func TestSend_NoBackoffOn4xx(t *testing.T) {
     c.backoffMaxElapsed = 5 * time.Second
     c.backoffInitialInterval = 10 * time.Millisecond
 
-    if _, err := c.doRequest(context.Background(), http.MethodGet, "api.php", nil, nil); err == nil {
-        t.Fatal("expected error")
+    // 4xx is a transport-level success: send returns (body, status, nil).
+    // doRequest then returns (body, nil) because isSessionExpired(400, body) is false.
+    // The point of this test is that 4xx is NOT retried — assert via call count.
+    if _, err := c.doRequest(context.Background(), http.MethodGet, "api.php", nil, nil); err != nil {
+        t.Fatalf("doRequest: %v", err)
     }
     if calls.Load() != 1 {
         t.Fatalf("calls = %d, want 1 (no retry on 4xx)", calls.Load())
