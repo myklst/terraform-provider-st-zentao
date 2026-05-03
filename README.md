@@ -39,12 +39,23 @@ provider "st-zentao" {
 ```hcl
 resource "st-zentao_product" "demo" {
   name        = "Demo Product"
-  code        = "demo"
   description = "Managed by Terraform"
+
+  program  = 0          # 0 = unassigned; required >0 for ZenTao Biz/Max
+  type     = "normal"   # normal | branch | platform
+  acl      = "open"     # open | private
+  po       = "alice"
+  reviewer = ["bob"]
 }
 ```
 
-`code` requires replacement on change (ZenTao does not allow editing in place).
+The full writeable field set mirrors the v2 `POST /api.php/v2/products` body:
+`name`, `program`, `line`, `type`, `desc` (mapped as `description`), `acl`,
+`po`, `qd`, `rd`, `reviewer`.
+
+Server-managed read-only outputs include `id`, `code`, `status`, `created_by`,
+`created_date`, and `program_name`. ZenTao v2 does not accept `code` on write
+— it is exposed as a Computed attribute only.
 
 ## Data Sources
 

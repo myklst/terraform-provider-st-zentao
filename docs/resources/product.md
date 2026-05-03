@@ -3,20 +3,30 @@
 page_title: "st-zentao_product Resource - st-zentao"
 subcategory: ""
 description: |-
-  Manages a ZenTao product. The code field cannot be changed in place.
+  Manages a ZenTao product via the v2 RESTful API. Fields not accepted by the v2 create/update endpoints (code, status, audit columns) are exposed as Computed read-only attributes.
 ---
 
 # st-zentao_product (Resource)
 
-Manages a ZenTao product. The code field cannot be changed in place.
+Manages a ZenTao product via the v2 RESTful API. Fields not accepted by the v2 create/update endpoints (`code`, `status`, audit columns) are exposed as Computed read-only attributes.
 
 ## Example Usage
 
 ```terraform
 resource "st-zentao_product" "example" {
   name        = "Demo Product"
-  code        = "demo"
   description = "Created by Terraform"
+
+  # Optional v2 fields — set as needed for your ZenTao edition.
+  # ZenTao Biz / Max require `program`; open source / Pro can leave it 0.
+  program = 0
+  type    = "normal" # one of: normal, branch, platform
+  acl     = "open"   # one of: open, private
+
+  po       = "productManager"
+  qd       = "qaLead"
+  rd       = "releaseManager"
+  reviewer = ["reviewer1", "reviewer2"]
 }
 ```
 
@@ -25,16 +35,25 @@ resource "st-zentao_product" "example" {
 
 ### Required
 
-- `code` (String) Product short code (slug). ZenTao does not allow editing this in place.
 - `name` (String) Product display name.
 
 ### Optional
 
-- `acl` (String) Access control. Defaults to "private".
-- `description` (String) Optional description (mapped to ZenTao 'desc').
-- `status` (String) Product status. Defaults to "normal".
-- `type` (String) Product type. Defaults to "normal".
+- `acl` (String) Access control. One of: "open", "private". Defaults to "open".
+- `description` (String) Optional description (mapped to ZenTao 'desc'). Empty string when unset.
+- `line` (Number) Associated product line ID. 0 means none.
+- `po` (String) Product Owner username.
+- `program` (Number) Associated program (portfolio) ID. 0 means unassigned. Required when running on ZenTao Biz/Max where products must belong to a program.
+- `qd` (String) QA Lead username.
+- `rd` (String) Release Lead username.
+- `reviewer` (List of String) Reviewer usernames.
+- `type` (String) Product type. One of: "normal", "branch", "platform". Defaults to "normal".
 
 ### Read-Only
 
+- `code` (String) Product short code. Server-managed in v2 (the v2 create/update endpoints do not accept this field), so it is read-only here.
+- `created_by` (String) Creator username (server-managed).
+- `created_date` (String) Creation timestamp (server-managed).
 - `id` (String) Numeric ZenTao product ID (stringified).
+- `program_name` (String) Associated program name (server-managed; resolved from `program`).
+- `status` (String) Server-managed product status (e.g. "normal", "closed").

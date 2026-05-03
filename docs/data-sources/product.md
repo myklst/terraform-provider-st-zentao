@@ -3,12 +3,12 @@
 page_title: "st-zentao_product Data Source - st-zentao"
 subcategory: ""
 description: |-
-  Look up a ZenTao product by its numeric id.
+  Look up a ZenTao product by its numeric id. All product fields returned by the v2 GET endpoint are exposed as Computed attributes.
 ---
 
 # st-zentao_product (Data Source)
 
-Look up a ZenTao product by its numeric id.
+Look up a ZenTao product by its numeric id. All product fields returned by the v2 GET endpoint are exposed as Computed attributes.
 
 ## Example Usage
 
@@ -17,8 +17,15 @@ data "st-zentao_product" "by_id" {
   id = "1"
 }
 
-output "product_name" {
-  value = data.st-zentao_product.by_id.name
+output "product" {
+  value = {
+    name         = data.st-zentao_product.by_id.name
+    code         = data.st-zentao_product.by_id.code
+    program_name = data.st-zentao_product.by_id.program_name
+    po           = data.st-zentao_product.by_id.po
+    status       = data.st-zentao_product.by_id.status
+    created_by   = data.st-zentao_product.by_id.created_by
+  }
 }
 ```
 
@@ -31,9 +38,18 @@ output "product_name" {
 
 ### Read-Only
 
-- `acl` (String) Access control (e.g. "open", "private").
-- `code` (String) Product short code (slug).
+- `acl` (String) Access control ("open", "private").
+- `code` (String) Product short code (server-managed).
+- `created_by` (String) Creator username (server-managed).
+- `created_date` (String) Creation timestamp (server-managed).
 - `description` (String) Product description (mapped from ZenTao 'desc').
+- `line` (Number) Associated product line ID.
 - `name` (String) Product display name.
-- `status` (String) Product status (e.g. "normal", "closed").
-- `type` (String) Product type (e.g. "normal", "branch", "platform").
+- `po` (String) Product Owner username.
+- `program` (Number) Associated program (portfolio) ID.
+- `program_name` (String) Associated program name (server-managed).
+- `qd` (String) QA Lead username.
+- `rd` (String) Release Lead username.
+- `reviewer` (List of String) Reviewer usernames.
+- `status` (String) Server-managed product status.
+- `type` (String) Product type ("normal", "branch", "platform").
