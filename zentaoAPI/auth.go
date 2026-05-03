@@ -1,6 +1,7 @@
 package zentaoapi
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -60,4 +61,35 @@ func (c *Client) Login(ctx context.Context) error {
 	c.sessionID = data.SessionID
 	c.sessionMu.Unlock()
 	return nil
+}
+
+// isSessionExpired detects ZenTao's two ways of signalling stale auth:
+// HTTP 401 OR an HTTP 200 envelope with {"status":"failed","reason":"please login"}.
+func isSessionExpired(httpStatus int, body []byte) bool {
+	if httpStatus == http.StatusUnauthorized {
+		return true
+	}
+	if httpStatus != http.StatusOK || len(body) == 0 {
+		return false
+	}
+	var env ZentaoResponse
+	if err := json.Unmarshal(body, &env); err != nil {
+		return false
+	}
+	if env.Status != "failed" {
+		return false
+	}
+	return bytes.Contains(bytes.ToLower([]byte(env.Reason)), []byte("please login"))
+}
+
+// refreshSession re-runs Login if the caller's observed sessionID is still current.
+// If another goroutine has already rotated the sessionID, this is a no-op (double-check).
+func (c *Client) refreshSession(ctx context.Context, observedSID string) error {
+	c.sessionMu.Lock()
+	if c.sessionID != observedSID {
+		c.sessionMu.Unlock()
+		return nil
+	}
+	c.sessionMu.Unlock()
+	return c.Login(ctx)
 }

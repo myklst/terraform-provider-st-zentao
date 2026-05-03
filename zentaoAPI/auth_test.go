@@ -1,6 +1,7 @@
 package zentaoapi
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -98,4 +99,60 @@ func writeJSON(w http.ResponseWriter, status int, payload any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(payload)
+}
+
+func TestIsSessionExpired(t *testing.T) {
+	cases := []struct {
+		name   string
+		status int
+		body   string
+		want   bool
+	}{
+		{"http 401", 401, "", true},
+		{"please login body", 200, `{"status":"failed","reason":"please login"}`, true},
+		{"please login mixed case", 200, `{"status":"failed","reason":"Please Login"}`, true},
+		{"normal failure", 200, `{"status":"failed","reason":"name exists"}`, false},
+		{"success", 200, `{"status":"success","data":{}}`, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := isSessionExpired(tc.status, []byte(tc.body)); got != tc.want {
+				t.Fatalf("got %v want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestRefreshSession_DoubleCheck(t *testing.T) {
+	var calls int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"status":"success","data":"{\"sessionID\":\"new-sid\"}"}`))
+	}))
+	defer srv.Close()
+
+	c := newTestClient(t, "old-sid", srv.URL)
+
+	// double-check: simulate that another goroutine already refreshed by passing
+	// an oldSID that no longer matches the current sessionID
+	c.sessionID = "already-refreshed"
+	if err := c.refreshSession(context.Background(), "old-sid"); err != nil {
+		t.Fatalf("refreshSession: %v", err)
+	}
+	if calls != 0 {
+		t.Fatalf("Login should not be called when session already changed, got %d", calls)
+	}
+
+	// first observer: oldSID matches current → Login is invoked
+	c.sessionID = "old-sid"
+	if err := c.refreshSession(context.Background(), "old-sid"); err != nil {
+		t.Fatalf("refreshSession: %v", err)
+	}
+	if calls != 1 {
+		t.Fatalf("Login should be called once, got %d", calls)
+	}
+	if c.sessionID != "new-sid" {
+		t.Fatalf("sessionID = %q, want new-sid", c.sessionID)
+	}
 }
