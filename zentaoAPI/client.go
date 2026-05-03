@@ -66,18 +66,41 @@ func (c *Client) doRequest(ctx context.Context, method, path string, query map[s
 	observedSID := c.sessionID
 	c.sessionMu.Unlock()
 
-	return c.doRequestWithSID(ctx, method, path, query, body, observedSID)
+	rawBody, status, err := c.send(ctx, method, path, query, body, observedSID)
+	if err != nil {
+		return nil, err
+	}
+	if !isSessionExpired(status, rawBody) {
+		return rawBody, nil
+	}
+
+	if err := c.refreshSession(ctx, observedSID); err != nil {
+		return nil, fmt.Errorf("session refresh: %w", err)
+	}
+
+	c.sessionMu.Lock()
+	newSID := c.sessionID
+	c.sessionMu.Unlock()
+
+	rawBody, status, err = c.send(ctx, method, path, query, body, newSID)
+	if err != nil {
+		return nil, err
+	}
+	if isSessionExpired(status, rawBody) {
+		return nil, fmt.Errorf("session refresh exhausted: still expired after replay")
+	}
+	return rawBody, nil
 }
 
-func (c *Client) doRequestWithSID(ctx context.Context, method, path string, query map[string]string, body any, observedSID string) ([]byte, error) {
+func (c *Client) send(ctx context.Context, method, path string, query map[string]string, body any, sid string) ([]byte, int, error) {
 	endpoint := *c.baseURL
 	endpoint.Path = strings.TrimRight(endpoint.Path, "/") + "/" + strings.TrimLeft(path, "/")
 	q := endpoint.Query()
 	for k, v := range query {
 		q.Set(k, v)
 	}
-	if observedSID != "" {
-		q.Set("zentaosid", observedSID)
+	if sid != "" {
+		q.Set("zentaosid", sid)
 	}
 	endpoint.RawQuery = q.Encode()
 
@@ -85,14 +108,14 @@ func (c *Client) doRequestWithSID(ctx context.Context, method, path string, quer
 	if body != nil {
 		buf, err := json.Marshal(body)
 		if err != nil {
-			return nil, fmt.Errorf("marshal body: %w", err)
+			return nil, 0, fmt.Errorf("marshal body: %w", err)
 		}
 		reqBody = bytes.NewReader(buf)
 	}
 
 	req, err := http.NewRequestWithContext(ctx, method, endpoint.String(), reqBody)
 	if err != nil {
-		return nil, fmt.Errorf("build request: %w", err)
+		return nil, 0, fmt.Errorf("build request: %w", err)
 	}
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
@@ -101,15 +124,12 @@ func (c *Client) doRequestWithSID(ctx context.Context, method, path string, quer
 
 	resp, err := c.http.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("http: %w", err)
+		return nil, 0, fmt.Errorf("http: %w", err)
 	}
 	defer resp.Body.Close()
-	rawBody, err := io.ReadAll(resp.Body)
+	raw, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, fmt.Errorf("read body: %w", err)
+		return nil, resp.StatusCode, fmt.Errorf("read body: %w", err)
 	}
-	return rawBody, nil
+	return raw, resp.StatusCode, nil
 }
-
-// silence unused-import linters until later tasks need them
-var _ = url.Values{}
