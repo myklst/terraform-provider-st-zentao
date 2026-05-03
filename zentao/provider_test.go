@@ -20,9 +20,6 @@ func TestProvider_Schema_HasExpectedAttributes(t *testing.T) {
 			t.Errorf("missing attribute %q", name)
 		}
 	}
-	if !resp.Schema.Attributes["account"].IsSensitive() {
-		t.Error("account must be sensitive")
-	}
 	if !resp.Schema.Attributes["password"].IsSensitive() {
 		t.Error("password must be sensitive")
 	}

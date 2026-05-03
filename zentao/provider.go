@@ -40,7 +40,6 @@ func (p *zentaoProvider) Schema(_ context.Context, _ provider.SchemaRequest, res
 			"account": schema.StringAttribute{
 				Description: "ZenTao account name. Falls back to ZENTAO_ACCOUNT env var.",
 				Optional:    true,
-				Sensitive:   true,
 			},
 			"password": schema.StringAttribute{
 				Description: "ZenTao account password. Falls back to ZENTAO_PASSWORD env var.",
