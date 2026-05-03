@@ -11,6 +11,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/cenkalti/backoff/v4"
 )
 
 // jsonURL is a thin alias purely for test ergonomics; consumers use *url.URL.
@@ -25,6 +27,9 @@ type Client struct {
 	sessionID string
 
 	http *http.Client
+
+	backoffMaxElapsed      time.Duration
+	backoffInitialInterval time.Duration
 }
 
 func parseBaseURL(raw string) (*url.URL, error) {
@@ -50,10 +55,12 @@ func NewClient(baseURL, account, password string) (*Client, error) {
 		return nil, err
 	}
 	c := &Client{
-		baseURL:  u,
-		account:  account,
-		password: password,
-		http:     &http.Client{Timeout: 30 * time.Second},
+		baseURL:                u,
+		account:                account,
+		password:               password,
+		http:                   &http.Client{Timeout: 30 * time.Second},
+		backoffMaxElapsed:      2 * time.Minute,
+		backoffInitialInterval: 500 * time.Millisecond,
 	}
 	if err := c.Login(context.Background()); err != nil {
 		return nil, err
@@ -104,32 +111,62 @@ func (c *Client) send(ctx context.Context, method, path string, query map[string
 	}
 	endpoint.RawQuery = q.Encode()
 
-	var reqBody io.Reader
+	var bodyBytes []byte
 	if body != nil {
-		buf, err := json.Marshal(body)
+		var err error
+		bodyBytes, err = json.Marshal(body)
 		if err != nil {
 			return nil, 0, fmt.Errorf("marshal body: %w", err)
 		}
-		reqBody = bytes.NewReader(buf)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, method, endpoint.String(), reqBody)
-	if err != nil {
-		return nil, 0, fmt.Errorf("build request: %w", err)
-	}
-	if body != nil {
-		req.Header.Set("Content-Type", "application/json")
-	}
-	req.Header.Set("Accept", "application/json")
+	var (
+		rawBody []byte
+		status  int
+	)
 
-	resp, err := c.http.Do(req)
-	if err != nil {
-		return nil, 0, fmt.Errorf("http: %w", err)
+	op := func() error {
+		var reqBody io.Reader
+		if bodyBytes != nil {
+			reqBody = bytes.NewReader(bodyBytes)
+		}
+		req, err := http.NewRequestWithContext(ctx, method, endpoint.String(), reqBody)
+		if err != nil {
+			return backoff.Permanent(fmt.Errorf("build request: %w", err))
+		}
+		if bodyBytes != nil {
+			req.Header.Set("Content-Type", "application/json")
+		}
+		req.Header.Set("Accept", "application/json")
+
+		resp, err := c.http.Do(req)
+		if err != nil {
+			return err // retry on transient network errors
+		}
+		defer resp.Body.Close()
+		b, readErr := io.ReadAll(resp.Body)
+		if readErr != nil {
+			return readErr
+		}
+		rawBody = b
+		status = resp.StatusCode
+
+		if resp.StatusCode >= 500 {
+			return fmt.Errorf("server error %d", resp.StatusCode)
+		}
+		return nil
 	}
-	defer resp.Body.Close()
-	raw, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, resp.StatusCode, fmt.Errorf("read body: %w", err)
+
+	expo := backoff.NewExponentialBackOff()
+	expo.InitialInterval = c.backoffInitialInterval
+	expo.MaxElapsedTime = c.backoffMaxElapsed
+
+	if err := backoff.Retry(op, backoff.WithContext(expo, ctx)); err != nil {
+		if rawBody == nil {
+			return nil, status, err
+		}
+		// Surface the last server-side response body alongside the error.
+		return rawBody, status, err
 	}
-	return raw, resp.StatusCode, nil
+	return rawBody, status, nil
 }

@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 )
 
 func TestDoRequest_HappyPath(t *testing.T) {
@@ -134,5 +135,58 @@ func TestDoRequest_SessionExpiry_RefreshExhausted(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "session refresh exhausted") {
 		t.Fatalf("error = %v, want session refresh exhausted", err)
+	}
+}
+
+func TestSend_BackoffOn5xx(t *testing.T) {
+	var calls atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		n := calls.Add(1)
+		if n < 3 {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"status":"success","data":{}}`))
+	}))
+	defer srv.Close()
+
+	c := newTestClient(t, "sid-1", srv.URL)
+	// shrink backoff for test
+	c.backoffMaxElapsed = 5 * time.Second
+	c.backoffInitialInterval = 10 * time.Millisecond
+
+	body, err := c.doRequest(context.Background(), http.MethodGet, "api.php", nil, nil)
+	if err != nil {
+		t.Fatalf("doRequest: %v", err)
+	}
+	if calls.Load() != 3 {
+		t.Fatalf("calls = %d, want 3", calls.Load())
+	}
+	if !strings.Contains(string(body), "success") {
+		t.Fatalf("body = %s", body)
+	}
+}
+
+func TestSend_NoBackoffOn4xx(t *testing.T) {
+	var calls atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		w.WriteHeader(http.StatusBadRequest)
+	}))
+	defer srv.Close()
+
+	c := newTestClient(t, "sid-1", srv.URL)
+	c.backoffMaxElapsed = 5 * time.Second
+	c.backoffInitialInterval = 10 * time.Millisecond
+
+	// 4xx is a transport-level success: send returns (body, status, nil).
+	// doRequest then returns (body, nil) because isSessionExpired(400, body) is false.
+	// The point of this test is that 4xx is NOT retried — assert via call count.
+	if _, err := c.doRequest(context.Background(), http.MethodGet, "api.php", nil, nil); err != nil {
+		t.Fatalf("doRequest: %v", err)
+	}
+	if calls.Load() != 1 {
+		t.Fatalf("calls = %d, want 1 (no retry on 4xx)", calls.Load())
 	}
 }
