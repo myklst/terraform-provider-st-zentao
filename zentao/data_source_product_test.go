@@ -16,7 +16,11 @@ func TestProductDataSource_Schema(t *testing.T) {
 	if resp.Diagnostics.HasError() {
 		t.Fatalf("schema diagnostics: %v", resp.Diagnostics)
 	}
-	expected := []string{"id", "name", "code", "status", "description", "acl", "type"}
+	expected := []string{
+		"id", "code", "name", "program", "line", "type", "description",
+		"acl", "po", "qd", "rd", "reviewer",
+		"status", "created_by", "created_date", "program_name",
+	}
 	for _, attr := range expected {
 		if _, ok := resp.Schema.Attributes[attr]; !ok {
 			t.Errorf("missing attribute %q", attr)
@@ -25,11 +29,15 @@ func TestProductDataSource_Schema(t *testing.T) {
 	if !resp.Schema.Attributes["id"].IsRequired() {
 		t.Error("id must be Required")
 	}
-	for _, attr := range []string{"name", "code", "status", "description", "acl", "type"} {
-		if !resp.Schema.Attributes[attr].IsComputed() {
+	for _, attr := range expected {
+		if attr == "id" {
+			continue
+		}
+		a := resp.Schema.Attributes[attr]
+		if !a.IsComputed() {
 			t.Errorf("%s must be Computed", attr)
 		}
-		if resp.Schema.Attributes[attr].IsRequired() || resp.Schema.Attributes[attr].IsOptional() {
+		if a.IsRequired() || a.IsOptional() {
 			t.Errorf("%s must not be Required/Optional (Computed-only)", attr)
 		}
 	}
@@ -45,27 +53,27 @@ func TestProductDataSource_Metadata(t *testing.T) {
 }
 
 func TestAccProductDataSource_basic(t *testing.T) {
-	code := uniqueCode("ds")
+	name := uniqueName("ds")
 	resource.Test(t, resource.TestCase{
 		PreCheck:                 func() { testAccPreCheck(t) },
 		ProtoV6ProviderFactories: protoV6Factories,
 		Steps: []resource.TestStep{
 			{
-				// Create a product, then immediately look it up via the data source.
 				Config: providerBlock() + fmt.Sprintf(`
 resource "st-zentao_product" "src" {
-  name = "DS Source"
-  code = %q
+  name = %q
 }
 
 data "st-zentao_product" "by_id" {
   id = st-zentao_product.src.id
 }
-`, code),
+`, name),
 				Check: resource.ComposeAggregateTestCheckFunc(
-					resource.TestCheckResourceAttr("data.st-zentao_product.by_id", "name", "DS Source"),
+					resource.TestCheckResourceAttr("data.st-zentao_product.by_id", "name", name),
 					resource.TestCheckResourceAttrPair("data.st-zentao_product.by_id", "id", "st-zentao_product.src", "id"),
 					resource.TestCheckResourceAttrSet("data.st-zentao_product.by_id", "status"),
+					resource.TestCheckResourceAttrSet("data.st-zentao_product.by_id", "type"),
+					resource.TestCheckResourceAttrSet("data.st-zentao_product.by_id", "acl"),
 				),
 			},
 		},

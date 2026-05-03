@@ -30,7 +30,9 @@ func testAccPreCheck(t *testing.T) {
 	}
 }
 
-func uniqueCode(prefix string) string {
+// uniqueName returns a name that is unlikely to collide with concurrent
+// or prior test runs. ZenTao enforces name uniqueness within a program.
+func uniqueName(prefix string) string {
 	return fmt.Sprintf("%s_%d", prefix, time.Now().UnixNano())
 }
 
@@ -45,7 +47,7 @@ provider "st-zentao" {
 }
 
 func TestAccProductResource_basic(t *testing.T) {
-	code := uniqueCode("acc")
+	name := uniqueName("acc")
 	resource.Test(t, resource.TestCase{
 		PreCheck:                 func() { testAccPreCheck(t) },
 		ProtoV6ProviderFactories: protoV6Factories,
@@ -53,55 +55,61 @@ func TestAccProductResource_basic(t *testing.T) {
 			{
 				Config: providerBlock() + fmt.Sprintf(`
 resource "st-zentao_product" "p" {
-  name        = "ACC Test"
-  code        = %q
+  name        = %q
   description = "initial"
-}`, code),
+}`, name),
 				Check: resource.ComposeAggregateTestCheckFunc(
-					resource.TestCheckResourceAttr("st-zentao_product.p", "name", "ACC Test"),
-					resource.TestCheckResourceAttr("st-zentao_product.p", "code", code),
+					resource.TestCheckResourceAttr("st-zentao_product.p", "name", name),
 					resource.TestCheckResourceAttrSet("st-zentao_product.p", "id"),
+					resource.TestCheckResourceAttrSet("st-zentao_product.p", "type"),
+					resource.TestCheckResourceAttrSet("st-zentao_product.p", "acl"),
+					resource.TestCheckResourceAttrSet("st-zentao_product.p", "status"),
+					resource.TestCheckResourceAttrSet("st-zentao_product.p", "created_by"),
 				),
 			},
 			{
 				Config: providerBlock() + fmt.Sprintf(`
 resource "st-zentao_product" "p" {
-  name        = "ACC Test Updated"
-  code        = %q
+  name        = %q
   description = "updated"
-}`, code),
-				Check: resource.TestCheckResourceAttr("st-zentao_product.p", "name", "ACC Test Updated"),
+  acl         = "private"
+}`, name+"-renamed"),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("st-zentao_product.p", "name", name+"-renamed"),
+					resource.TestCheckResourceAttr("st-zentao_product.p", "acl", "private"),
+					resource.TestCheckResourceAttr("st-zentao_product.p", "description", "updated"),
+				),
 			},
 		},
 	})
 }
 
-func TestAccProductResource_requiresReplace(t *testing.T) {
-	code1 := uniqueCode("acc1")
-	code2 := uniqueCode("acc2")
+func TestAccProductResource_invalidEnumRejected(t *testing.T) {
+	name := uniqueName("enum")
 	resource.Test(t, resource.TestCase{
 		PreCheck:                 func() { testAccPreCheck(t) },
 		ProtoV6ProviderFactories: protoV6Factories,
 		Steps: []resource.TestStep{
 			{
-				Config: providerBlock() + fmt.Sprintf(`resource "st-zentao_product" "p" { name = "X" code = %q }`, code1),
-			},
-			{
-				Config: providerBlock() + fmt.Sprintf(`resource "st-zentao_product" "p" { name = "X" code = %q }`, code2),
-				Check:  resource.TestCheckResourceAttr("st-zentao_product.p", "code", code2),
+				Config: providerBlock() + fmt.Sprintf(`
+resource "st-zentao_product" "p" {
+  name = %q
+  type = "not-a-real-type"
+}`, name),
+				ExpectError: regexp.MustCompile(`(?i)must be one of`),
 			},
 		},
 	})
 }
 
 func TestAccProductResource_import(t *testing.T) {
-	code := uniqueCode("imp")
+	name := uniqueName("imp")
 	resource.Test(t, resource.TestCase{
 		PreCheck:                 func() { testAccPreCheck(t) },
 		ProtoV6ProviderFactories: protoV6Factories,
 		Steps: []resource.TestStep{
 			{
-				Config: providerBlock() + fmt.Sprintf(`resource "st-zentao_product" "p" { name = "Import" code = %q }`, code),
+				Config: providerBlock() + fmt.Sprintf(`resource "st-zentao_product" "p" { name = %q }`, name),
 			},
 			{
 				ResourceName:      "st-zentao_product.p",
@@ -113,13 +121,13 @@ func TestAccProductResource_import(t *testing.T) {
 }
 
 func TestAccProductResource_disappears(t *testing.T) {
-	code := uniqueCode("dis")
+	name := uniqueName("dis")
 	resource.Test(t, resource.TestCase{
 		PreCheck:                 func() { testAccPreCheck(t) },
 		ProtoV6ProviderFactories: protoV6Factories,
 		Steps: []resource.TestStep{
 			{
-				Config: providerBlock() + fmt.Sprintf(`resource "st-zentao_product" "p" { name = "D" code = %q }`, code),
+				Config: providerBlock() + fmt.Sprintf(`resource "st-zentao_product" "p" { name = %q }`, name),
 				Check: resource.ComposeTestCheckFunc(
 					func(s *terraform.State) error {
 						rs, ok := s.RootModule().Resources["st-zentao_product.p"]
@@ -159,18 +167,11 @@ provider "st-zentao" {
 }
 
 resource "st-zentao_product" "p" {
-  name = "x"
-  code = %q
+  name = %q
 }
-`, os.Getenv("ZENTAO_URL"), uniqueCode("badcred")),
-				ExpectError: regexpInvalidCredentials,
+`, os.Getenv("ZENTAO_URL"), uniqueName("badcred")),
+				ExpectError: regexp.MustCompile(`invalid credentials|wrong account`),
 			},
 		},
 	})
-}
-
-var regexpInvalidCredentials = mustCompile("invalid credentials|wrong account")
-
-func mustCompile(pattern string) *regexp.Regexp {
-	return regexp.MustCompile(pattern)
 }

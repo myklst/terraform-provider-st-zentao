@@ -24,13 +24,24 @@ type productDataSource struct {
 }
 
 type productDataSourceModel struct {
-	ID          types.String `tfsdk:"id"`
+	ID   types.String `tfsdk:"id"`
+	Code types.String `tfsdk:"code"`
+
 	Name        types.String `tfsdk:"name"`
-	Code        types.String `tfsdk:"code"`
-	Status      types.String `tfsdk:"status"`
+	Program     types.Int64  `tfsdk:"program"`
+	Line        types.Int64  `tfsdk:"line"`
+	Type        types.String `tfsdk:"type"`
 	Description types.String `tfsdk:"description"`
 	ACL         types.String `tfsdk:"acl"`
-	Type        types.String `tfsdk:"type"`
+	PO          types.String `tfsdk:"po"`
+	QD          types.String `tfsdk:"qd"`
+	RD          types.String `tfsdk:"rd"`
+	Reviewer    types.List   `tfsdk:"reviewer"`
+
+	Status      types.String `tfsdk:"status"`
+	CreatedBy   types.String `tfsdk:"created_by"`
+	CreatedDate types.String `tfsdk:"created_date"`
+	ProgramName types.String `tfsdk:"program_name"`
 }
 
 func NewProductDataSource() datasource.DataSource { return &productDataSource{} }
@@ -41,36 +52,28 @@ func (d *productDataSource) Metadata(_ context.Context, req datasource.MetadataR
 
 func (d *productDataSource) Schema(_ context.Context, _ datasource.SchemaRequest, resp *datasource.SchemaResponse) {
 	resp.Schema = schema.Schema{
-		Description: "Look up a ZenTao product by its numeric id.",
+		Description: "Look up a ZenTao product by its numeric id. All product fields returned by " +
+			"the v2 GET endpoint are exposed as Computed attributes.",
 		Attributes: map[string]schema.Attribute{
 			"id": schema.StringAttribute{
 				Description: "Numeric ZenTao product ID (stringified).",
 				Required:    true,
 			},
-			"name": schema.StringAttribute{
-				Description: "Product display name.",
-				Computed:    true,
-			},
-			"code": schema.StringAttribute{
-				Description: "Product short code (slug).",
-				Computed:    true,
-			},
-			"status": schema.StringAttribute{
-				Description: "Product status (e.g. \"normal\", \"closed\").",
-				Computed:    true,
-			},
-			"description": schema.StringAttribute{
-				Description: "Product description (mapped from ZenTao 'desc').",
-				Computed:    true,
-			},
-			"acl": schema.StringAttribute{
-				Description: "Access control (e.g. \"open\", \"private\").",
-				Computed:    true,
-			},
-			"type": schema.StringAttribute{
-				Description: "Product type (e.g. \"normal\", \"branch\", \"platform\").",
-				Computed:    true,
-			},
+			"code":         schema.StringAttribute{Description: "Product short code (server-managed).", Computed: true},
+			"name":         schema.StringAttribute{Description: "Product display name.", Computed: true},
+			"program":      schema.Int64Attribute{Description: "Associated program (portfolio) ID.", Computed: true},
+			"line":         schema.Int64Attribute{Description: "Associated product line ID.", Computed: true},
+			"type":         schema.StringAttribute{Description: "Product type (\"normal\", \"branch\", \"platform\").", Computed: true},
+			"description":  schema.StringAttribute{Description: "Product description (mapped from ZenTao 'desc').", Computed: true},
+			"acl":          schema.StringAttribute{Description: "Access control (\"open\", \"private\").", Computed: true},
+			"po":           schema.StringAttribute{Description: "Product Owner username.", Computed: true},
+			"qd":           schema.StringAttribute{Description: "QA Lead username.", Computed: true},
+			"rd":           schema.StringAttribute{Description: "Release Lead username.", Computed: true},
+			"reviewer":     schema.ListAttribute{Description: "Reviewer usernames.", Computed: true, ElementType: types.StringType},
+			"status":       schema.StringAttribute{Description: "Server-managed product status.", Computed: true},
+			"created_by":   schema.StringAttribute{Description: "Creator username (server-managed).", Computed: true},
+			"created_date": schema.StringAttribute{Description: "Creation timestamp (server-managed).", Computed: true},
+			"program_name": schema.StringAttribute{Description: "Associated program name (server-managed).", Computed: true},
 		},
 	}
 }
@@ -117,13 +120,31 @@ func (d *productDataSource) Read(ctx context.Context, req datasource.ReadRequest
 		resp.Diagnostics.AddError("Read product failed", err.Error())
 		return
 	}
+	reviewerSrc := fetched.Reviewer
+	if reviewerSrc == nil {
+		reviewerSrc = []string{}
+	}
+	reviewers, diags := types.ListValueFrom(ctx, types.StringType, reviewerSrc)
+	resp.Diagnostics.Append(diags...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
 	resp.Diagnostics.Append(resp.State.Set(ctx, productDataSourceModel{
 		ID:          types.StringValue(strconv.Itoa(fetched.ID)),
-		Name:        types.StringValue(fetched.Name),
 		Code:        types.StringValue(fetched.Code),
-		Status:      types.StringValue(fetched.Status),
+		Name:        types.StringValue(fetched.Name),
+		Program:     types.Int64Value(int64(fetched.Program)),
+		Line:        types.Int64Value(int64(fetched.Line)),
+		Type:        types.StringValue(fetched.Type),
 		Description: types.StringValue(fetched.Description),
 		ACL:         types.StringValue(fetched.ACL),
-		Type:        types.StringValue(fetched.Type),
+		PO:          types.StringValue(fetched.PO),
+		QD:          types.StringValue(fetched.QD),
+		RD:          types.StringValue(fetched.RD),
+		Reviewer:    reviewers,
+		Status:      types.StringValue(fetched.Status),
+		CreatedBy:   types.StringValue(fetched.CreatedBy),
+		CreatedDate: types.StringValue(fetched.CreatedDate),
+		ProgramName: types.StringValue(fetched.ProgramName),
 	})...)
 }
