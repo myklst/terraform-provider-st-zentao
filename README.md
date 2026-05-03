@@ -97,6 +97,6 @@ make go-test-acc
 
 myklst maintains a family of `terraform-provider-st-*` providers for use cases not covered by upstream providers. This one fills the gap for ZenTao project management.
 
-## License
+## References
 
-See `LICENSE`.
+- https://www.zentao.net/book/api/2309.html
