@@ -58,3 +58,38 @@ func isNotFound(reason string) bool {
 	r := strings.ToLower(reason)
 	return strings.Contains(r, "not exist") || strings.Contains(r, "not found")
 }
+
+func (c *Client) CreateProduct(ctx context.Context, p *Product) (*Product, error) {
+	body, err := c.doRequest(ctx, http.MethodPost, "api.php", map[string]string{
+		"m": "product",
+		"f": "create",
+	}, p)
+	if err != nil {
+		return nil, err
+	}
+	var env ZentaoResponse
+	if err := json.Unmarshal(body, &env); err != nil {
+		return nil, fmt.Errorf("parse envelope: %w (body=%s)", err, string(body))
+	}
+	if env.Status != "success" {
+		return nil, &APIError{
+			HTTPStatus:   http.StatusOK,
+			ZentaoStatus: env.Status,
+			Reason:       env.Reason,
+			RawBody:      body,
+		}
+	}
+	var resp struct {
+		ID json.Number `json:"id"`
+	}
+	if err := decodeData(&env, &resp); err != nil {
+		return nil, fmt.Errorf("decode create response: %w", err)
+	}
+	id, _ := resp.ID.Int64()
+	if id == 0 {
+		return nil, fmt.Errorf("create product: empty id in response (body=%s)", string(body))
+	}
+	out := *p
+	out.ID = int(id)
+	return &out, nil
+}

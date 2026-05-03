@@ -3,6 +3,7 @@ package zentaoapi
 import (
 	"context"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -65,5 +66,66 @@ func TestGetProduct_OtherFailure(t *testing.T) {
 	}
 	if apiErr.Reason != "db down" {
 		t.Fatalf("reason = %q", apiErr.Reason)
+	}
+}
+
+func TestCreateProduct_ReturnsID(t *testing.T) {
+	var gotPath, gotBody string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path + "?" + r.URL.RawQuery
+		b, _ := io.ReadAll(r.Body)
+		gotBody = string(b)
+		w.Header().Set("Content-Type", "application/json")
+		// ZenTao create can return data either as the new id or as a string-encoded object.
+		_, _ = w.Write([]byte(`{"status":"success","data":"{\"id\":\"77\"}"}`))
+	}))
+	defer srv.Close()
+
+	c := newTestClient(t, "sid-1", srv.URL)
+	p := &Product{Name: "Beta", Code: "beta", ACL: "private", Type: "normal"}
+	out, err := c.CreateProduct(context.Background(), p)
+	if err != nil {
+		t.Fatalf("CreateProduct: %v", err)
+	}
+	if out.ID != 77 {
+		t.Fatalf("id = %d, want 77", out.ID)
+	}
+	if !strings.Contains(gotPath, "m=product") || !strings.Contains(gotPath, "f=create") {
+		t.Fatalf("path = %q", gotPath)
+	}
+	if !strings.Contains(gotBody, `"name":"Beta"`) {
+		t.Fatalf("body missing name: %s", gotBody)
+	}
+}
+
+func TestCreateProduct_ZeroIDIsError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"status":"success","data":""}`))
+	}))
+	defer srv.Close()
+
+	c := newTestClient(t, "sid-1", srv.URL)
+	_, err := c.CreateProduct(context.Background(), &Product{Name: "X", Code: "x"})
+	if err == nil {
+		t.Fatal("expected error on missing id")
+	}
+}
+
+func TestCreateProduct_ValidationError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"status":"failed","reason":"name already exists"}`))
+	}))
+	defer srv.Close()
+
+	c := newTestClient(t, "sid-1", srv.URL)
+	_, err := c.CreateProduct(context.Background(), &Product{Name: "dup", Code: "dup"})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	var apiErr *APIError
+	if !errors.As(err, &apiErr) || !strings.Contains(apiErr.Reason, "already exists") {
+		t.Fatalf("err = %v", err)
 	}
 }
