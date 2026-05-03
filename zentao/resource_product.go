@@ -196,7 +196,8 @@ func (r *productResource) Delete(ctx context.Context, req resource.DeleteRequest
 	}
 }
 
-func (r *productResource) ImportState(_ context.Context, _ resource.ImportStateRequest, _ *resource.ImportStateResponse) {
+func (r *productResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
+	resource.ImportStatePassthroughID(ctx, path.Root("id"), req, resp)
 }
 
 // Used by Create/Read/Update; defined here for forward references in following tasks.
@@ -223,6 +224,5 @@ func fromAPI(p *zentaoapi.Product) productResourceModel {
 	}
 }
 
-// silence unused-import warnings until Tasks 15–17 use them
+// silence unused-import warnings until Tasks 15 uses it
 var _ = errors.Is
-var _ = path.Root
