@@ -157,10 +157,45 @@ func (r *productResource) Read(ctx context.Context, req resource.ReadRequest, re
 	}
 	resp.Diagnostics.Append(resp.State.Set(ctx, fromAPI(fetched))...)
 }
-func (r *productResource) Update(_ context.Context, _ resource.UpdateRequest, _ *resource.UpdateResponse) {
+func (r *productResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
+	var plan, state productResourceModel
+	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
+	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+	id, err := strconv.Atoi(state.ID.ValueString())
+	if err != nil {
+		resp.Diagnostics.AddError("Invalid id in state", err.Error())
+		return
+	}
+	payload := plan.toAPI()
+	payload.ID = id
+	updated, err := r.client.UpdateProduct(ctx, payload)
+	if err != nil {
+		resp.Diagnostics.AddError("Update product failed", err.Error())
+		return
+	}
+	resp.Diagnostics.Append(resp.State.Set(ctx, fromAPI(updated))...)
 }
-func (r *productResource) Delete(_ context.Context, _ resource.DeleteRequest, _ *resource.DeleteResponse) {
+
+func (r *productResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {
+	var state productResourceModel
+	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+	id, err := strconv.Atoi(state.ID.ValueString())
+	if err != nil {
+		resp.Diagnostics.AddError("Invalid id in state", err.Error())
+		return
+	}
+	if err := r.client.DeleteProduct(ctx, id); err != nil {
+		resp.Diagnostics.AddError("Delete product failed", err.Error())
+		return
+	}
 }
+
 func (r *productResource) ImportState(_ context.Context, _ resource.ImportStateRequest, _ *resource.ImportStateResponse) {
 }
 
