@@ -10,20 +10,31 @@ import (
 // v2 responses are flat: {"status":"success", ...resource fields...} or
 // {"status":"fail", "error":"..."} — no nested "data" wrapper, so the
 // concrete fields are decoded by per-endpoint structs that embed Status.
+//
+// Failure descriptions arrive under three different keys depending on
+// which v2 handler answered: "error" (most common), "message" (e.g.
+// product DELETE on a missing row), and "reason" (legacy v1 carryover
+// some endpoints still emit). All three are decoded so ZentaoFailReason
+// can pick whichever one was populated.
 type ZentaoResponse struct {
-	Status string `json:"status"`
-	Error  string `json:"error,omitempty"`
-	Reason string `json:"reason,omitempty"`
+	Status  string `json:"status"`
+	Error   string `json:"error,omitempty"`
+	Message string `json:"message,omitempty"`
+	Reason  string `json:"reason,omitempty"`
 }
 
 // ZentaoFailReason returns whichever non-empty failure description the
-// envelope carried. v2 uses "error", v1 used "reason"; both are tolerated
-// so callers don't care.
+// envelope carried, preferring the most specific shape observed in the
+// wild: error → message → reason.
 func (e ZentaoResponse) ZentaoFailReason() string {
-	if e.Error != "" {
+	switch {
+	case e.Error != "":
 		return e.Error
+	case e.Message != "":
+		return e.Message
+	default:
+		return e.Reason
 	}
-	return e.Reason
 }
 
 var (

@@ -149,7 +149,9 @@ func productPath(id int) string {
 const productsPath = "api.php/v2/products"
 
 // GetProduct fetches a product by ID via GET /api.php/v2/products/{id}.
-// Returns ErrNotFound on HTTP 404.
+// Returns ErrNotFound on HTTP 404 OR on the {"status":"fail","message":
+// "Product does not exist."} shape ZenTao v2 emits at HTTP 200 instead
+// of a real 404.
 func (c *Client) GetProduct(ctx context.Context, id int) (*Product, error) {
 	body, status, err := c.doRequest(ctx, http.MethodGet, productPath(id), nil, nil)
 	if err != nil {
@@ -170,6 +172,9 @@ func (c *Client) GetProduct(ctx context.Context, id int) (*Product, error) {
 		return nil, fmt.Errorf("decode get-product: %w (body=%s)", err, string(body))
 	}
 	if resp.Status != "success" {
+		if isNotFoundReason(resp.ZentaoFailReason()) {
+			return nil, ErrNotFound
+		}
 		return nil, apiError(status, body)
 	}
 	return resp.Product.toProduct()
@@ -207,7 +212,8 @@ func (c *Client) CreateProduct(ctx context.Context, p *Product) (*Product, error
 
 // UpdateProduct edits a product via PUT /api.php/v2/products/{id}. v2 only
 // returns {status}, so on success we re-fetch the product to surface the
-// authoritative state to the caller.
+// authoritative state to the caller. ErrNotFound is returned for both the
+// HTTP 404 and the 200+fail+"does not exist" shapes.
 func (c *Client) UpdateProduct(ctx context.Context, p *Product) (*Product, error) {
 	if p.ID == 0 {
 		return nil, fmt.Errorf("UpdateProduct: missing id")
@@ -227,13 +233,19 @@ func (c *Client) UpdateProduct(ctx context.Context, p *Product) (*Product, error
 		return nil, fmt.Errorf("decode update-product: %w (body=%s)", err, string(body))
 	}
 	if resp.Status != "success" {
+		if isNotFoundReason(resp.ZentaoFailReason()) {
+			return nil, ErrNotFound
+		}
 		return nil, apiError(status, body)
 	}
 	return c.GetProduct(ctx, p.ID)
 }
 
 // DeleteProduct removes a product via DELETE /api.php/v2/products/{id}.
-// Idempotent: HTTP 404 is treated as success.
+// Idempotent on missing rows: ZenTao v2 sometimes returns a true HTTP 404
+// and sometimes returns HTTP 200 + {"status":"fail","message":"Product
+// does not exist."}. Both are treated as success so reapplies and
+// post-test cleanups don't fail spuriously.
 func (c *Client) DeleteProduct(ctx context.Context, id int) error {
 	body, status, err := c.doRequest(ctx, http.MethodDelete, productPath(id), nil, nil)
 	if err != nil {
@@ -252,7 +264,17 @@ func (c *Client) DeleteProduct(ctx context.Context, id int) error {
 	if resp.Status == "success" {
 		return nil
 	}
+	if isNotFoundReason(resp.ZentaoFailReason()) {
+		return nil
+	}
 	return apiError(status, body)
+}
+
+// isNotFoundReason recognises ZenTao's various ways of saying "the row
+// you asked about does not exist" inside a 200-OK envelope.
+func isNotFoundReason(reason string) bool {
+	r := strings.ToLower(reason)
+	return strings.Contains(r, "not exist") || strings.Contains(r, "not found")
 }
 
 // apiError builds an APIError, parsing the envelope status/reason out of

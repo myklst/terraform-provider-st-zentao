@@ -13,8 +13,10 @@ func TestZentaoFailReason_PrefersError(t *testing.T) {
 		want string
 	}{
 		{"v2 error field", ZentaoResponse{Error: "name exists"}, "name exists"},
+		{"v2 message field", ZentaoResponse{Message: "Product does not exist."}, "Product does not exist."},
 		{"v1 reason field", ZentaoResponse{Reason: "please login"}, "please login"},
-		{"v2 wins when both present", ZentaoResponse{Error: "v2 msg", Reason: "v1 msg"}, "v2 msg"},
+		{"error wins over message", ZentaoResponse{Error: "e", Message: "m", Reason: "r"}, "e"},
+		{"message wins over reason", ZentaoResponse{Message: "m", Reason: "r"}, "m"},
 		{"empty", ZentaoResponse{}, ""},
 	}
 	for _, tc := range cases {

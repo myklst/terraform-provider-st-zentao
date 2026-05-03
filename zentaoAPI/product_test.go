@@ -351,6 +351,37 @@ func TestDeleteProduct_NotFoundIsSuccess(t *testing.T) {
 	}
 }
 
+// ZenTao v2 sometimes returns HTTP 200 + {"status":"fail","message":"...does not exist..."}
+// instead of a real HTTP 404 when the row is already gone. DeleteProduct
+// must still treat that as a successful no-op so post-destroy and re-apply
+// flows don't fail.
+func TestDeleteProduct_NotExistMessageIsSuccess(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"status":"fail","message":"Product does not exist."}`))
+	}))
+	defer srv.Close()
+
+	c := newTestClient(t, "tok-1", srv.URL)
+	if err := c.DeleteProduct(context.Background(), 9); err != nil {
+		t.Fatalf("DeleteProduct should be idempotent on 200+message: %v", err)
+	}
+}
+
+func TestGetProduct_NotExistMessageIsErrNotFound(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"status":"fail","message":"Product does not exist."}`))
+	}))
+	defer srv.Close()
+
+	c := newTestClient(t, "tok-1", srv.URL)
+	_, err := c.GetProduct(context.Background(), 999)
+	if !errors.Is(err, ErrNotFound) {
+		t.Fatalf("err = %v, want ErrNotFound", err)
+	}
+}
+
 func TestDeleteProduct_OtherFailure(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusForbidden)
