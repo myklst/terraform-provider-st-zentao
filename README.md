@@ -1,10 +1,10 @@
 # terraform-provider-st-zentao
 
-Custom Terraform provider for [ZenTao](https://www.zentao.net/) — self-hosted open source plus Pro / Biz / Max editions, all of which share the same PHP REST API surface.
+Custom Terraform provider for [ZenTao](https://www.zentao.net/) — self-hosted open source plus Pro / Biz / Max editions. Talks to the **ZenTao RESTful API v2** (`/api.php/v2/...`) using token-based authentication.
 
 ## Status
 
-Initial release: ships the `st-zentao_product` resource. More resources (project, execution, user, group) planned.
+Initial release: ships the `st-zentao_product` resource and the `st-zentao_product` data source. More resources (project, execution, user, group) planned.
 
 ## Local installation
 
@@ -45,6 +45,22 @@ resource "st-zentao_product" "demo" {
 ```
 
 `code` requires replacement on change (ZenTao does not allow editing in place).
+
+## Data Sources
+
+### `st-zentao_product`
+
+Look up an existing product by its numeric id:
+
+```hcl
+data "st-zentao_product" "existing" {
+  id = "1"
+}
+
+output "product_name" {
+  value = data.st-zentao_product.existing.name
+}
+```
 
 ## Development
 
