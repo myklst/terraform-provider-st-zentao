@@ -1,55 +1,44 @@
 package zentaoapi
 
 import (
-	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 )
 
-func TestDecodeData_DirectObject(t *testing.T) {
-	env := &ZentaoResponse{
-		Status: "success",
-		Data:   json.RawMessage(`{"id":42,"name":"alpha"}`),
+func TestZentaoFailReason_PrefersError(t *testing.T) {
+	cases := []struct {
+		name string
+		env  ZentaoResponse
+		want string
+	}{
+		{"v2 error field", ZentaoResponse{Error: "name exists"}, "name exists"},
+		{"v1 reason field", ZentaoResponse{Reason: "please login"}, "please login"},
+		{"v2 wins when both present", ZentaoResponse{Error: "v2 msg", Reason: "v1 msg"}, "v2 msg"},
+		{"empty", ZentaoResponse{}, ""},
 	}
-	var got struct {
-		ID   int    `json:"id"`
-		Name string `json:"name"`
-	}
-	if err := decodeData(env, &got); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if got.ID != 42 || got.Name != "alpha" {
-		t.Fatalf("got %+v", got)
-	}
-}
-
-func TestDecodeData_StringEncodedJSON(t *testing.T) {
-	env := &ZentaoResponse{
-		Status: "success",
-		Data:   json.RawMessage(`"{\"id\":7,\"name\":\"beta\"}"`),
-	}
-	var got struct {
-		ID   int    `json:"id"`
-		Name string `json:"name"`
-	}
-	if err := decodeData(env, &got); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if got.ID != 7 || got.Name != "beta" {
-		t.Fatalf("got %+v", got)
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := tc.env.ZentaoFailReason(); got != tc.want {
+				t.Fatalf("got %q want %q", got, tc.want)
+			}
+		})
 	}
 }
 
 func TestAPIError_RedactsPassword(t *testing.T) {
 	e := &APIError{
-		HTTPStatus:   200,
-		ZentaoStatus: "failed",
+		HTTPStatus:   401,
+		ZentaoStatus: "fail",
 		Reason:       "auth failure",
 		RawBody:      []byte(`{"account":"admin","password":"secret123","reason":"bad"}`),
 	}
 	s := e.Error()
-	if containsString(s, "secret123") {
+	if strings.Contains(s, "secret123") {
 		t.Fatalf("password leaked in error string: %s", s)
+	}
+	if !strings.Contains(s, `"password":"***"`) {
+		t.Fatalf("expected redaction marker in %s", s)
 	}
 }
 
@@ -60,13 +49,4 @@ func TestSentinels(t *testing.T) {
 	if !errors.Is(ErrUnauthorized, ErrUnauthorized) {
 		t.Fatalf("ErrUnauthorized sentinel broken")
 	}
-}
-
-func containsString(haystack, needle string) bool {
-	for i := 0; i+len(needle) <= len(haystack); i++ {
-		if haystack[i:i+len(needle)] == needle {
-			return true
-		}
-	}
-	return false
 }

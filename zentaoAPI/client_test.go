@@ -2,7 +2,6 @@ package zentaoapi
 
 import (
 	"context"
-	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -13,46 +12,59 @@ import (
 	"time"
 )
 
-func TestDoRequest_HappyPath(t *testing.T) {
-	var gotMethod, gotPath, gotBody, gotSID string
+func TestDoRequest_HappyPath_TokenHeader(t *testing.T) {
+	var gotMethod, gotPath, gotToken, gotBody string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotMethod = r.Method
-		gotPath = r.URL.Path + "?" + r.URL.RawQuery
-		gotSID = r.URL.Query().Get("zentaosid")
+		gotPath = r.URL.Path
+		gotToken = r.Header.Get("Token")
 		b, _ := io.ReadAll(r.Body)
 		gotBody = string(b)
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"status":"success","data":{"id":1,"name":"a"}}`))
+		_, _ = w.Write([]byte(`{"status":"success","product":{"id":"1","name":"a"}}`))
 	}))
 	defer srv.Close()
 
-	c := newTestClient(t, "sid-1", srv.URL)
-
-	body, err := c.doRequest(context.Background(), http.MethodGet, "api.php", map[string]string{
-		"m": "product",
-		"f": "view",
-	}, nil)
+	c := newTestClient(t, "tok-1", srv.URL)
+	body, status, err := c.doRequest(context.Background(), http.MethodGet, "api.php/v2/products/1", nil, nil)
 	if err != nil {
 		t.Fatalf("doRequest: %v", err)
+	}
+	if status != http.StatusOK {
+		t.Fatalf("status = %d", status)
 	}
 	if gotMethod != http.MethodGet {
 		t.Fatalf("method = %q", gotMethod)
 	}
-	if gotSID != "sid-1" {
-		t.Fatalf("sessionID not propagated: %q", gotSID)
+	if gotToken != "tok-1" {
+		t.Fatalf("token header = %q, want tok-1", gotToken)
 	}
-	if !strings.Contains(gotPath, "m=product") || !strings.Contains(gotPath, "f=view") {
+	if gotPath != "/api.php/v2/products/1" {
 		t.Fatalf("path = %q", gotPath)
 	}
 	if gotBody != "" {
 		t.Fatalf("GET should not have body, got %q", gotBody)
 	}
-	var env ZentaoResponse
-	if err := json.Unmarshal(body, &env); err != nil {
-		t.Fatalf("parse: %v", err)
+	if !strings.Contains(string(body), `"status":"success"`) {
+		t.Fatalf("body = %s", body)
 	}
-	if env.Status != "success" {
-		t.Fatalf("status = %q", env.Status)
+}
+
+func TestDoRequest_NoTokenHeaderWhenEmpty(t *testing.T) {
+	var sawToken bool
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, sawToken = r.Header["Token"]
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"status":"success"}`))
+	}))
+	defer srv.Close()
+
+	c := newTestClient(t, "", srv.URL)
+	if _, _, err := c.doRequest(context.Background(), http.MethodGet, "api.php/v2/products", nil, nil); err != nil {
+		t.Fatalf("doRequest: %v", err)
+	}
+	if sawToken {
+		t.Fatal("expected no Token header when client has empty token")
 	}
 }
 
@@ -63,13 +75,13 @@ func TestDoRequest_PostJSONBody(t *testing.T) {
 		b, _ := io.ReadAll(r.Body)
 		gotBody = string(b)
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"status":"success","data":{}}`))
+		_, _ = w.Write([]byte(`{"status":"success","id":1}`))
 	}))
 	defer srv.Close()
 
-	c := newTestClient(t, "sid-1", srv.URL)
+	c := newTestClient(t, "tok-1", srv.URL)
 	payload := map[string]string{"name": "x"}
-	if _, err := c.doRequest(context.Background(), http.MethodPost, "api.php", map[string]string{"m": "product", "f": "create"}, payload); err != nil {
+	if _, _, err := c.doRequest(context.Background(), http.MethodPost, "api.php/v2/products", nil, payload); err != nil {
 		t.Fatalf("doRequest: %v", err)
 	}
 	if gotCT != "application/json" {
@@ -85,28 +97,32 @@ func TestDoRequest_SessionExpiry_RefreshAndReplay(t *testing.T) {
 	var loginCalls atomic.Int32
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if strings.Contains(r.URL.RawQuery, "f=apilogin") {
+		if r.URL.Path == "/api.php/v2/users/login" {
 			loginCalls.Add(1)
 			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(`{"status":"success","data":"{\"sessionID\":\"new-sid\"}"}`))
+			_, _ = w.Write([]byte(`{"status":"success","token":"new-tok"}`))
 			return
 		}
 		apiCalls.Add(1)
-		w.Header().Set("Content-Type", "application/json")
-		if r.URL.Query().Get("zentaosid") == "old-sid" {
-			_, _ = w.Write([]byte(`{"status":"failed","reason":"please login"}`))
+		if r.Header.Get("Token") == "old-tok" {
+			w.WriteHeader(http.StatusUnauthorized)
+			_, _ = w.Write([]byte(`{"error":"token expired"}`))
 			return
 		}
-		_, _ = w.Write([]byte(`{"status":"success","data":{"id":99}}`))
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"status":"success","product":{"id":"99"}}`))
 	}))
 	defer srv.Close()
 
-	c := newTestClient(t, "old-sid", srv.URL)
-	body, err := c.doRequest(context.Background(), http.MethodGet, "api.php", map[string]string{"m": "product", "f": "view"}, nil)
+	c := newTestClient(t, "old-tok", srv.URL)
+	body, status, err := c.doRequest(context.Background(), http.MethodGet, "api.php/v2/products/99", nil, nil)
 	if err != nil {
 		t.Fatalf("doRequest: %v", err)
 	}
-	if !strings.Contains(string(body), `"id":99`) {
+	if status != http.StatusOK {
+		t.Fatalf("status = %d", status)
+	}
+	if !strings.Contains(string(body), `"id":"99"`) {
 		t.Fatalf("expected replayed response, got %s", body)
 	}
 	if loginCalls.Load() != 1 {
@@ -119,18 +135,17 @@ func TestDoRequest_SessionExpiry_RefreshAndReplay(t *testing.T) {
 
 func TestDoRequest_SessionExpiry_RefreshExhausted(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if strings.Contains(r.URL.RawQuery, "f=apilogin") {
+		if r.URL.Path == "/api.php/v2/users/login" {
 			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(`{"status":"success","data":"{\"sessionID\":\"new-sid\"}"}`))
+			_, _ = w.Write([]byte(`{"status":"success","token":"new-tok"}`))
 			return
 		}
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"status":"failed","reason":"please login"}`))
+		w.WriteHeader(http.StatusUnauthorized)
 	}))
 	defer srv.Close()
 
-	c := newTestClient(t, "old-sid", srv.URL)
-	_, err := c.doRequest(context.Background(), http.MethodGet, "api.php", nil, nil)
+	c := newTestClient(t, "old-tok", srv.URL)
+	_, _, err := c.doRequest(context.Background(), http.MethodGet, "api.php/v2/products/1", nil, nil)
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -148,18 +163,20 @@ func TestSend_BackoffOn5xx(t *testing.T) {
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"status":"success","data":{}}`))
+		_, _ = w.Write([]byte(`{"status":"success"}`))
 	}))
 	defer srv.Close()
 
-	c := newTestClient(t, "sid-1", srv.URL)
-	// shrink backoff for test
+	c := newTestClient(t, "tok-1", srv.URL)
 	c.backoffMaxElapsed = 5 * time.Second
 	c.backoffInitialInterval = 10 * time.Millisecond
 
-	body, err := c.doRequest(context.Background(), http.MethodGet, "api.php", nil, nil)
+	body, status, err := c.doRequest(context.Background(), http.MethodGet, "api.php/v2/products", nil, nil)
 	if err != nil {
 		t.Fatalf("doRequest: %v", err)
+	}
+	if status != http.StatusOK {
+		t.Fatalf("status = %d", status)
 	}
 	if calls.Load() != 3 {
 		t.Fatalf("calls = %d, want 3", calls.Load())
@@ -177,15 +194,16 @@ func TestSend_NoBackoffOn4xx(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := newTestClient(t, "sid-1", srv.URL)
+	c := newTestClient(t, "tok-1", srv.URL)
 	c.backoffMaxElapsed = 5 * time.Second
 	c.backoffInitialInterval = 10 * time.Millisecond
 
-	// 4xx is a transport-level success: send returns (body, status, nil).
-	// doRequest then returns (body, nil) because isSessionExpired(400, body) is false.
-	// The point of this test is that 4xx is NOT retried — assert via call count.
-	if _, err := c.doRequest(context.Background(), http.MethodGet, "api.php", nil, nil); err != nil {
+	// 4xx: send returns (body, 400, nil); doRequest returns (body, 400, nil) since 400 != 401.
+	// Caller (e.g., GetProduct) maps 4xx to APIError. The point of this test is that 4xx is NOT retried.
+	if _, status, err := c.doRequest(context.Background(), http.MethodGet, "api.php/v2/products", nil, nil); err != nil {
 		t.Fatalf("doRequest: %v", err)
+	} else if status != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", status)
 	}
 	if calls.Load() != 1 {
 		t.Fatalf("calls = %d, want 1 (no retry on 4xx)", calls.Load())
@@ -195,24 +213,23 @@ func TestSend_NoBackoffOn4xx(t *testing.T) {
 func TestDoRequest_ConcurrentExpiry_SingleLogin(t *testing.T) {
 	var loginCalls atomic.Int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if strings.Contains(r.URL.RawQuery, "f=apilogin") {
+		if r.URL.Path == "/api.php/v2/users/login" {
 			loginCalls.Add(1)
-			// Slow login to widen the window for races.
 			time.Sleep(50 * time.Millisecond)
 			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(`{"status":"success","data":"{\"sessionID\":\"new-sid\"}"}`))
+			_, _ = w.Write([]byte(`{"status":"success","token":"new-tok"}`))
+			return
+		}
+		if r.Header.Get("Token") == "old-tok" {
+			w.WriteHeader(http.StatusUnauthorized)
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
-		if r.URL.Query().Get("zentaosid") == "old-sid" {
-			_, _ = w.Write([]byte(`{"status":"failed","reason":"please login"}`))
-			return
-		}
-		_, _ = w.Write([]byte(`{"status":"success","data":{"id":1}}`))
+		_, _ = w.Write([]byte(`{"status":"success","product":{"id":"1"}}`))
 	}))
 	defer srv.Close()
 
-	c := newTestClient(t, "old-sid", srv.URL)
+	c := newTestClient(t, "old-tok", srv.URL)
 
 	var wg sync.WaitGroup
 	errs := make(chan error, 10)
@@ -220,7 +237,7 @@ func TestDoRequest_ConcurrentExpiry_SingleLogin(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			_, err := c.doRequest(context.Background(), http.MethodGet, "api.php", nil, nil)
+			_, _, err := c.doRequest(context.Background(), http.MethodGet, "api.php/v2/products/1", nil, nil)
 			errs <- err
 		}()
 	}
@@ -235,3 +252,6 @@ func TestDoRequest_ConcurrentExpiry_SingleLogin(t *testing.T) {
 		t.Fatalf("login calls = %d, want 1", loginCalls.Load())
 	}
 }
+
+// silence unused-import warning when readAllString is unused.
+var _ = readAllString

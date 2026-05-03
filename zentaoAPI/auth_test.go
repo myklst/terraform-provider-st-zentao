@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -11,19 +12,19 @@ import (
 )
 
 func TestLogin_Success(t *testing.T) {
-	var gotPath, gotMethod string
-	var gotForm map[string]string
+	var gotPath, gotMethod, gotCT string
+	var gotPayload struct {
+		Account  string `json:"account"`
+		Password string `json:"password"`
+	}
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		gotPath = r.URL.Path + "?" + r.URL.RawQuery
+		gotPath = r.URL.Path
 		gotMethod = r.Method
-		_ = r.ParseForm()
-		gotForm = map[string]string{
-			"account":  r.PostForm.Get("account"),
-			"password": r.PostForm.Get("password"),
-		}
+		gotCT = r.Header.Get("Content-Type")
+		_ = json.NewDecoder(r.Body).Decode(&gotPayload)
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"status":"success","data":"{\"sessionID\":\"abc123\"}"}`))
+		_, _ = w.Write([]byte(`{"status":"success","token":"tok-abc"}`))
 	}))
 	defer srv.Close()
 
@@ -31,24 +32,40 @@ func TestLogin_Success(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewClient: %v", err)
 	}
-	if c.sessionID != "abc123" {
-		t.Fatalf("sessionID = %q, want abc123", c.sessionID)
+	if c.token != "tok-abc" {
+		t.Fatalf("token = %q, want tok-abc", c.token)
 	}
 	if gotMethod != http.MethodPost {
-		t.Fatalf("method = %q", gotMethod)
+		t.Fatalf("method = %q, want POST", gotMethod)
 	}
-	if !strings.Contains(gotPath, "m=user") || !strings.Contains(gotPath, "f=apilogin") {
-		t.Fatalf("path = %q", gotPath)
+	if gotPath != "/api.php/v2/users/login" {
+		t.Fatalf("path = %q, want /api.php/v2/users/login", gotPath)
 	}
-	if gotForm["account"] != "admin" || gotForm["password"] != "p@ss" {
-		t.Fatalf("form = %+v", gotForm)
+	if gotCT != "application/json" {
+		t.Fatalf("content-type = %q, want application/json", gotCT)
+	}
+	if gotPayload.Account != "admin" || gotPayload.Password != "p@ss" {
+		t.Fatalf("payload = %+v", gotPayload)
 	}
 }
 
-func TestLogin_BadCredentials(t *testing.T) {
+func TestLogin_Unauthorized_HTTP401(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = w.Write([]byte(`{"error":"invalid credentials"}`))
+	}))
+	defer srv.Close()
+
+	_, err := NewClient(srv.URL, "admin", "wrong")
+	if !errors.Is(err, ErrUnauthorized) {
+		t.Fatalf("err = %v, want ErrUnauthorized", err)
+	}
+}
+
+func TestLogin_FailEnvelope(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"status":"failed","reason":"wrong account or password"}`))
+		_, _ = w.Write([]byte(`{"status":"fail","error":"wrong account or password"}`))
 	}))
 	defer srv.Close()
 
@@ -68,15 +85,82 @@ func TestLogin_NetworkError(t *testing.T) {
 	}
 }
 
-// Used by later tests too.
-func newTestClient(t *testing.T, sessionID string, srvURL string) *Client {
+func TestLogin_EmptyToken(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"status":"success","token":""}`))
+	}))
+	defer srv.Close()
+
+	_, err := NewClient(srv.URL, "admin", "p")
+	if err == nil || !strings.Contains(err.Error(), "empty token") {
+		t.Fatalf("err = %v, want empty token error", err)
+	}
+}
+
+func TestIsSessionExpired(t *testing.T) {
+	cases := []struct {
+		name   string
+		status int
+		want   bool
+	}{
+		{"http 401", 401, true},
+		{"http 200", 200, false},
+		{"http 404", 404, false},
+		{"http 500", 500, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := isSessionExpired(tc.status); got != tc.want {
+				t.Fatalf("got %v want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestRefreshSession_DoubleCheck(t *testing.T) {
+	var calls int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"status":"success","token":"new-tok"}`))
+	}))
+	defer srv.Close()
+
+	c := newTestClient(t, "old-tok", srv.URL)
+
+	// peer already refreshed: observed token no longer matches current
+	c.token = "already-refreshed"
+	if err := c.refreshSession(context.Background(), "old-tok"); err != nil {
+		t.Fatalf("refreshSession: %v", err)
+	}
+	if calls != 0 {
+		t.Fatalf("Login should not be called when session already changed, got %d", calls)
+	}
+
+	// first observer: observed matches current → Login fires
+	c.token = "old-tok"
+	if err := c.refreshSession(context.Background(), "old-tok"); err != nil {
+		t.Fatalf("refreshSession: %v", err)
+	}
+	if calls != 1 {
+		t.Fatalf("Login should be called once, got %d", calls)
+	}
+	if c.token != "new-tok" {
+		t.Fatalf("token = %q, want new-tok", c.token)
+	}
+}
+
+// --- shared test helpers ---
+
+func newTestClient(t *testing.T, token string, srvURL string) *Client {
 	t.Helper()
 	c := &Client{
-		baseURL:   mustParseURL(t, srvURL),
-		account:   "admin",
-		password:  "p",
-		sessionID: sessionID,
-		http:      &http.Client{},
+		baseURL:  mustParseURL(t, srvURL),
+		account:  "admin",
+		password: "p",
+		token:    token,
+		http:     &http.Client{},
 	}
 	return c
 }
@@ -90,69 +174,8 @@ func mustParseURL(t *testing.T, raw string) *jsonURL {
 	return u
 }
 
-// helpers used by other tests
-type respondJSON struct {
-	body string
-}
-
-func writeJSON(w http.ResponseWriter, status int, payload any) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(payload)
-}
-
-func TestIsSessionExpired(t *testing.T) {
-	cases := []struct {
-		name   string
-		status int
-		body   string
-		want   bool
-	}{
-		{"http 401", 401, "", true},
-		{"please login body", 200, `{"status":"failed","reason":"please login"}`, true},
-		{"please login mixed case", 200, `{"status":"failed","reason":"Please Login"}`, true},
-		{"normal failure", 200, `{"status":"failed","reason":"name exists"}`, false},
-		{"success", 200, `{"status":"success","data":{}}`, false},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			if got := isSessionExpired(tc.status, []byte(tc.body)); got != tc.want {
-				t.Fatalf("got %v want %v", got, tc.want)
-			}
-		})
-	}
-}
-
-func TestRefreshSession_DoubleCheck(t *testing.T) {
-	var calls int
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		calls++
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"status":"success","data":"{\"sessionID\":\"new-sid\"}"}`))
-	}))
-	defer srv.Close()
-
-	c := newTestClient(t, "old-sid", srv.URL)
-
-	// double-check: simulate that another goroutine already refreshed by passing
-	// an oldSID that no longer matches the current sessionID
-	c.sessionID = "already-refreshed"
-	if err := c.refreshSession(context.Background(), "old-sid"); err != nil {
-		t.Fatalf("refreshSession: %v", err)
-	}
-	if calls != 0 {
-		t.Fatalf("Login should not be called when session already changed, got %d", calls)
-	}
-
-	// first observer: oldSID matches current → Login is invoked
-	c.sessionID = "old-sid"
-	if err := c.refreshSession(context.Background(), "old-sid"); err != nil {
-		t.Fatalf("refreshSession: %v", err)
-	}
-	if calls != 1 {
-		t.Fatalf("Login should be called once, got %d", calls)
-	}
-	if c.sessionID != "new-sid" {
-		t.Fatalf("sessionID = %q, want new-sid", c.sessionID)
-	}
+// readAllString drains an io.Reader for ergonomic test assertions.
+func readAllString(r io.Reader) string {
+	b, _ := io.ReadAll(r)
+	return string(b)
 }

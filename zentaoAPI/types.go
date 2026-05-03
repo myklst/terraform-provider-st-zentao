@@ -1,16 +1,29 @@
 package zentaoapi
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"regexp"
 )
 
+// ZentaoResponse is the minimal envelope shared by all v2 endpoints.
+// v2 responses are flat: {"status":"success", ...resource fields...} or
+// {"status":"fail", "error":"..."} — no nested "data" wrapper, so the
+// concrete fields are decoded by per-endpoint structs that embed Status.
 type ZentaoResponse struct {
-	Status string          `json:"status"`
-	Reason string          `json:"reason,omitempty"`
-	Data   json.RawMessage `json:"data,omitempty"`
+	Status string `json:"status"`
+	Error  string `json:"error,omitempty"`
+	Reason string `json:"reason,omitempty"`
+}
+
+// ZentaoFailReason returns whichever non-empty failure description the
+// envelope carried. v2 uses "error", v1 used "reason"; both are tolerated
+// so callers don't care.
+func (e ZentaoResponse) ZentaoFailReason() string {
+	if e.Error != "" {
+		return e.Error
+	}
+	return e.Reason
 }
 
 var (
@@ -31,25 +44,4 @@ func (e *APIError) Error() string {
 	redacted := passwordPattern.ReplaceAll(e.RawBody, []byte(`${1}***${2}`))
 	return fmt.Sprintf("zentao api error: http=%d status=%q reason=%q body=%s",
 		e.HTTPStatus, e.ZentaoStatus, e.Reason, string(redacted))
-}
-
-// decodeData unmarshals env.Data into target. ZenTao APIs sometimes return
-// data as a JSON object directly, and sometimes as a JSON string containing
-// JSON. This helper handles both shapes transparently.
-func decodeData(env *ZentaoResponse, target any) error {
-	raw := env.Data
-	if len(raw) == 0 || string(raw) == "null" {
-		return nil
-	}
-	if raw[0] == '"' {
-		var inner string
-		if err := json.Unmarshal(raw, &inner); err != nil {
-			return fmt.Errorf("decode data string: %w", err)
-		}
-		if inner == "" {
-			return nil
-		}
-		return json.Unmarshal([]byte(inner), target)
-	}
-	return json.Unmarshal(raw, target)
 }

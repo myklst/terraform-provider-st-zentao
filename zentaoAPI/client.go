@@ -23,12 +23,12 @@ type Client struct {
 	account  string
 	password string
 
-	sessionMu sync.Mutex
-	sessionID string
+	tokenMu sync.Mutex
+	token   string
 
 	// refreshMu serializes refreshSession attempts so that concurrent 401s
 	// trigger only a single Login round-trip. The first goroutine to acquire
-	// it performs Login; subsequent goroutines see a refreshed sessionID and
+	// it performs Login; subsequent goroutines see a refreshed token and
 	// no-op.
 	refreshMu sync.Mutex
 
@@ -74,46 +74,45 @@ func NewClient(baseURL, account, password string) (*Client, error) {
 	return c, nil
 }
 
-func (c *Client) doRequest(ctx context.Context, method, path string, query map[string]string, body any) ([]byte, error) {
-	c.sessionMu.Lock()
-	observedSID := c.sessionID
-	c.sessionMu.Unlock()
+// doRequest performs a single API call with token-based authentication.
+// On HTTP 401 it refreshes the token and replays the request once.
+func (c *Client) doRequest(ctx context.Context, method, path string, query map[string]string, body any) ([]byte, int, error) {
+	c.tokenMu.Lock()
+	observedToken := c.token
+	c.tokenMu.Unlock()
 
-	rawBody, status, err := c.send(ctx, method, path, query, body, observedSID)
+	rawBody, status, err := c.send(ctx, method, path, query, body, observedToken)
 	if err != nil {
-		return nil, err
+		return rawBody, status, err
 	}
-	if !isSessionExpired(status, rawBody) {
-		return rawBody, nil
-	}
-
-	if err := c.refreshSession(ctx, observedSID); err != nil {
-		return nil, fmt.Errorf("session refresh: %w", err)
+	if !isSessionExpired(status) {
+		return rawBody, status, nil
 	}
 
-	c.sessionMu.Lock()
-	newSID := c.sessionID
-	c.sessionMu.Unlock()
+	if err := c.refreshSession(ctx, observedToken); err != nil {
+		return nil, status, fmt.Errorf("session refresh: %w", err)
+	}
 
-	rawBody, status, err = c.send(ctx, method, path, query, body, newSID)
+	c.tokenMu.Lock()
+	newToken := c.token
+	c.tokenMu.Unlock()
+
+	rawBody, status, err = c.send(ctx, method, path, query, body, newToken)
 	if err != nil {
-		return nil, err
+		return rawBody, status, err
 	}
-	if isSessionExpired(status, rawBody) {
-		return nil, fmt.Errorf("session refresh exhausted: still expired after replay")
+	if isSessionExpired(status) {
+		return rawBody, status, fmt.Errorf("session refresh exhausted: still 401 after replay")
 	}
-	return rawBody, nil
+	return rawBody, status, nil
 }
 
-func (c *Client) send(ctx context.Context, method, path string, query map[string]string, body any, sid string) ([]byte, int, error) {
+func (c *Client) send(ctx context.Context, method, path string, query map[string]string, body any, token string) ([]byte, int, error) {
 	endpoint := *c.baseURL
 	endpoint.Path = strings.TrimRight(endpoint.Path, "/") + "/" + strings.TrimLeft(path, "/")
 	q := endpoint.Query()
 	for k, v := range query {
 		q.Set(k, v)
-	}
-	if sid != "" {
-		q.Set("zentaosid", sid)
 	}
 	endpoint.RawQuery = q.Encode()
 
@@ -144,6 +143,9 @@ func (c *Client) send(ctx context.Context, method, path string, query map[string
 			req.Header.Set("Content-Type", "application/json")
 		}
 		req.Header.Set("Accept", "application/json")
+		if token != "" {
+			req.Header.Set("Token", token)
+		}
 
 		resp, err := c.http.Do(req)
 		if err != nil {
@@ -168,10 +170,6 @@ func (c *Client) send(ctx context.Context, method, path string, query map[string
 	expo.MaxElapsedTime = c.backoffMaxElapsed
 
 	if err := backoff.Retry(op, backoff.WithContext(expo, ctx)); err != nil {
-		if rawBody == nil {
-			return nil, status, err
-		}
-		// Surface the last server-side response body alongside the error.
 		return rawBody, status, err
 	}
 	return rawBody, status, nil
