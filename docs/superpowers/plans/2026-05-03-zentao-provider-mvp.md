@@ -91,12 +91,12 @@ Then add explicit deps to `go.mod`:
 ```
 module github.com/myklst/terraform-provider-st-zentao
 
-go 1.24
+go 1.25
 
 require (
     github.com/cenkalti/backoff/v4 v4.3.0
-    github.com/hashicorp/terraform-plugin-docs v0.22.0
-    github.com/hashicorp/terraform-plugin-framework v1.15.0
+    github.com/hashicorp/terraform-plugin-docs v0.25.0
+    github.com/hashicorp/terraform-plugin-framework v1.19.0
     github.com/hashicorp/terraform-plugin-framework-validators v0.18.0
     github.com/hashicorp/terraform-plugin-testing v1.13.0
 )
@@ -104,7 +104,11 @@ require (
 
 Run: `go mod tidy` to populate `go.sum`.
 
-- [ ] **Step 3: Create `tools/tools.go`**
+**Important:** `go mod tidy` strips deps with no Go file importing them. To keep all five direct deps pinned through tidy, the `tools/tools.go` file (Step 3) blank-imports the unused-yet ones. This is the standard Go pattern for pinning deps before any code uses them. Note: `framework-validators` and `plugin-testing` are not importable at the module root — use a sub-package path (e.g. `_ "github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"`).
+
+**Note on versions:** The original plan drafted versions that turned out not to compose (`framework v1.15.0` is incompatible with `plugin-testing v1.13.0`'s newer protocol interface). The pins above are the working set. The `toolchain` directive in `go.mod` may auto-bump to `go1.25.8` because transitive `hc-install` requires it; that's fine.
+
+- [ ] **Step 3: Create `tools/tools.go`** (blank-imports keep unused-yet deps through `go mod tidy`)
 
 ```go
 //go:build tools
@@ -113,7 +117,10 @@ Run: `go mod tidy` to populate `go.sum`.
 package tools
 
 import (
+    _ "github.com/cenkalti/backoff/v4"
     _ "github.com/hashicorp/terraform-plugin-docs/cmd/tfplugindocs"
+    _ "github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
+    _ "github.com/hashicorp/terraform-plugin-testing/helper/resource"
 )
 ```
 
