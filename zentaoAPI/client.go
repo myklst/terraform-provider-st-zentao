@@ -151,7 +151,9 @@ func (c *Client) send(ctx context.Context, method, path string, query map[string
 		if err != nil {
 			return err // retry on transient network errors
 		}
-		defer resp.Body.Close()
+		defer func() {
+			_ = resp.Body.Close()
+		}()
 		b, readErr := io.ReadAll(resp.Body)
 		if readErr != nil {
 			return readErr
