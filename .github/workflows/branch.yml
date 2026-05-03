@@ -12,9 +12,9 @@ on:
 permissions:
   contents: read
 
-concurrency:
-  group: branch-ci-${{ github.ref }}
-  cancel-in-progress: true
+# concurrency:
+#   group: branch-ci-${{ github.ref }}
+#   cancel-in-progress: true
 
 jobs:
   lint:
@@ -48,9 +48,6 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
-
-      # - name: go mod download
-      #   run: go mod download
 
       - name: make go-test-unit
         run: make go-test-unit
