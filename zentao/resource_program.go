@@ -8,7 +8,6 @@ import (
 	"strconv"
 
 	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
-	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
@@ -338,6 +337,3 @@ func programFromAPI(p *zentaoapi.Program) programResourceModel {
 		TeamCount:   types.StringValue(p.TeamCount),
 	}
 }
-
-// keep the diag import live for future helpers (e.g., when adding list attrs).
-var _ diag.Diagnostics

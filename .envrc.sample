@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
 export TF_ACC=1
-export ZENTAO_URL=""
-export ZENTAO_ACCOUNT=""
-export ZENTAO_PASSWORD=""
+export ZENTAO_URL="http://zentao.example.com/zentao"
+export ZENTAO_ACCOUNT="admin"
+export ZENTAO_PASSWORD="123456"
