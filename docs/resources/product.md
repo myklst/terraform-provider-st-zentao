@@ -39,15 +39,15 @@ resource "st-zentao_product" "example" {
 
 ### Optional
 
-- `acl` (String) Access control. One of: "open", "private". Defaults to "open".
+- `acl` (String) Access control. One of: "open", "private". Server-defaulted when unset (no static default here).
 - `description` (String) Optional description (mapped to ZenTao 'desc'). Empty string when unset.
-- `line` (Number) Associated product line ID. 0 means none.
-- `po` (String) Product Owner username.
-- `program` (Number) Associated program (portfolio) ID. 0 means unassigned. Required when running on ZenTao Biz/Max where products must belong to a program.
-- `qd` (String) QA Lead username.
-- `rd` (String) Release Lead username.
+- `line` (Number) Associated product line ID. Server-determined when unset.
+- `po` (String) Product Owner username. ZenTao auto-assigns the calling account when unset, so this stays Optional+Computed without a static default to avoid 'inconsistent result after apply' drift.
+- `program` (Number) Associated program (portfolio) ID. Server-determined when unset (ZenTao Biz/Max may auto-assign the user's default program).
+- `qd` (String) QA Lead username. Server may auto-assign; Optional+Computed without static default.
+- `rd` (String) Release Lead username. Server may auto-assign; Optional+Computed without static default.
 - `reviewer` (List of String) Reviewer usernames.
-- `type` (String) Product type. One of: "normal", "branch", "platform". Defaults to "normal".
+- `type` (String) Product type. One of: "normal", "branch", "platform". Server-defaulted when unset (no static default here, to avoid drift if the server's default ever diverges from ours).
 
 ### Read-Only
 

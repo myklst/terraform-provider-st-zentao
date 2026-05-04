@@ -35,6 +35,10 @@ endif
 generate-docs:
 	go generate ./...
 
+.PHONY: go-lint
+go-lint:
+	golangci-lint run ./...
+
 .PHONY: go-test-unit
 go-test-unit:
 	go test -v -cover ./zentao/... ./zentaoAPI/...
@@ -42,7 +46,3 @@ go-test-unit:
 .PHONY: go-test-acc
 go-test-acc:
 	TF_ACC=1 go test -v -timeout 30m ./zentao/...
-
-.PHONY: go-lint
-go-lint:
-	golangci-lint run ./...
