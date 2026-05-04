@@ -36,5 +36,5 @@ provider "st-zentao" {
 
 ### Optional
 
-- `account` (String, Sensitive) ZenTao account name. Falls back to ZENTAO_ACCOUNT env var.
+- `account` (String) ZenTao account name. Falls back to ZENTAO_ACCOUNT env var.
 - `password` (String, Sensitive) ZenTao account password. Falls back to ZENTAO_PASSWORD env var.

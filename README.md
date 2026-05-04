@@ -4,7 +4,7 @@ Custom Terraform provider for [ZenTao](https://www.zentao.net/) — self-hosted 
 
 ## Status
 
-Initial release: ships the `st-zentao_product` resource and the `st-zentao_product` data source. More resources (project, execution, user, group) planned.
+Initial release: ships the `st-zentao_product` and `st-zentao_program` resources, plus matching data sources. More resources (project, execution, user, group) planned.
 
 ## Local installation
 
@@ -57,6 +57,25 @@ Server-managed read-only outputs include `id`, `code`, `status`, `created_by`,
 `created_date`, and `program_name`. ZenTao v2 does not accept `code` on write
 — it is exposed as a Computed attribute only.
 
+### `st-zentao_program`
+
+```hcl
+resource "st-zentao_program" "demo" {
+  name        = "Smart Home"
+  begin       = "2026-01-01"
+  end         = "2026-12-31"
+  description = "Managed by Terraform"
+
+  pm = "alice" # optional; ZenTao auto-assigns the calling account when unset
+}
+```
+
+Writeable fields per the v2 `POST /api.php/v2/programs` body: `name`, `begin`,
+`end`, `pm`, `desc` (mapped as `description`). `begin` and `end` must be
+`YYYY-MM-DD`. Server-managed read-only outputs include `id`, `code`, `status`,
+`parent`, `type`, `category`, `acl`, `po`, `qd`, `rd`, `budget`, `budget_unit`,
+`opened_by`, `opened_date`, `real_began`, `real_end`, `progress`, `team_count`.
+
 ## Data Sources
 
 ### `st-zentao_product`
@@ -70,6 +89,20 @@ data "st-zentao_product" "existing" {
 
 output "product_name" {
   value = data.st-zentao_product.existing.name
+}
+```
+
+### `st-zentao_program`
+
+Look up an existing program by its numeric id:
+
+```hcl
+data "st-zentao_program" "existing" {
+  id = "1"
+}
+
+output "program_name" {
+  value = data.st-zentao_program.existing.name
 }
 ```
 
