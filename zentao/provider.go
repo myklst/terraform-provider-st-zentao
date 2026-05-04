@@ -95,12 +95,14 @@ func (p *zentaoProvider) Configure(ctx context.Context, req provider.ConfigureRe
 func (p *zentaoProvider) Resources(_ context.Context) []func() resource.Resource {
 	return []func() resource.Resource{
 		NewProductResource,
+		NewProgramResource,
 	}
 }
 
 func (p *zentaoProvider) DataSources(_ context.Context) []func() datasource.DataSource {
 	return []func() datasource.DataSource{
 		NewProductDataSource,
+		NewProgramDataSource,
 	}
 }
 
