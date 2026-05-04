@@ -102,7 +102,7 @@ func (r *programResource) Schema(_ context.Context, _ resource.SchemaRequest, re
 				Validators:  []validator.String{stringvalidator.RegexMatches(dateRe, `must be YYYY-MM-DD`)},
 			},
 			"pm": schema.StringAttribute{
-				Description: "Program Manager username. ZenTao auto-assigns the calling " +
+				Description: "Project Manager username. ZenTao auto-assigns the calling " +
 					"account when unset, so this stays Optional+Computed without a static " +
 					"default to avoid 'inconsistent result after apply' drift.",
 				Optional:      true,

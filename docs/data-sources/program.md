@@ -53,7 +53,7 @@ output "program" {
 - `opened_by` (String) Creator username.
 - `opened_date` (String) Creation timestamp.
 - `parent` (Number) Parent program ID (0 if top-level).
-- `pm` (String) Program Manager username.
+- `pm` (String) Project Manager username.
 - `po` (String) Product Owner username.
 - `progress` (String) Completion progress percentage.
 - `qd` (String) QA Lead username.

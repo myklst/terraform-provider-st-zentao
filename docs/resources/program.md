@@ -19,9 +19,9 @@ resource "st-zentao_program" "example" {
   end         = "2026-12-31"
   description = "Created by Terraform"
 
-  # Optional: assign a Program Manager. If unset, ZenTao auto-assigns
+  # Optional: assign a Project Manager. If unset, ZenTao auto-assigns
   # the calling account.
-  pm = "productManager"
+  pm = "testPM"
 }
 ```
 
@@ -37,7 +37,7 @@ resource "st-zentao_program" "example" {
 ### Optional
 
 - `description` (String) Optional description (mapped to ZenTao 'desc'). Empty string when unset.
-- `pm` (String) Program Manager username. ZenTao auto-assigns the calling account when unset, so this stays Optional+Computed without a static default to avoid 'inconsistent result after apply' drift.
+- `pm` (String) Project Manager username. ZenTao auto-assigns the calling account when unset, so this stays Optional+Computed without a static default to avoid 'inconsistent result after apply' drift.
 
 ### Read-Only
 

@@ -70,7 +70,7 @@ func (d *programDataSource) Schema(_ context.Context, _ datasource.SchemaRequest
 			"name":        schema.StringAttribute{Description: "Program display name.", Computed: true},
 			"begin":       schema.StringAttribute{Description: "Planned start date (YYYY-MM-DD).", Computed: true},
 			"end":         schema.StringAttribute{Description: "Planned end date (YYYY-MM-DD).", Computed: true},
-			"pm":          schema.StringAttribute{Description: "Program Manager username.", Computed: true},
+			"pm":          schema.StringAttribute{Description: "Project Manager username.", Computed: true},
 			"description": schema.StringAttribute{Description: "Program description (mapped from ZenTao 'desc').", Computed: true},
 			"status":      schema.StringAttribute{Description: "Server-managed program status.", Computed: true},
 			"parent":      schema.Int64Attribute{Description: "Parent program ID (0 if top-level).", Computed: true},
