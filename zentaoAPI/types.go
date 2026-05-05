@@ -129,6 +129,7 @@ func isUnauthorizedReason(reason string) bool {
 		return true
 	}
 	if strings.Contains(reason, "密码错误") ||
+		strings.Contains(reason, "登录失败") ||
 		strings.Contains(reason, "认证") {
 		return true
 	}

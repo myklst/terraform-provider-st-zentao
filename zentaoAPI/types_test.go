@@ -133,6 +133,7 @@ func TestIsUnauthorizedReason(t *testing.T) {
 		{"密码错误", true},
 		{"账号或密码错误", true},
 		{"认证失败", true},
+		{"登录失败，请检查您的用户名或密码是否填写正确。", true}, // observed: real ZenTao Max 8.1 reply
 		{"Product does not exist.", false},
 		{"please login", false}, // login redirect, not bad-creds
 		{"", false},
