@@ -270,13 +270,6 @@ func (c *Client) DeleteProduct(ctx context.Context, id int) error {
 	return apiError(status, body)
 }
 
-// isNotFoundReason recognises ZenTao's various ways of saying "the row
-// you asked about does not exist" inside a 200-OK envelope.
-func isNotFoundReason(reason string) bool {
-	r := strings.ToLower(reason)
-	return strings.Contains(r, "not exist") || strings.Contains(r, "not found")
-}
-
 // apiError builds an APIError, parsing the envelope status/reason out of
 // the body when possible so callers get a structured failure description.
 func apiError(httpStatus int, body []byte) error {
