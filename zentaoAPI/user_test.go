@@ -80,8 +80,8 @@ func TestUserCtrlWire_ToUser_FullPayload(t *testing.T) {
 	if u.Last != "2026-05-06 01:13:10" {
 		t.Fatalf("Last = %q", u.Last)
 	}
-	if u.Deleted != "0" {
-		t.Fatalf("Deleted = %q", u.Deleted)
+	if u.Deleted != 0 {
+		t.Fatalf("Deleted = %d", u.Deleted)
 	}
 	if u.ClientLang != "zh-cn" {
 		t.Fatalf("ClientLang = %q", u.ClientLang)

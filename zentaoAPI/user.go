@@ -55,7 +55,7 @@ type User struct {
 	Last       string `json:"-"`
 	Visits     int    `json:"-"`
 	Locked     string `json:"-"`
-	Deleted    string `json:"-"`
+	Deleted    int    `json:"-"` // 0 = active, 1 = soft-deleted
 	ClientLang string `json:"-"`
 }
 
@@ -85,7 +85,7 @@ type userCtrlWire struct {
 	Last       string      `json:"last"`
 	Visits     json.Number `json:"visits"`
 	Locked     string      `json:"locked"`
-	Deleted    string      `json:"deleted"`
+	Deleted    json.Number `json:"deleted"` // 0/1 — int on Max 8.1, string on some versions
 	ClientLang string      `json:"clientLang"`
 }
 
@@ -99,6 +99,10 @@ func (w userCtrlWire) toUser() (*User, error) {
 		return nil, err
 	}
 	visits, err := jsonNumberToInt(w.Visits, "visits")
+	if err != nil {
+		return nil, err
+	}
+	deleted, err := jsonNumberToInt(w.Deleted, "deleted")
 	if err != nil {
 		return nil, err
 	}
@@ -124,7 +128,7 @@ func (w userCtrlWire) toUser() (*User, error) {
 		Last:       w.Last,
 		Visits:     visits,
 		Locked:     w.Locked,
-		Deleted:    w.Deleted,
+		Deleted:    deleted,
 		ClientLang: w.ClientLang,
 		// Password / VerifyPassword left zero on read — see User doc comment.
 	}, nil

@@ -85,3 +85,49 @@ func TestIntegration_V1Login_AndCallController(t *testing.T) {
 	}
 	_ = strings.TrimSpace // keep imports stable if test grows
 }
+
+// TestIntegration_GetUser_Admin verifies the user controller's read
+// primitive against a real instance. We can only round-trip GetUser
+// on this branch — CreateUser is blocked by the licensed-user cap and
+// UpdateUser/DeleteUser are blocked by ZenTao Max 8.1's verifyPassword
+// sudo gate (see docs/superpowers/specs/probe-user-controller.md).
+//
+// Skipped if ZENTAO_INTEGRATION_URL is unset.
+func TestIntegration_GetUser_Admin(t *testing.T) {
+	url := os.Getenv("ZENTAO_INTEGRATION_URL")
+	account := os.Getenv("ZENTAO_INTEGRATION_ACCOUNT")
+	password := os.Getenv("ZENTAO_INTEGRATION_PASSWORD")
+	if url == "" || account == "" || password == "" {
+		t.Skip("set ZENTAO_INTEGRATION_URL / _ACCOUNT / _PASSWORD to run")
+	}
+
+	c, err := NewClient(url, account, password)
+	if err != nil {
+		t.Fatalf("NewClient: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	// admin is conventionally id=1 on every ZenTao instance.
+	u, err := c.GetUser(ctx, 1)
+	if err != nil {
+		t.Fatalf("GetUser(1): %v", err)
+	}
+	if u.ID != 1 {
+		t.Fatalf("ID = %d, want 1", u.ID)
+	}
+	if u.Account != account {
+		t.Fatalf("Account = %q, want %q", u.Account, account)
+	}
+	if u.Realname == "" {
+		t.Fatal("Realname unexpectedly empty")
+	}
+	// Sensitive discipline: read-side must NEVER populate Password.
+	if u.Password != "" {
+		t.Fatalf("Password leaked into User on read: %q", u.Password)
+	}
+	if u.VerifyPassword != "" {
+		t.Fatalf("VerifyPassword unexpectedly populated: %q", u.VerifyPassword)
+	}
+}
