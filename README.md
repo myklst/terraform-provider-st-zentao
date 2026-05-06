@@ -1,10 +1,16 @@
 # terraform-provider-st-zentao
 
-Custom Terraform provider for [ZenTao](https://www.zentao.net/) — self-hosted open source plus Pro / Biz / Max editions. Talks to the **ZenTao RESTful API v2** (`/api.php/v2/...`) using token-based authentication.
+Custom Terraform provider for [ZenTao](https://www.zentao.net/) — self-hosted open source plus Pro / Biz / Max editions. Authenticates via the v1 two-step apilogin flow; the resulting session drives both the **ZenTao RESTful API v2** (`/api.php/v2/...`) and the legacy **PATH_INFO Controller** routes (`/<module>-<method>-...json`), so resources can target whichever entity surface ZenTao exposes.
 
 ## Status
 
-Initial release: ships the `st-zentao_product` and `st-zentao_program` resources, plus matching data sources. More resources (project, execution, user, group) planned.
+Initial release: ships the `st-zentao_product` and `st-zentao_program` resources, plus matching data sources. More resources (project, execution, user, group) planned — these will use the Controller transport since V2 doesn't expose them.
+
+## Architecture
+
+The HTTP client (`zentaoAPI/`) carries a single auth pipeline that serves two transport flavours. V2 wrappers (`api.php/v2/...`) and Controller wrappers (`<module>-<method>-...json`) both flow through the same `doRequest` → `send` → cookiejar+`Token` header chain, and share the same session refresh logic. See `docs/superpowers/specs/2026-05-06-controller-extension-stage1.md` for the design contract and `docs/superpowers/specs/probe-controller-auth.md` for the auth probe that informs it.
+
+For Controller endpoints not yet covered by a typed wrapper, the client exposes `CallController(ctx, module, method, pathArgs, query, body)` — marked **EXPERIMENTAL**; prefer typed methods when they exist.
 
 ## Local installation
 
