@@ -32,6 +32,49 @@ func (e ZentaoResponse) ZentaoFailReason() string {
 	return zentaoFailReason(e.Error, e.Message, e.Reason)
 }
 
+// CtrlSimpleResponse is the envelope ZenTao Controllers return for
+// write/form-submit operations (e.g. user-create, user-edit POST). It
+// uses `result` (not `status`) and the `message` field can be either
+// a flat string ("operation succeeded" / "license cap reached") OR a
+// per-field validation map (`{fieldName: [errMsg1, ...]}`). Use
+// IsSuccess for status, FieldErrors to disambiguate the message shape.
+type CtrlSimpleResponse struct {
+	Result  string          `json:"result"`
+	Message json.RawMessage `json:"message,omitempty"`
+	Load    string          `json:"load,omitempty"`
+}
+
+// IsSuccess reports whether the controller operation succeeded.
+// ZenTao only ever uses "success" — anything else (including empty)
+// means failure or unset.
+func (r CtrlSimpleResponse) IsSuccess() bool {
+	return r.Result == "success"
+}
+
+// FieldErrors disambiguates the dual-shape `message` field. For a flat
+// string message it returns (msg, nil); for a per-field map it returns
+// ("", map). When `message` is absent or unparseable as either shape,
+// both return values are zero — caller can decide whether to treat as
+// silent success or surface raw.
+func (r CtrlSimpleResponse) FieldErrors() (string, map[string][]string) {
+	if len(r.Message) == 0 || string(r.Message) == "null" {
+		return "", nil
+	}
+	switch r.Message[0] {
+	case '"':
+		var s string
+		if err := json.Unmarshal(r.Message, &s); err == nil {
+			return s, nil
+		}
+	case '{':
+		var m map[string][]string
+		if err := json.Unmarshal(r.Message, &m); err == nil {
+			return "", m
+		}
+	}
+	return "", nil
+}
+
 // CtrlEnvelope is the envelope returned by ZenTao Controller endpoints
 // (PATH_INFO `.json`). The resource payload sits inside Data, sometimes
 // as a JSON-encoded string, sometimes as a direct object/array. Use

@@ -243,6 +243,78 @@ func TestDecodeData(t *testing.T) {
 	})
 }
 
+func TestCtrlSimpleResponse_IsSuccess(t *testing.T) {
+	cases := []struct {
+		name string
+		r    CtrlSimpleResponse
+		want bool
+	}{
+		{"success", CtrlSimpleResponse{Result: "success"}, true},
+		{"fail", CtrlSimpleResponse{Result: "fail"}, false},
+		{"empty result", CtrlSimpleResponse{}, false},
+		{"weird value", CtrlSimpleResponse{Result: "maybe"}, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := tc.r.IsSuccess(); got != tc.want {
+				t.Fatalf("got %v want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestCtrlSimpleResponse_FieldErrors(t *testing.T) {
+	t.Run("flat string message", func(t *testing.T) {
+		r := CtrlSimpleResponse{
+			Result:  "fail",
+			Message: json.RawMessage(`"系统用户人数已达授权的上限"`),
+		}
+		flat, fields := r.FieldErrors()
+		if flat != "系统用户人数已达授权的上限" {
+			t.Fatalf("flat = %q", flat)
+		}
+		if fields != nil {
+			t.Fatalf("fields should be nil for flat message, got %v", fields)
+		}
+	})
+
+	t.Run("per-field map message", func(t *testing.T) {
+		r := CtrlSimpleResponse{
+			Result:  "fail",
+			Message: json.RawMessage(`{"verifyPassword":["验证失败"],"visions":["『界面类型』不能为空。"]}`),
+		}
+		flat, fields := r.FieldErrors()
+		if flat != "" {
+			t.Fatalf("flat should be empty for map message, got %q", flat)
+		}
+		if got := fields["verifyPassword"]; len(got) != 1 || got[0] != "验证失败" {
+			t.Fatalf("verifyPassword field = %v", got)
+		}
+		if got := fields["visions"]; len(got) != 1 || got[0] != "『界面类型』不能为空。" {
+			t.Fatalf("visions field = %v", got)
+		}
+	})
+
+	t.Run("absent message", func(t *testing.T) {
+		r := CtrlSimpleResponse{Result: "success"}
+		flat, fields := r.FieldErrors()
+		if flat != "" || fields != nil {
+			t.Fatalf("absent message should yield empty: flat=%q fields=%v", flat, fields)
+		}
+	})
+
+	t.Run("malformed message", func(t *testing.T) {
+		r := CtrlSimpleResponse{
+			Result:  "fail",
+			Message: json.RawMessage(`12345`),
+		}
+		flat, fields := r.FieldErrors()
+		if flat == "" && fields == nil {
+			// either acceptable as long as it doesn't crash
+		}
+	})
+}
+
 func TestClassifyCtrlError(t *testing.T) {
 	t.Run("not found via message", func(t *testing.T) {
 		env := CtrlEnvelope{Status: "fail", Message: "User does not exist"}

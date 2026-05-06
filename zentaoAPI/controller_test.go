@@ -171,6 +171,132 @@ func TestDoController_RedirectToLogin_TriggersRefreshSmoke(t *testing.T) {
 	}
 }
 
+func TestDoControllerForm_POST_FormEncoded(t *testing.T) {
+	var gotMethod, gotPath, gotCT, gotBody string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotMethod = r.Method
+		gotPath = r.URL.Path
+		gotCT = r.Header.Get("Content-Type")
+		b, _ := io.ReadAll(r.Body)
+		gotBody = string(b)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"result":"success","message":"saved","load":"/zentao/foo"}`))
+	}))
+	defer srv.Close()
+
+	c := newTestClient(t, "tok-1", srv.URL)
+	form := make(map[string][]string)
+	form["account"] = []string{"alice"}
+	form["password"] = []string{"P@ssw0rd"}
+	form["realname"] = []string{"Alice"}
+	form["visions"] = []string{"rnd"}
+
+	body, status, err := c.doControllerForm(context.Background(), "user", "create", nil, nil, form)
+	if err != nil {
+		t.Fatalf("doControllerForm: %v", err)
+	}
+	if status != http.StatusOK {
+		t.Fatalf("status = %d", status)
+	}
+	if gotMethod != http.MethodPost {
+		t.Fatalf("method = %q, want POST", gotMethod)
+	}
+	if gotPath != "/user-create.json" {
+		t.Fatalf("path = %q", gotPath)
+	}
+	if gotCT != "application/x-www-form-urlencoded" {
+		t.Fatalf("content-type = %q", gotCT)
+	}
+	for _, want := range []string{"account=alice", "password=P%40ssw0rd", "realname=Alice", "visions=rnd"} {
+		if !strings.Contains(gotBody, want) {
+			t.Fatalf("body %q missing %q", gotBody, want)
+		}
+	}
+	if !strings.Contains(string(body), `"result":"success"`) {
+		t.Fatalf("body = %s", body)
+	}
+}
+
+func TestDoControllerForm_QueryPlumbed(t *testing.T) {
+	var gotQuery string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotQuery = r.URL.RawQuery
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"result":"success"}`))
+	}))
+	defer srv.Close()
+
+	c := newTestClient(t, "tok-1", srv.URL)
+	form := map[string][]string{"x": {"1"}}
+	q := map[string]string{"confirm": "yes"}
+	if _, _, err := c.doControllerForm(context.Background(), "user", "delete", []string{"5"}, q, form); err != nil {
+		t.Fatalf("doControllerForm: %v", err)
+	}
+	if !strings.Contains(gotQuery, "confirm=yes") {
+		t.Fatalf("query = %q, want confirm=yes", gotQuery)
+	}
+	// zentaosid must also be auto-injected (Controller path)
+	if !strings.Contains(gotQuery, "zentaosid=tok-1") {
+		t.Fatalf("query = %q, want zentaosid=tok-1", gotQuery)
+	}
+}
+
+func TestDoControllerForm_RefreshAndReplay(t *testing.T) {
+	var apiCalls, loginCalls atomic.Int32
+	srv := newV1LoginServer(t, v1Opts{
+		sessionID:  "new-tok",
+		loginCalls: &loginCalls,
+		apiCalls:   &apiCalls,
+		handler: func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Query().Get("zentaosid") == "old-tok" {
+				w.Header().Set("Location", "/zentao/user-login.html")
+				w.WriteHeader(http.StatusFound)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"result":"success","message":"saved"}`))
+		},
+	})
+	defer srv.Close()
+
+	c := newTestClient(t, "old-tok", srv.URL)
+	form := map[string][]string{"name": {"x"}}
+	_, status, err := c.doControllerForm(context.Background(), "user", "create", nil, nil, form)
+	if err != nil {
+		t.Fatalf("doControllerForm: %v", err)
+	}
+	if status != http.StatusOK {
+		t.Fatalf("status = %d (post-replay should be 200)", status)
+	}
+	if loginCalls.Load() != 1 {
+		t.Fatalf("login calls = %d, want 1", loginCalls.Load())
+	}
+	if apiCalls.Load() != 2 {
+		t.Fatalf("api calls = %d, want 2", apiCalls.Load())
+	}
+}
+
+func TestDoControllerForm_RefreshExhausted(t *testing.T) {
+	srv := newV1LoginServer(t, v1Opts{
+		sessionID: "still-expired",
+		handler: func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Location", "/zentao/user-login.html")
+			w.WriteHeader(http.StatusFound)
+		},
+	})
+	defer srv.Close()
+
+	c := newTestClient(t, "old-tok", srv.URL)
+	form := map[string][]string{"name": {"x"}}
+	_, _, err := c.doControllerForm(context.Background(), "user", "create", nil, nil, form)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "session refresh exhausted") {
+		t.Fatalf("error = %v, want session refresh exhausted", err)
+	}
+}
+
 func TestCallController_PublicHappyPath(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/product-all.json" {
