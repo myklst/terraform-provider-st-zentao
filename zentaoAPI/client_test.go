@@ -387,6 +387,82 @@ func TestDoRequest_CookieJarPersistsAcrossRequests(t *testing.T) {
 	}
 }
 
+func TestSend_InjectsZentaosidQueryWhenTokenSet(t *testing.T) {
+	var sawSid string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		sawSid = r.URL.Query().Get("zentaosid")
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"status":"success"}`))
+	}))
+	defer srv.Close()
+
+	c := newTestClient(t, "tok-xyz", srv.URL)
+	if _, _, err := c.doRequest(context.Background(), http.MethodGet, "user-view-admin.json", nil, nil); err != nil {
+		t.Fatalf("doRequest: %v", err)
+	}
+	if sawSid != "tok-xyz" {
+		t.Fatalf("zentaosid query = %q, want tok-xyz", sawSid)
+	}
+}
+
+func TestSend_OmitsZentaosidWhenTokenEmpty(t *testing.T) {
+	var sawSid string
+	var sawSidPresent bool
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, sawSidPresent = r.URL.Query()["zentaosid"]
+		sawSid = r.URL.Query().Get("zentaosid")
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"status":"success"}`))
+	}))
+	defer srv.Close()
+
+	c := newTestClient(t, "", srv.URL) // empty token: bootstrap window
+	if _, _, err := c.doRequest(context.Background(), http.MethodGet, "api-getsessionid.json", nil, nil); err != nil {
+		t.Fatalf("doRequest: %v", err)
+	}
+	if sawSidPresent || sawSid != "" {
+		t.Fatalf("expected no zentaosid query when token empty, got %q (present=%v)", sawSid, sawSidPresent)
+	}
+}
+
+func TestSend_OmitsZentaosidOnV2Path(t *testing.T) {
+	var sawSidPresent bool
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, sawSidPresent = r.URL.Query()["zentaosid"]
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"status":"success"}`))
+	}))
+	defer srv.Close()
+
+	c := newTestClient(t, "tok-xyz", srv.URL)
+	if _, _, err := c.doRequest(context.Background(), http.MethodPut, "api.php/v2/programs/77",
+		nil, map[string]string{"name": "x"}); err != nil {
+		t.Fatalf("doRequest: %v", err)
+	}
+	if sawSidPresent {
+		t.Fatal("V2 path must NOT receive zentaosid query (server mis-parses on PUT)")
+	}
+}
+
+func TestSend_RespectsCallerSuppliedZentaosid(t *testing.T) {
+	var sawSid string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		sawSid = r.URL.Query().Get("zentaosid")
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"status":"success"}`))
+	}))
+	defer srv.Close()
+
+	c := newTestClient(t, "tok-from-client", srv.URL)
+	if _, _, err := c.doRequest(context.Background(), http.MethodGet, "x.json",
+		map[string]string{"zentaosid": "tok-from-caller"}, nil); err != nil {
+		t.Fatalf("doRequest: %v", err)
+	}
+	if sawSid != "tok-from-caller" {
+		t.Fatalf("zentaosid = %q, want caller-supplied to win", sawSid)
+	}
+}
+
 func TestDoRequest_AutoRedirectDisabled(t *testing.T) {
 	var hits atomic.Int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

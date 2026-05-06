@@ -39,6 +39,14 @@ type Client struct {
 	backoffInitialInterval time.Duration
 }
 
+// isV2Path reports whether path targets the V2 REST surface
+// (`api.php/v2/...`) as opposed to a PATH_INFO Controller route. V2
+// requests must NOT carry the zentaosid query param on writes because
+// ZenTao Max 8.x mis-parses it as a record id in unique-check SQL.
+func isV2Path(path string) bool {
+	return strings.HasPrefix(strings.TrimLeft(path, "/"), "api.php/")
+}
+
 func parseBaseURL(raw string) (*url.URL, error) {
 	if raw == "" {
 		return nil, fmt.Errorf("base URL is empty")
@@ -129,6 +137,18 @@ func (c *Client) send(ctx context.Context, method, path string, query map[string
 	q := endpoint.Query()
 	for k, v := range query {
 		q.Set(k, v)
+	}
+	// PATH_INFO Controller routes (`<module>-<method>...json`) authenticate
+	// EXCLUSIVELY via the zentaosid query parameter on ZenTao Max 8.x — the
+	// session cookie alone yields 302 → /user-login. V2 routes
+	// (`api.php/v2/...`) authenticate via Token header / cookie and must
+	// NOT receive zentaosid: ZenTao Max 8.x mis-parses it on PUT, feeding
+	// the long hex value into a SQL `id != ?` unique-check (observed:
+	// "Unknown column" SQL error on update). Caller-supplied zentaosid
+	// always wins; otherwise we fill it for Controller paths only. An
+	// empty token (Login still in flight) emits no query param either way.
+	if token != "" && q.Get("zentaosid") == "" && !isV2Path(path) {
+		q.Set("zentaosid", token)
 	}
 	endpoint.RawQuery = q.Encode()
 
