@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"sort"
 	"strings"
 )
 
@@ -208,6 +209,43 @@ func DecodeData(env CtrlEnvelope, target any) error {
 		return nil
 	default:
 		return fmt.Errorf("decode data: unexpected JSON shape %q", string(data))
+	}
+}
+
+// classifyCtrlSimple is the shape-C counterpart to classifyCtrlError.
+// It maps a CtrlSimpleResponse failure (`result:fail` with either flat
+// or per-field message) onto a sentinel or *APIError. For per-field
+// validation maps, it composes a single human-readable reason of the
+// form "field1: err; field2: err" so the caller's logs / error chain
+// stay one-liner-friendly.
+func classifyCtrlSimple(httpStatus int, r CtrlSimpleResponse, rawBody []byte) error {
+	flat, fields := r.FieldErrors()
+	reason := flat
+	if reason == "" && len(fields) > 0 {
+		// stable order — sort field names for deterministic output
+		keys := make([]string, 0, len(fields))
+		for k := range fields {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		var parts []string
+		for _, k := range keys {
+			parts = append(parts, fmt.Sprintf("%s: %s", k, strings.Join(fields[k], ", ")))
+		}
+		reason = strings.Join(parts, "; ")
+	}
+	switch {
+	case isNotFoundReason(reason):
+		return ErrNotFound
+	case isUnauthorizedReason(reason):
+		return ErrUnauthorized
+	default:
+		return &APIError{
+			HTTPStatus:   httpStatus,
+			ZentaoStatus: r.Result,
+			Reason:       reason,
+			RawBody:      rawBody,
+		}
 	}
 }
 
