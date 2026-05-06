@@ -112,6 +112,36 @@ output "program_name" {
 }
 ```
 
+## API client only — `User`
+
+The `zentaoAPI.Client` exposes typed methods for ZenTao users via the Controller transport (no Terraform resource wraps this yet — coming after the wrapper stabilises across more entities):
+
+```go
+// Read — works on any instance:
+u, err := client.GetUser(ctx, 1)            // by numeric id
+
+// Write — instance-dependent:
+_, err = client.CreateUser(ctx, &zentaoapi.User{
+    Account: "alice", Password: "P@ssw0rd",
+    Realname: "Alice", Email: "alice@example.test",
+    Dept: 500, Gender: "f",
+})
+_, err = client.UpdateUser(ctx, &zentaoapi.User{
+    ID: 7, Account: "alice", Realname: "Alice Renamed",
+    VerifyPassword: "<admin-password>", // see caveat below
+})
+err = client.DeleteUser(ctx, 7)
+```
+
+**Read primitive uses `user-edit-<id>` GET, not `user-view`.** ZenTao Max 8.x always 302s `user-view-<x>.json` to that user's todo calendar, so the read implementation pulls the user record out of the edit-form context envelope. This is invisible to callers but worth knowing if you compare with the reference API docs.
+
+**Two version-specific caveats:**
+
+- **License cap on create.** Editions enforcing a licensed user count (Pro / Biz / Max) reject `CreateUser` with the verbatim license message once the cap is reached. The wrapper surfaces it as `*APIError` with the original Chinese / English text intact so you can detect and bump licensing rather than retry.
+- **VerifyPassword sudo gate on update / delete.** Some editions (observed: ZenTao Max 8.1) require the calling admin to re-confirm their password as `verifyPassword` for every mutating user-controller operation. Set `User.VerifyPassword` accordingly. Editions without the gate ignore the field. The exact hashing scheme (plain / md5 / salted) varies and is not documented; the wrapper passes the field verbatim.
+
+`Password` and `VerifyPassword` are write-only on the `User` struct: read-side methods leave them empty, and `CreateUser` zeros them on the returned `*User` so the round-trip can never accidentally surface them in error formatting or logs.
+
 ## Development
 
 ```bash
