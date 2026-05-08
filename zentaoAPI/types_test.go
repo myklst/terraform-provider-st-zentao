@@ -310,7 +310,7 @@ func TestCtrlSimpleResponse_FieldErrors(t *testing.T) {
 		}
 		flat, fields := r.FieldErrors()
 		if flat == "" && fields == nil {
-			// either acceptable as long as it doesn't crash
+			t.Log("acceptable as long as it doesn't crash")
 		}
 	})
 }

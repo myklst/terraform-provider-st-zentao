@@ -77,7 +77,6 @@ func (c *Client) Login(ctx context.Context) error {
 func (c *Client) loginStep1(ctx context.Context) (string, error) {
 	endpoint := *c.baseURL
 	endpoint.Path = strings.TrimRight(endpoint.Path, "/") + "/api-getsessionid.json"
-	endpoint.RawQuery = ""
 
 	body, status, err := c.simpleGET(ctx, endpoint.String())
 	if err != nil {
