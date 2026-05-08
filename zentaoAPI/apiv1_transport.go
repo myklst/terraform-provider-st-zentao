@@ -7,6 +7,11 @@ import (
 	"net/http"
 )
 
+//nolint:all
+// apiV1PathPrefix is the URL prefix for ZenTao's V1 REST API surface.
+// Used only for documentation / sanity assertions.
+const apiV1PathPrefix = "api.php/v1/"
+
 // doV1Request invokes a ZenTao API V1 REST endpoint. V1 uses the same
 // Token-header convention as V2 (the underlying sessionID drives both),
 // but its expiry signal differs: per probe 2026-05-08, an unauthenticated
