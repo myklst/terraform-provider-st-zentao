@@ -5,8 +5,8 @@
 //
 //	go test -tags=integration -run TestIntegration_V1Login_AndCallController ./zentaoAPI/...
 //
-// And export ZENTAO_INTEGRATION_URL, ZENTAO_INTEGRATION_ACCOUNT,
-// ZENTAO_INTEGRATION_PASSWORD against a real ZenTao instance you control.
+// And export ZENTAO_URL, ZENTAO_ACCOUNT,
+// ZENTAO_PASSWORD against a real ZenTao instance you control.
 
 package zentaoapi
 
@@ -25,13 +25,13 @@ import (
 // real server behaviour: if ZenTao changes the envelope shape, login
 // route, or Controller dispatch, this test catches it.
 //
-// Skipped if ZENTAO_INTEGRATION_URL is unset.
+// Skipped if ZENTAO_URL is unset.
 func TestIntegration_V1Login_AndCallController(t *testing.T) {
-	url := os.Getenv("ZENTAO_INTEGRATION_URL")
-	account := os.Getenv("ZENTAO_INTEGRATION_ACCOUNT")
-	password := os.Getenv("ZENTAO_INTEGRATION_PASSWORD")
+	url := os.Getenv("ZENTAO_URL")
+	account := os.Getenv("ZENTAO_ACCOUNT")
+	password := os.Getenv("ZENTAO_PASSWORD")
 	if url == "" || account == "" || password == "" {
-		t.Skip("set ZENTAO_INTEGRATION_URL / _ACCOUNT / _PASSWORD to run")
+		t.Skip("set ZENTAO_URL / _ACCOUNT / _PASSWORD to run")
 	}
 
 	c, err := NewClient(url, account, password)
@@ -92,13 +92,13 @@ func TestIntegration_V1Login_AndCallController(t *testing.T) {
 // UpdateUser/DeleteUser are blocked by ZenTao Max 8.1's verifyPassword
 // sudo gate (see docs/superpowers/specs/probe-user-controller.md).
 //
-// Skipped if ZENTAO_INTEGRATION_URL is unset.
+// Skipped if ZENTAO_URL is unset.
 func TestIntegration_GetUser_Admin(t *testing.T) {
-	url := os.Getenv("ZENTAO_INTEGRATION_URL")
-	account := os.Getenv("ZENTAO_INTEGRATION_ACCOUNT")
-	password := os.Getenv("ZENTAO_INTEGRATION_PASSWORD")
+	url := os.Getenv("ZENTAO_URL")
+	account := os.Getenv("ZENTAO_ACCOUNT")
+	password := os.Getenv("ZENTAO_PASSWORD")
 	if url == "" || account == "" || password == "" {
-		t.Skip("set ZENTAO_INTEGRATION_URL / _ACCOUNT / _PASSWORD to run")
+		t.Skip("set ZENTAO_URL / _ACCOUNT / _PASSWORD to run")
 	}
 
 	c, err := NewClient(url, account, password)
