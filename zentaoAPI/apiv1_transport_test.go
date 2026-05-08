@@ -34,7 +34,7 @@ func TestDoV1Request_HappyPath_TokenHeader(t *testing.T) {
 	if gotMethod != http.MethodGet {
 		t.Fatalf("method = %q", gotMethod)
 	}
-	if gotPath != "/"+apiV1PathPrefix+"products" {
+	if gotPath != apiV1PathPrefix+"products" {
 		t.Fatalf("path = %q", gotPath)
 	}
 	if gotToken != "tok-1" {

@@ -10,7 +10,7 @@ import (
 // apiV1PathPrefix is the URL prefix for ZenTao's V1 REST API surface.
 // Consumed by Login() (api.php/v1/tokens) in auth.go and by every
 // caller of doV1Request that composes a V1 path.
-const apiV1PathPrefix = "api.php/v1/"
+const apiV1PathPrefix = "/api.php/v1/"
 
 // doV1Request invokes a ZenTao API V1 REST endpoint. V1 uses the same
 // Token-header convention as V2 (the underlying sessionID drives both),

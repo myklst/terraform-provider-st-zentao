@@ -14,7 +14,7 @@ import (
 
 func TestGetProduct_FullFieldSet(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/api.php/v2/products/42" || r.Method != http.MethodGet {
+		if r.URL.Path != productsPath+"/42" || r.Method != http.MethodGet {
 			t.Errorf("unexpected req %s %s", r.Method, r.URL.Path)
 		}
 		w.Header().Set("Content-Type", "application/json")
@@ -193,7 +193,7 @@ func TestCreateProduct_BodyOmitsReadOnlyFields(t *testing.T) {
 	if out.ID != 77 {
 		t.Fatalf("id = %d, want 77", out.ID)
 	}
-	if gotMethod != http.MethodPost || gotPath != "/api.php/v2/products" {
+	if gotMethod != http.MethodPost || gotPath != productsPath {
 		t.Fatalf("req = %s %s", gotMethod, gotPath)
 	}
 	for _, mustSend := range []string{"name", "program", "line", "type", "desc", "acl", "PO", "QD", "RD", "reviewer"} {
@@ -266,12 +266,12 @@ func TestUpdateProduct_PutPathAndRefetch(t *testing.T) {
 	var gets, puts int
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
-		case r.Method == http.MethodPut && r.URL.Path == "/api.php/v2/products/5":
+		case r.Method == http.MethodPut && r.URL.Path == productsPath+"/5":
 			puts++
 			_ = json.NewDecoder(r.Body).Decode(&putBody)
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = w.Write([]byte(`{"status":"success"}`))
-		case r.Method == http.MethodGet && r.URL.Path == "/api.php/v2/products/5":
+		case r.Method == http.MethodGet && r.URL.Path == productsPath+"/5":
 			gets++
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = w.Write([]byte(`{"status":"success","product":{"id":"5","name":"NewName","code":"alpha","program":"2","status":"normal","acl":"private","type":"normal","PO":"po"}}`))
@@ -333,7 +333,7 @@ func TestDeleteProduct_Success(t *testing.T) {
 	if err := c.DeleteProduct(context.Background(), 9); err != nil {
 		t.Fatalf("DeleteProduct: %v", err)
 	}
-	if gotMethod != http.MethodDelete || gotPath != "/api.php/v2/products/9" {
+	if gotMethod != http.MethodDelete || gotPath != productsPath+"/9" {
 		t.Fatalf("req = %s %s", gotMethod, gotPath)
 	}
 }

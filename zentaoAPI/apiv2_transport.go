@@ -11,7 +11,7 @@ import (
 // Used only for documentation / sanity assertions; doV2Request does
 // not validate the caller's path against this prefix because some
 // callers pass paths starting with `/` and others without.
-const apiV2PathPrefix = "api.php/v2/"
+const apiV2PathPrefix = "/api.php/v2/"
 
 // doV2Request invokes a ZenTao API V2 REST endpoint. V2 authenticates
 // via the `Token: <sessionID>` header; the `zentaosid` query parameter

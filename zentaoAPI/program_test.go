@@ -14,7 +14,7 @@ import (
 
 func TestGetProgram_FullFieldSet(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/api.php/v2/programs/7" || r.Method != http.MethodGet {
+		if r.URL.Path != programsPath+"/7" || r.Method != http.MethodGet {
 			t.Errorf("unexpected req %s %s", r.Method, r.URL.Path)
 		}
 		w.Header().Set("Content-Type", "application/json")
@@ -160,7 +160,7 @@ func TestCreateProgram_BodyOmitsReadOnlyFields(t *testing.T) {
 	if out.ID != 42 {
 		t.Fatalf("id = %d, want 42", out.ID)
 	}
-	if gotMethod != http.MethodPost || gotPath != "/api.php/v2/programs" {
+	if gotMethod != http.MethodPost || gotPath != programsPath {
 		t.Fatalf("req = %s %s", gotMethod, gotPath)
 	}
 	for _, mustSend := range []string{"name", "begin", "end", "PM", "desc"} {
@@ -234,12 +234,12 @@ func TestUpdateProgram_PutPathAndRefetch(t *testing.T) {
 	var gets, puts int
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
-		case r.Method == http.MethodPut && r.URL.Path == "/api.php/v2/programs/5":
+		case r.Method == http.MethodPut && r.URL.Path == programsPath+"/5":
 			puts++
 			_ = json.NewDecoder(r.Body).Decode(&putBody)
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = w.Write([]byte(`{"status":"success"}`))
-		case r.Method == http.MethodGet && r.URL.Path == "/api.php/v2/programs/5":
+		case r.Method == http.MethodGet && r.URL.Path == programsPath+"/5":
 			gets++
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = w.Write([]byte(`{"status":"success","program":{"id":"5","name":"NewName","begin":"2026-02-01","end":"2026-11-30","status":"doing","PM":"pm"}}`))
@@ -301,7 +301,7 @@ func TestDeleteProgram_Success(t *testing.T) {
 	if err := c.DeleteProgram(context.Background(), 9); err != nil {
 		t.Fatalf("DeleteProgram: %v", err)
 	}
-	if gotMethod != http.MethodDelete || gotPath != "/api.php/v2/programs/9" {
+	if gotMethod != http.MethodDelete || gotPath != programsPath+"/9" {
 		t.Fatalf("req = %s %s", gotMethod, gotPath)
 	}
 }

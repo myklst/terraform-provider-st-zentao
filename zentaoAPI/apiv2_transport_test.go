@@ -28,7 +28,7 @@ func TestDoV2Request_HappyPath_TokenHeader(t *testing.T) {
 	defer srv.Close()
 
 	c := newTestClient(t, "tok-1", srv.URL)
-	body, status, err := c.doV2Request(context.Background(), http.MethodGet, "api.php/v2/products/1", nil, nil)
+	body, status, err := c.doV2Request(context.Background(), http.MethodGet, productsPath+"/1", nil, nil)
 	if err != nil {
 		t.Fatalf("doV2Request: %v", err)
 	}
@@ -41,7 +41,7 @@ func TestDoV2Request_HappyPath_TokenHeader(t *testing.T) {
 	if gotToken != "tok-1" {
 		t.Fatalf("token header = %q, want tok-1", gotToken)
 	}
-	if gotPath != "/api.php/v2/products/1" {
+	if gotPath != productsPath+"/1" {
 		t.Fatalf("path = %q", gotPath)
 	}
 	if gotBody != "" {
@@ -62,7 +62,7 @@ func TestDoV2Request_NoTokenHeaderWhenEmpty(t *testing.T) {
 	defer srv.Close()
 
 	c := newTestClient(t, "", srv.URL)
-	if _, _, err := c.doV2Request(context.Background(), http.MethodGet, "api.php/v2/products", nil, nil); err != nil {
+	if _, _, err := c.doV2Request(context.Background(), http.MethodGet, productsPath, nil, nil); err != nil {
 		t.Fatalf("doV2Request: %v", err)
 	}
 	if sawToken {
@@ -83,7 +83,7 @@ func TestDoV2Request_PostJSONBody(t *testing.T) {
 
 	c := newTestClient(t, "tok-1", srv.URL)
 	payload := map[string]string{"name": "x"}
-	if _, _, err := c.doV2Request(context.Background(), http.MethodPost, "api.php/v2/products", nil, payload); err != nil {
+	if _, _, err := c.doV2Request(context.Background(), http.MethodPost, productsPath, nil, payload); err != nil {
 		t.Fatalf("doV2Request: %v", err)
 	}
 	if gotCT != "application/json" {
@@ -115,7 +115,7 @@ func TestDoV2Request_SessionExpiry_Via401(t *testing.T) {
 	defer srv.Close()
 
 	c := newTestClient(t, "old-tok", srv.URL)
-	body, status, err := c.doV2Request(context.Background(), http.MethodGet, "api.php/v2/products/99", nil, nil)
+	body, status, err := c.doV2Request(context.Background(), http.MethodGet, productsPath+"/99", nil, nil)
 	if err != nil {
 		t.Fatalf("doV2Request: %v", err)
 	}
@@ -143,7 +143,7 @@ func TestDoV2Request_SessionExpiry_RefreshExhausted(t *testing.T) {
 	defer srv.Close()
 
 	c := newTestClient(t, "old-tok", srv.URL)
-	_, _, err := c.doV2Request(context.Background(), http.MethodGet, "api.php/v2/products/1", nil, nil)
+	_, _, err := c.doV2Request(context.Background(), http.MethodGet, productsPath+"/1", nil, nil)
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -178,7 +178,7 @@ func TestDoV2Request_ConcurrentExpiry_SingleLogin(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			_, _, err := c.doV2Request(context.Background(), http.MethodGet, "api.php/v2/products/1", nil, nil)
+			_, _, err := c.doV2Request(context.Background(), http.MethodGet, productsPath+"/1", nil, nil)
 			errs <- err
 		}()
 	}
@@ -214,7 +214,7 @@ func TestSendHTTP_BackoffOn5xx(t *testing.T) {
 	c.backoffMaxElapsed = 5 * time.Second
 	c.backoffInitialInterval = 10 * time.Millisecond
 
-	body, status, err := c.doV2Request(context.Background(), http.MethodGet, "api.php/v2/products", nil, nil)
+	body, status, err := c.doV2Request(context.Background(), http.MethodGet, productsPath, nil, nil)
 	if err != nil {
 		t.Fatalf("doV2Request: %v", err)
 	}
@@ -241,7 +241,7 @@ func TestSendHTTP_NoBackoffOn4xx(t *testing.T) {
 	c.backoffMaxElapsed = 5 * time.Second
 	c.backoffInitialInterval = 10 * time.Millisecond
 
-	if _, status, err := c.doV2Request(context.Background(), http.MethodGet, "api.php/v2/products", nil, nil); err != nil {
+	if _, status, err := c.doV2Request(context.Background(), http.MethodGet, productsPath, nil, nil); err != nil {
 		t.Fatalf("doV2Request: %v", err)
 	} else if status != http.StatusBadRequest {
 		t.Fatalf("status = %d, want 400", status)
@@ -256,7 +256,7 @@ func TestSendHTTP_NoBackoffOn4xx(t *testing.T) {
 func TestSendHTTP_CookieJarPersistsAcrossRequests(t *testing.T) {
 	var firstCookie, secondCookie string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/api.php/v2/first" {
+		if r.URL.Path == apiV2PathPrefix+"first" {
 			http.SetCookie(w, &http.Cookie{Name: "marker", Value: "from-first", Path: "/"})
 			if c, err := r.Cookie("marker"); err == nil {
 				firstCookie = c.Value
@@ -274,13 +274,13 @@ func TestSendHTTP_CookieJarPersistsAcrossRequests(t *testing.T) {
 	defer srv.Close()
 
 	c := newTestClient(t, "tok-1", srv.URL)
-	if _, _, err := c.doV2Request(context.Background(), http.MethodGet, "api.php/v2/first", nil, nil); err != nil {
+	if _, _, err := c.doV2Request(context.Background(), http.MethodGet, apiV2PathPrefix+"first", nil, nil); err != nil {
 		t.Fatalf("first req: %v", err)
 	}
 	if firstCookie != "" {
 		t.Fatalf("first req should not carry cookie yet, got %q", firstCookie)
 	}
-	if _, _, err := c.doV2Request(context.Background(), http.MethodGet, "api.php/v2/second", nil, nil); err != nil {
+	if _, _, err := c.doV2Request(context.Background(), http.MethodGet, apiV2PathPrefix+"second", nil, nil); err != nil {
 		t.Fatalf("second req: %v", err)
 	}
 	if secondCookie != "from-first" {
@@ -300,7 +300,7 @@ func TestDoV2Request_NeverInjectsZentaosid(t *testing.T) {
 	defer srv.Close()
 
 	c := newTestClient(t, "tok-xyz", srv.URL)
-	if _, _, err := c.doV2Request(context.Background(), http.MethodPut, "api.php/v2/programs/77",
+	if _, _, err := c.doV2Request(context.Background(), http.MethodPut, programsPath+"/77",
 		nil, map[string]string{"name": "x"}); err != nil {
 		t.Fatalf("doV2Request: %v", err)
 	}
@@ -315,7 +315,7 @@ func TestDoV2Request_AutoRedirectDisabled(t *testing.T) {
 	var hits atomic.Int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		hits.Add(1)
-		if r.URL.Path == "/api.php/v2/somewhere" {
+		if r.URL.Path == apiV2PathPrefix+"somewhere" {
 			w.Header().Set("Location", "/elsewhere")
 			w.WriteHeader(http.StatusFound)
 			return
@@ -326,7 +326,7 @@ func TestDoV2Request_AutoRedirectDisabled(t *testing.T) {
 	defer srv.Close()
 
 	c := newTestClient(t, "tok-1", srv.URL)
-	_, status, err := c.doV2Request(context.Background(), http.MethodGet, "api.php/v2/somewhere", nil, nil)
+	_, status, err := c.doV2Request(context.Background(), http.MethodGet, apiV2PathPrefix+"somewhere", nil, nil)
 	if err != nil {
 		t.Fatalf("doV2Request: %v", err)
 	}

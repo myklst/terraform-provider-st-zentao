@@ -43,7 +43,7 @@ type loginAPIV1Wire struct {
 // continuity with the rest of the client.
 func (c *Client) Login(ctx context.Context) error {
 	endpoint := *c.baseURL
-	endpoint.Path = strings.TrimRight(endpoint.Path, "/") + "/" + apiV1PathPrefix + "tokens"
+	endpoint.Path = strings.TrimRight(endpoint.Path, "/") + apiV1PathPrefix + "tokens"
 
 	payload, err := json.Marshal(map[string]string{
 		"account":  c.account,
