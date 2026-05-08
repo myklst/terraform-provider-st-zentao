@@ -91,7 +91,7 @@ Concurrent expiry is serialised by `refreshMu` inside `refreshSession`: the firs
 - V1: `Login()` (`auth.go`) builds `apiV1PathPrefix + "tokens"`; future V1 wrappers should follow the same pattern.
 - V2: `productsPath` / `programsPath` in `product.go` / `program.go` are derived as `apiV2PathPrefix + "products"` / `+ "programs"`; the per-id builders concatenate `"/<id>"` on top.
 
-Tests assert on the exact wire path also via the constants (e.g. `gotPath != "/" + apiV1PathPrefix + "tokens"`), so a future change to either prefix only needs touching one line.
+Tests assert on the exact wire path also via the constants (e.g. `gotPath != apiV1PathPrefix + "tokens"`), so a future change to either prefix only needs touching one line.
 
 ## Probe-driven development
 
