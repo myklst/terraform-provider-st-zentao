@@ -96,6 +96,7 @@ func (p *zentaoProvider) Resources(_ context.Context) []func() resource.Resource
 	return []func() resource.Resource{
 		NewProductResource,
 		NewProgramResource,
+		NewProjectResource,
 	}
 }
 
@@ -103,6 +104,7 @@ func (p *zentaoProvider) DataSources(_ context.Context) []func() datasource.Data
 	return []func() datasource.DataSource{
 		NewProductDataSource,
 		NewProgramDataSource,
+		NewProjectDataSource,
 	}
 }
 
