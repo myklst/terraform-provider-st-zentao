@@ -8,7 +8,7 @@ Custom Terraform provider for [ZenTao](https://www.zentao.net/) — self-hosted 
 
 ## Status
 
-Initial release: ships the `st-zentao_product` and `st-zentao_program` resources (V2-backed), plus matching data sources, plus typed wrappers for User CRUD (Controller-backed, since V2 doesn't expose users on Max 8.x). More resources (project, execution, group) planned — choice of transport per entity follows what the target ZenTao version actually accepts.
+Initial release: ships the `st-zentao_product`, `st-zentao_program`, and `st-zentao_project` resources (V2-backed), plus matching data sources, plus typed wrappers for User CRUD (Controller-backed, since V2 doesn't expose users on Max 8.x). More resources (execution, group) planned — choice of transport per entity follows what the target ZenTao version actually accepts.
 
 ## Architecture
 
@@ -94,6 +94,48 @@ Writeable fields per the v2 `POST /api.php/v2/programs` body: `name`, `begin`,
 `parent`, `type`, `category`, `acl`, `po`, `qd`, `rd`, `budget`, `budget_unit`,
 `opened_by`, `opened_date`, `real_began`, `real_end`, `progress`, `team_count`.
 
+### `st-zentao_project`
+
+```hcl
+resource "st-zentao_project" "demo" {
+  name  = "Smart Home Sprint"
+  model = "scrum"     # scrum | waterfall | kanban | agileplus | waterfallplus | cmmi
+  begin = "2026-01-01"
+  end   = "2026-12-31"
+
+  products       = [1] # >= 1 product id (server-required)
+  workflow_group = 1   # workflow scheme id (server-required; 1 typically = default)
+
+  program     = 1            # parent program id; 0 / unset = top-level
+  description = "Managed by Terraform"
+  pm          = "alice"
+  acl         = "private"    # open | private | custom
+}
+```
+
+The v2 `POST /api.php/v2/projects` body requires `name`, `model`, `begin`, `end`,
+plus two **fields that are not in the public V2 docs but are server-enforced on
+ZenTao Max 8.x**: `products` (≥ 1 product id) and `workflow_group` (any int).
+`begin` and `end` must be `YYYY-MM-DD`. Changing `model` triggers a
+destroy-then-create because ZenTao's per-model state machine cannot be migrated
+in place. The TF attribute `program` maps to the wire field `parent` (parent
+program id).
+
+This resource manages only `type=project` rows in the shared `zt_project`
+table — sprints (`type=sprint`) and programs (`type=program`) are out of
+scope and remain managed via their own resources / future additions. The
+read path defensively returns `ErrNotFound` if a row's `type` drifts away
+from `project`, so an out-of-band edit removes the resource from state
+rather than silently corrupting it.
+
+Server-managed read-only outputs: `id`, `code`, `status`, `lifetime`,
+`opened_by`, `opened_date`, `last_edited_by`, `real_began`, `real_end`,
+`progress`, `team_count`, `budget`, `budget_unit`.
+
+See `docs/superpowers/specs/probe-project-v2.md` for the full V2 surface
+contract — including the `productsBox`/`products` validator-name mismatch
+and the `result:fail` envelope variant on validation errors.
+
 ## Data Sources
 
 ### `st-zentao_product`
@@ -123,6 +165,25 @@ output "program_name" {
   value = data.st-zentao_program.existing.name
 }
 ```
+
+### `st-zentao_project`
+
+Look up an existing project by its numeric id:
+
+```hcl
+data "st-zentao_project" "existing" {
+  id = "28"
+}
+
+output "project_name" {
+  value = data.st-zentao_project.existing.name
+}
+```
+
+Note: the V2 GET endpoint does not echo the project's product associations
+back, so the `products` attribute is exposed as `Computed` but always reads
+as an empty list — the live association set has to be queried via the
+Controller surface (not yet wrapped).
 
 ## API client only — `User`
 
