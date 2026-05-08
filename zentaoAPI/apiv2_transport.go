@@ -7,12 +7,6 @@ import (
 	"net/http"
 )
 
-// apiV2PathPrefix is the URL prefix for ZenTao's V2 REST API surface.
-// Used only for documentation / sanity assertions; doV2Request does
-// not validate the caller's path against this prefix because some
-// callers pass paths starting with `/` and others without.
-const apiV2PathPrefix = "api.php/v2/"
-
 // doV2Request invokes a ZenTao API V2 REST endpoint. V2 authenticates
 // via the `Token: <sessionID>` header; the `zentaosid` query parameter
 // MUST NOT be set on V2 writes (Max 8.x mis-parses it as a record id
