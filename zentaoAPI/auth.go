@@ -1,180 +1,130 @@
 package zentaoapi
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
-	"net/url"
 	"strings"
 )
 
-// loginV1Wire is the response shape ZenTao's `/user-login.json` returns
-// (the v1 apilogin route). On success it carries a `token` value that
-// also functions as the session ID; on failure the same envelope-level
-// fields used elsewhere (status / error / message / reason) describe
-// the cause. The `user` field is intentionally captured as raw bytes —
-// we don't need its contents for auth and parsing it would couple us
-// to ZenTao's user schema.
-type loginV1Wire struct {
-	Status  string          `json:"status"`
-	Token   string          `json:"token"`
-	Error   string          `json:"error,omitempty"`
-	Message string          `json:"message,omitempty"`
-	Reason  string          `json:"reason,omitempty"`
-	User    json.RawMessage `json:"user,omitempty"`
-}
-
-func (w loginV1Wire) failReason() string {
-	return zentaoFailReason(w.Error, w.Message, w.Reason)
-}
-
-// getsessionidWire is the outer envelope of `/api-getsessionid.json`.
-// The inner `data` is itself a JSON-encoded string carrying the
-// `sessionID` we need for the apilogin step — see DecodeData semantics
-// in types.go.
-type getsessionidWire struct {
-	Status  string          `json:"status"`
-	Error   string          `json:"error,omitempty"`
-	Message string          `json:"message,omitempty"`
-	Reason  string          `json:"reason,omitempty"`
-	Data    json.RawMessage `json:"data,omitempty"`
-}
-
-type getsessionidInner struct {
-	SessionName string `json:"sessionName"`
-	SessionID   string `json:"sessionID"`
-}
-
-// Login performs the v1 two-step apilogin flow:
-//  1. GET /api-getsessionid.json — bootstraps a PHP session, returns its
-//     sessionID inside a string-encoded `data`. The cookiejar attached
-//     to c.http captures the matching `zentaosid` cookie automatically.
-//  2. GET /user-login.json?account=&password=&zentaosid=<sid> — verifies
-//     credentials. On success the response repeats the (possibly
-//     rotated) sessionID under `token`, and the cookiejar updates.
+// loginAPIV1Wire is the response shape ZenTao's `POST /api.php/v1/tokens`
+// returns. On success the body is `{"token":"<sid>"}`; on failure
+// (observed: HTTP 400 + Chinese-localised "登录失败，请检查您的用户名
+// 或密码是否填写正确。") the body collapses to `{"error":"<reason>"}`.
 //
-// The probe (docs/superpowers/specs/probe-controller-auth.md) showed
-// the v1 sessionID drives BOTH PATH_INFO Controller calls AND the v2
-// REST endpoints, so this single login replaces the prior
-// `/api.php/v2/users/login` flow entirely.
+// Per probe 2026-05-08 (admin/123456 against lek-ws.sige.la:8080/zentao),
+// the same `token` value also functions as the `zentaosid` for Controller
+// routes and as the `Token:` header value for V1 and V2 REST endpoints —
+// i.e. a single login produces a credential that drives all three
+// transports. This replaces the older Controller-flavored two-step
+// flow that the previous Login() implementation used.
+type loginAPIV1Wire struct {
+	Token string `json:"token,omitempty"`
+	Error string `json:"error,omitempty"`
+}
+
+// Login authenticates via the ZenTao API V1 token endpoint:
+//
+//	POST <baseURL>/api.php/v1/tokens
+//	Content-Type: application/json
+//	{"account":"…","password":"…"}
+//
+// On success, the response carries a `token` that the client stores
+// in c.token (under tokenMu) and uses as the credential for all three
+// transports:
+//   - Controller: passed via `?zentaosid=<token>` query parameter
+//   - V1 / V2 REST: passed via `Token: <token>` request header
+//
+// The cookiejar attached to c.http also captures a `zentaosid` cookie
+// from the response; the cookie is harmless but not relied upon —
+// authentication on subsequent requests goes through the explicit
+// query / header above, so the client behaves consistently whether
+// or not the server happens to set the cookie.
+//
+// Failure classification:
+//   - HTTP 401 → ErrUnauthorized
+//   - any status with `{"error":"<reason>"}` body where reason looks
+//     like a credential failure (per isUnauthorizedReason) → ErrUnauthorized
+//   - any status with `{"error":"<reason>"}` body otherwise → *APIError
+//   - empty token in 2xx response → "empty token" error (defensive,
+//     not observed in the wild)
 func (c *Client) Login(ctx context.Context) error {
-	sid, err := c.loginStep1(ctx)
-	if err != nil {
-		return err
-	}
-	token, err := c.loginStep2(ctx, sid)
-	if err != nil {
-		return err
-	}
-	c.tokenMu.Lock()
-	c.token = token
-	c.tokenMu.Unlock()
-	return nil
-}
-
-func (c *Client) loginStep1(ctx context.Context) (string, error) {
 	endpoint := *c.baseURL
-	endpoint.Path = strings.TrimRight(endpoint.Path, "/") + "/api-getsessionid.json"
+	endpoint.Path = strings.TrimRight(endpoint.Path, "/") + "/api.php/v1/tokens"
 
-	body, status, err := c.simpleGET(ctx, endpoint.String())
+	payload, err := json.Marshal(map[string]string{
+		"account":  c.account,
+		"password": c.password,
+	})
 	if err != nil {
-		return "", fmt.Errorf("login: getsessionid: %w", err)
-	}
-	if status == http.StatusUnauthorized {
-		return "", fmt.Errorf("login: getsessionid: %w (http=401 body=%s)", ErrUnauthorized, string(body))
-	}
-	if status >= 400 {
-		return "", fmt.Errorf("login: getsessionid: %s", &APIError{HTTPStatus: status, RawBody: body})
+		return fmt.Errorf("login: marshal credentials: %w", err)
 	}
 
-	var env getsessionidWire
-	if err := json.Unmarshal(body, &env); err != nil {
-		return "", fmt.Errorf("login: getsessionid: parse response: %w (body=%s)", err, string(body))
-	}
-	if env.Status != "success" {
-		reason := zentaoFailReason(env.Error, env.Message, env.Reason)
-		return "", fmt.Errorf("login: getsessionid: %s",
-			&APIError{HTTPStatus: status, ZentaoStatus: env.Status, Reason: reason, RawBody: body})
-	}
-	var inner getsessionidInner
-	if err := DecodeData(CtrlEnvelope{Data: env.Data}, &inner); err != nil {
-		return "", fmt.Errorf("login: getsessionid: %w (body=%s)", err, string(body))
-	}
-	if inner.SessionID == "" {
-		return "", fmt.Errorf("login: getsessionid: empty sessionID (body=%s)", string(body))
-	}
-	return inner.SessionID, nil
-}
-
-func (c *Client) loginStep2(ctx context.Context, sid string) (string, error) {
-	endpoint := *c.baseURL
-	endpoint.Path = strings.TrimRight(endpoint.Path, "/") + "/user-login.json"
-	q := url.Values{}
-	q.Set("account", c.account)
-	// Credentials in query string is a known wart of the v1 apilogin
-	// flow; ZenTao expects them this way and the alternative POST form
-	// is not consistently supported across versions. Operators should
-	// avoid logging full URLs from this client at the access-log layer.
-	q.Set("password", c.password)
-	q.Set("zentaosid", sid)
-	endpoint.RawQuery = q.Encode()
-
-	body, status, err := c.simpleGET(ctx, endpoint.String())
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint.String(), bytes.NewReader(payload))
 	if err != nil {
-		return "", fmt.Errorf("login: apilogin: %w", err)
+		return fmt.Errorf("login: build request: %w", err)
 	}
-	if status == http.StatusUnauthorized {
-		return "", fmt.Errorf("login: apilogin: %w (http=401 body=%s)", ErrUnauthorized, string(body))
-	}
-	if status >= 400 {
-		return "", &APIError{HTTPStatus: status, RawBody: body}
-	}
-
-	var wire loginV1Wire
-	if err := json.Unmarshal(body, &wire); err != nil {
-		return "", fmt.Errorf("login: apilogin: parse response: %w (body=%s)", err, string(body))
-	}
-	if wire.Status != "success" {
-		reason := wire.failReason()
-		if isUnauthorizedReason(reason) {
-			return "", fmt.Errorf("login: %w (reason=%s)", ErrUnauthorized, reason)
-		}
-		return "", &APIError{HTTPStatus: status, ZentaoStatus: wire.Status, Reason: reason, RawBody: body}
-	}
-	if wire.Token == "" {
-		return "", fmt.Errorf("login: apilogin: empty token in response (body=%s)", string(body))
-	}
-	return wire.Token, nil
-}
-
-// simpleGET is a one-shot GET that bypasses doRequest's session-refresh
-// machinery — Login itself must not recurse into refreshSession. It
-// reuses the same http.Client (and thus the cookiejar + redirect
-// suppression) so cookies set by step 1 ride into step 2.
-func (c *Client) simpleGET(ctx context.Context, urlStr string) ([]byte, int, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, urlStr, nil)
-	if err != nil {
-		return nil, 0, fmt.Errorf("build request: %w", err)
-	}
+	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json")
+
 	resp, err := c.http.Do(req)
 	if err != nil {
-		return nil, 0, err
+		return fmt.Errorf("login: %w", err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, resp.StatusCode, err
+		return fmt.Errorf("login: read body: %w (http=%d)", err, resp.StatusCode)
 	}
-	return body, resp.StatusCode, nil
+
+	if resp.StatusCode == http.StatusUnauthorized {
+		return fmt.Errorf("login: %w (http=401 body=%s)", ErrUnauthorized, string(body))
+	}
+
+	var wire loginAPIV1Wire
+	parseErr := json.Unmarshal(body, &wire)
+
+	// V1 returns 4xx + {"error":"..."} for credential failure and
+	// generic validation errors. Classify against isUnauthorizedReason
+	// so a "wrong password" / "登录失败" / "认证" reason becomes
+	// ErrUnauthorized while other 4xx (server-side validation,
+	// malformed body) surfaces as a structured *APIError.
+	if parseErr == nil && wire.Error != "" {
+		if isUnauthorizedReason(wire.Error) {
+			return fmt.Errorf("login: %w (reason=%s)", ErrUnauthorized, wire.Error)
+		}
+		return &APIError{HTTPStatus: resp.StatusCode, Reason: wire.Error, RawBody: body}
+	}
+
+	if resp.StatusCode >= 400 {
+		return &APIError{HTTPStatus: resp.StatusCode, RawBody: body}
+	}
+
+	if parseErr != nil {
+		return fmt.Errorf("login: parse response: %w (body=%s)", parseErr, string(body))
+	}
+
+	if wire.Token == "" {
+		return fmt.Errorf("login: empty token in response (body=%s)", string(body))
+	}
+
+	c.tokenMu.Lock()
+	c.token = wire.Token
+	c.tokenMu.Unlock()
+	return nil
 }
 
-// isSessionExpired detects "session is gone" across both transport
-// flavours: V2 endpoints answer with HTTP 401, while Controller routes
-// either redirect (302 → /user-login*) or carry a 200-OK envelope with
-// reason "please login" / "请重新登录".
+// isSessionExpired detects "session is gone" across transport flavours:
+// V2 endpoints answer with HTTP 401, while Controller routes either
+// redirect (302 → /user-login*) or carry a 200-OK envelope with reason
+// "please login" / "请重新登录".
+//
+// (Commit #3 will split this into per-transport detectors as part of
+// the apiv1/apiv2/controller transport file split. Until then it
+// continues to serve doRequest and doControllerForm uniformly.)
 func isSessionExpired(httpStatus int, body []byte, location string) bool {
 	if httpStatus == http.StatusUnauthorized {
 		return true

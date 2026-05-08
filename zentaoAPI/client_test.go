@@ -417,7 +417,7 @@ func TestSend_OmitsZentaosidWhenTokenEmpty(t *testing.T) {
 	defer srv.Close()
 
 	c := newTestClient(t, "", srv.URL) // empty token: bootstrap window
-	if _, _, err := c.doRequest(context.Background(), http.MethodGet, "api-getsessionid.json", nil, nil); err != nil {
+	if _, _, err := c.doRequest(context.Background(), http.MethodGet, "product-all.json", nil, nil); err != nil {
 		t.Fatalf("doRequest: %v", err)
 	}
 	if sawSidPresent || sawSid != "" {

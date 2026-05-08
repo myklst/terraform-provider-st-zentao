@@ -2,6 +2,7 @@ package zentaoapi
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -12,36 +13,33 @@ import (
 	"testing"
 )
 
-// --- v1 two-step Login ---
+// --- V1 Login (POST /api.php/v1/tokens) ---
 
-func TestLogin_TwoStep_Success(t *testing.T) {
-	var step1Hits, step2Hits atomic.Int32
-	var step2Account, step2Password, step2QuerySID string
-	var step2CookieSID string
+func TestLogin_V1_Success(t *testing.T) {
+	var hits atomic.Int32
+	var gotMethod, gotPath, gotContentType string
+	var gotAccount, gotPassword string
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch r.URL.Path {
-		case "/api-getsessionid.json":
-			step1Hits.Add(1)
-			http.SetCookie(w, &http.Cookie{Name: "zentaosid", Value: "sid-bootstrap", Path: "/", HttpOnly: true})
-			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(`{"status":"success","data":"{\"sessionName\":\"zentaosid\",\"sessionID\":\"sid-bootstrap\",\"rand\":1}","md5":"x"}`))
-		case "/user-login.json":
-			step2Hits.Add(1)
-			step2Account = r.URL.Query().Get("account")
-			step2Password = r.URL.Query().Get("password")
-			step2QuerySID = r.URL.Query().Get("zentaosid")
-			if c, err := r.Cookie("zentaosid"); err == nil {
-				step2CookieSID = c.Value
-			}
-			// Real server may rotate the sessionID after login; emulate that.
-			http.SetCookie(w, &http.Cookie{Name: "zentaosid", Value: "sid-final", Path: "/", HttpOnly: true})
-			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(`{"status":"success","token":"sid-final","user":{"account":"admin"}}`))
-		default:
+		if r.URL.Path != "/api.php/v1/tokens" {
 			t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
 			w.WriteHeader(http.StatusNotFound)
+			return
 		}
+		hits.Add(1)
+		gotMethod = r.Method
+		gotPath = r.URL.Path
+		gotContentType = r.Header.Get("Content-Type")
+		body, _ := io.ReadAll(r.Body)
+		var creds map[string]string
+		_ = json.Unmarshal(body, &creds)
+		gotAccount = creds["account"]
+		gotPassword = creds["password"]
+		// Real server returns 201 Created on success; we accept both 200 and 201.
+		http.SetCookie(w, &http.Cookie{Name: "zentaosid", Value: "tok-final", Path: "/", HttpOnly: true})
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		_, _ = w.Write([]byte(`{"token":"tok-final"}`))
 	}))
 	defer srv.Close()
 
@@ -49,61 +47,30 @@ func TestLogin_TwoStep_Success(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewClient: %v", err)
 	}
-	if step1Hits.Load() != 1 {
-		t.Fatalf("step1 hits = %d, want 1", step1Hits.Load())
+	if hits.Load() != 1 {
+		t.Fatalf("login hits = %d, want 1", hits.Load())
 	}
-	if step2Hits.Load() != 1 {
-		t.Fatalf("step2 hits = %d, want 1", step2Hits.Load())
+	if gotMethod != http.MethodPost {
+		t.Fatalf("method = %q, want POST", gotMethod)
 	}
-	if step2Account != "admin" || step2Password != "p@ss" {
-		t.Fatalf("step2 creds = %q/%q", step2Account, step2Password)
+	if gotPath != "/api.php/v1/tokens" {
+		t.Fatalf("path = %q", gotPath)
 	}
-	if step2QuerySID != "sid-bootstrap" {
-		t.Fatalf("step2 zentaosid query = %q, want sid-bootstrap", step2QuerySID)
+	if !strings.HasPrefix(gotContentType, "application/json") {
+		t.Fatalf("content-type = %q, want application/json", gotContentType)
 	}
-	if step2CookieSID != "sid-bootstrap" {
-		t.Fatalf("step2 cookie sid = %q, want sid-bootstrap (cookiejar carry-over)", step2CookieSID)
+	if gotAccount != "admin" || gotPassword != "p@ss" {
+		t.Fatalf("creds = %q/%q", gotAccount, gotPassword)
 	}
-	if c.token != "sid-final" {
-		t.Fatalf("client token = %q, want sid-final", c.token)
-	}
-}
-
-func TestLogin_Step1_BadEnvelope(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"status":"fail","reason":"server malfunction"}`))
-	}))
-	defer srv.Close()
-
-	_, err := NewClient(srv.URL, "admin", "p")
-	if err == nil {
-		t.Fatal("expected step1 failure to bubble up")
-	}
-	if errors.Is(err, ErrUnauthorized) {
-		t.Fatalf("step1 server fault should not be ErrUnauthorized: %v", err)
+	if c.token != "tok-final" {
+		t.Fatalf("client token = %q, want tok-final", c.token)
 	}
 }
 
-func TestLogin_Step1_NoSessionID(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"status":"success","data":"{\"rand\":1}"}`))
-	}))
-	defer srv.Close()
-
-	_, err := NewClient(srv.URL, "admin", "p")
-	if err == nil {
-		t.Fatal("expected error on missing sessionID")
-	}
-	if !strings.Contains(strings.ToLower(err.Error()), "session") {
-		t.Fatalf("expected session-related error, got %v", err)
-	}
-}
-
-func TestLogin_Step2_BadCreds_ChineseReason(t *testing.T) {
+func TestLogin_BadCreds_ChineseReason(t *testing.T) {
 	srv := newV1LoginServer(t, v1Opts{
-		step2Body: `{"status":"fail","reason":"用户名或密码错误"}`,
+		loginStatus: http.StatusBadRequest,
+		loginBody:   `{"error":"登录失败，请检查您的用户名或密码是否填写正确。"}`,
 	})
 	defer srv.Close()
 
@@ -113,9 +80,10 @@ func TestLogin_Step2_BadCreds_ChineseReason(t *testing.T) {
 	}
 }
 
-func TestLogin_Step2_BadCreds_EnglishReason(t *testing.T) {
+func TestLogin_BadCreds_EnglishReason(t *testing.T) {
 	srv := newV1LoginServer(t, v1Opts{
-		step2Body: `{"status":"fail","reason":"wrong password"}`,
+		loginStatus: http.StatusBadRequest,
+		loginBody:   `{"error":"wrong password"}`,
 	})
 	defer srv.Close()
 
@@ -125,9 +93,10 @@ func TestLogin_Step2_BadCreds_EnglishReason(t *testing.T) {
 	}
 }
 
-func TestLogin_Step2_GenericFail_NotUnauthorized(t *testing.T) {
+func TestLogin_GenericFail_NotUnauthorized(t *testing.T) {
 	srv := newV1LoginServer(t, v1Opts{
-		step2Body: `{"status":"fail","reason":"some weird thing"}`,
+		loginStatus: http.StatusBadRequest,
+		loginBody:   `{"error":"some weird thing"}`,
 	})
 	defer srv.Close()
 
@@ -140,17 +109,11 @@ func TestLogin_Step2_GenericFail_NotUnauthorized(t *testing.T) {
 	}
 }
 
-func TestLogin_Step2_HTTP401_TreatedAsUnauthorized(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch r.URL.Path {
-		case "/api-getsessionid.json":
-			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(`{"status":"success","data":"{\"sessionID\":\"sid\"}"}`))
-		case "/user-login.json":
-			w.WriteHeader(http.StatusUnauthorized)
-			_, _ = w.Write([]byte(`{"error":"bad creds"}`))
-		}
-	}))
+func TestLogin_HTTP401_TreatedAsUnauthorized(t *testing.T) {
+	srv := newV1LoginServer(t, v1Opts{
+		loginStatus: http.StatusUnauthorized,
+		loginBody:   `{"error":"unauthorized"}`,
+	})
 	defer srv.Close()
 
 	_, err := NewClient(srv.URL, "admin", "wrong")
@@ -159,15 +122,30 @@ func TestLogin_Step2_HTTP401_TreatedAsUnauthorized(t *testing.T) {
 	}
 }
 
-func TestLogin_Step2_EmptyToken(t *testing.T) {
+func TestLogin_EmptyToken(t *testing.T) {
 	srv := newV1LoginServer(t, v1Opts{
-		step2Body: `{"status":"success","token":""}`,
+		loginBody: `{"token":""}`,
 	})
 	defer srv.Close()
 
 	_, err := NewClient(srv.URL, "admin", "p")
 	if err == nil || !strings.Contains(err.Error(), "empty token") {
 		t.Fatalf("err = %v, want empty token error", err)
+	}
+}
+
+func TestLogin_MalformedResponseBody(t *testing.T) {
+	srv := newV1LoginServer(t, v1Opts{
+		loginBody: `not-json`,
+	})
+	defer srv.Close()
+
+	_, err := NewClient(srv.URL, "admin", "p")
+	if err == nil {
+		t.Fatal("expected parse error on malformed body")
+	}
+	if errors.Is(err, ErrUnauthorized) {
+		t.Fatalf("malformed body must not be ErrUnauthorized: %v", err)
 	}
 }
 
@@ -213,7 +191,7 @@ func TestIsSessionExpired(t *testing.T) {
 	}
 }
 
-// --- refresh + double-check (v1 mocks) ---
+// --- refresh + double-check (V1 mocks) ---
 
 func TestRefreshSession_DoubleCheck(t *testing.T) {
 	var calls atomic.Int32
@@ -247,16 +225,16 @@ func TestRefreshSession_DoubleCheck(t *testing.T) {
 	}
 }
 
-// --- v1 mock factory ---
+// --- V1 mock factory ---
 
 type v1Opts struct {
-	// sessionID returned to bootstrap and (when step2Body is empty) reused as token. Default: "tok-1".
+	// sessionID returned as the token in the success body. Default: "tok-1".
 	sessionID string
-	// step2Body, when non-empty, replaces the success body for /user-login.json.
-	step2Body string
-	// step1Body, when non-empty, replaces the success body for /api-getsessionid.json.
-	step1Body string
-	// loginCalls, when non-nil, increments on each /user-login.json hit.
+	// loginBody, when non-empty, replaces the success body for /api.php/v1/tokens.
+	loginBody string
+	// loginStatus, when non-zero, replaces the success status (default 201) for the login response.
+	loginStatus int
+	// loginCalls, when non-nil, increments on each /api.php/v1/tokens hit.
 	loginCalls *atomic.Int32
 	// apiCalls, when non-nil, increments on every non-login path hit.
 	apiCalls *atomic.Int32
@@ -264,43 +242,41 @@ type v1Opts struct {
 	handler http.HandlerFunc
 }
 
-// newV1LoginServer returns an httptest.Server that emulates the v1 two-step
-// login flow used by Phase B's Login() rewrite. Tests that need to observe
-// or perturb login behaviour configure it via v1Opts.
+// newV1LoginServer returns an httptest.Server that emulates ZenTao's
+// V1 token endpoint (POST /api.php/v1/tokens). Tests that need to
+// observe or perturb login behaviour configure it via v1Opts. Non-
+// login paths fall through to opts.handler (or 404 if absent).
 func newV1LoginServer(t *testing.T, opts v1Opts) *httptest.Server {
 	t.Helper()
 	if opts.sessionID == "" {
 		opts.sessionID = "tok-1"
 	}
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch r.URL.Path {
-		case "/api-getsessionid.json":
-			http.SetCookie(w, &http.Cookie{Name: "zentaosid", Value: opts.sessionID, Path: "/", HttpOnly: true})
-			w.Header().Set("Content-Type", "application/json")
-			if opts.step1Body != "" {
-				_, _ = io.WriteString(w, opts.step1Body)
-				return
-			}
-			_, _ = fmt.Fprintf(w, `{"status":"success","data":"{\"sessionName\":\"zentaosid\",\"sessionID\":\"%s\",\"rand\":1}","md5":"x"}`, opts.sessionID)
-		case "/user-login.json":
+		if r.URL.Path == "/api.php/v1/tokens" && r.Method == http.MethodPost {
 			if opts.loginCalls != nil {
 				opts.loginCalls.Add(1)
 			}
+			http.SetCookie(w, &http.Cookie{Name: "zentaosid", Value: opts.sessionID, Path: "/", HttpOnly: true})
 			w.Header().Set("Content-Type", "application/json")
-			if opts.step2Body != "" {
-				_, _ = io.WriteString(w, opts.step2Body)
+			if opts.loginStatus != 0 {
+				w.WriteHeader(opts.loginStatus)
+			} else {
+				w.WriteHeader(http.StatusCreated)
+			}
+			if opts.loginBody != "" {
+				_, _ = io.WriteString(w, opts.loginBody)
 				return
 			}
-			_, _ = fmt.Fprintf(w, `{"status":"success","token":"%s","user":{"account":"admin"}}`, opts.sessionID)
-		default:
-			if opts.apiCalls != nil {
-				opts.apiCalls.Add(1)
-			}
-			if opts.handler != nil {
-				opts.handler(w, r)
-				return
-			}
-			w.WriteHeader(http.StatusNotFound)
+			_, _ = fmt.Fprintf(w, `{"token":"%s"}`, opts.sessionID)
+			return
 		}
+		if opts.apiCalls != nil {
+			opts.apiCalls.Add(1)
+		}
+		if opts.handler != nil {
+			opts.handler(w, r)
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
 	}))
 }
