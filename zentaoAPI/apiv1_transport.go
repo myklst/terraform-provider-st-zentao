@@ -8,7 +8,7 @@ import (
 )
 
 // apiV1PathPrefix is the URL prefix for ZenTao's V1 REST API surface.
-// Consumed by Login() (api.php/v1/tokens) in auth.go and by every
+// Consumed by Login() (/api.php/v1/tokens) in auth.go and by every
 // caller of doV1Request that composes a V1 path.
 const apiV1PathPrefix = "/api.php/v1/"
 
