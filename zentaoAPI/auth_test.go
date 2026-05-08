@@ -27,7 +27,7 @@ func TestLogin_V1_Success(t *testing.T) {
 	var gotAccount, gotPassword string
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/api.php/v1/tokens" {
+		if r.URL.Path != "/"+apiV1PathPrefix+"tokens" {
 			t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
 			w.WriteHeader(http.StatusNotFound)
 			return
@@ -59,7 +59,7 @@ func TestLogin_V1_Success(t *testing.T) {
 	if gotMethod != http.MethodPost {
 		t.Fatalf("method = %q, want POST", gotMethod)
 	}
-	if gotPath != "/api.php/v1/tokens" {
+	if gotPath != "/"+apiV1PathPrefix+"tokens" {
 		t.Fatalf("path = %q", gotPath)
 	}
 	if !strings.HasPrefix(gotContentType, "application/json") {
@@ -228,7 +228,7 @@ func newV1LoginServer(t *testing.T, opts v1Opts) *httptest.Server {
 		opts.sessionID = "tok-1"
 	}
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/api.php/v1/tokens" && r.Method == http.MethodPost {
+		if r.URL.Path == "/"+apiV1PathPrefix+"tokens" && r.Method == http.MethodPost {
 			if opts.loginCalls != nil {
 				opts.loginCalls.Add(1)
 			}

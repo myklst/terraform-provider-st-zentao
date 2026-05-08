@@ -24,7 +24,7 @@ func TestDoV1Request_HappyPath_TokenHeader(t *testing.T) {
 	defer srv.Close()
 
 	c := newTestClient(t, "tok-1", srv.URL)
-	body, status, err := c.doV1Request(context.Background(), http.MethodGet, "api.php/v1/products", nil, nil)
+	body, status, err := c.doV1Request(context.Background(), http.MethodGet, apiV1PathPrefix+"products", nil, nil)
 	if err != nil {
 		t.Fatalf("doV1Request: %v", err)
 	}
@@ -34,7 +34,7 @@ func TestDoV1Request_HappyPath_TokenHeader(t *testing.T) {
 	if gotMethod != http.MethodGet {
 		t.Fatalf("method = %q", gotMethod)
 	}
-	if gotPath != "/api.php/v1/products" {
+	if gotPath != "/"+apiV1PathPrefix+"products" {
 		t.Fatalf("path = %q", gotPath)
 	}
 	if gotToken != "tok-1" {
@@ -57,7 +57,7 @@ func TestDoV1Request_PostJSONBody(t *testing.T) {
 	defer srv.Close()
 
 	c := newTestClient(t, "tok-1", srv.URL)
-	if _, _, err := c.doV1Request(context.Background(), http.MethodPost, "api.php/v1/widgets", nil, map[string]string{"name": "x"}); err != nil {
+	if _, _, err := c.doV1Request(context.Background(), http.MethodPost, apiV1PathPrefix+"widgets", nil, map[string]string{"name": "x"}); err != nil {
 		t.Fatalf("doV1Request: %v", err)
 	}
 	if gotCT != "application/json" {
@@ -88,7 +88,7 @@ func TestDoV1Request_SessionExpiry_Via401(t *testing.T) {
 	defer srv.Close()
 
 	c := newTestClient(t, "old-tok", srv.URL)
-	_, status, err := c.doV1Request(context.Background(), http.MethodGet, "api.php/v1/products", nil, nil)
+	_, status, err := c.doV1Request(context.Background(), http.MethodGet, apiV1PathPrefix+"products", nil, nil)
 	if err != nil {
 		t.Fatalf("doV1Request: %v", err)
 	}
@@ -122,7 +122,7 @@ func TestDoV1Request_SessionExpiry_Via403(t *testing.T) {
 	defer srv.Close()
 
 	c := newTestClient(t, "old-tok", srv.URL)
-	_, status, err := c.doV1Request(context.Background(), http.MethodGet, "api.php/v1/products", nil, nil)
+	_, status, err := c.doV1Request(context.Background(), http.MethodGet, apiV1PathPrefix+"products", nil, nil)
 	if err != nil {
 		t.Fatalf("doV1Request: %v", err)
 	}
@@ -149,7 +149,7 @@ func TestDoV1Request_NeverInjectsZentaosid(t *testing.T) {
 	defer srv.Close()
 
 	c := newTestClient(t, "tok-xyz", srv.URL)
-	if _, _, err := c.doV1Request(context.Background(), http.MethodGet, "api.php/v1/products", nil, nil); err != nil {
+	if _, _, err := c.doV1Request(context.Background(), http.MethodGet, apiV1PathPrefix+"products", nil, nil); err != nil {
 		t.Fatalf("doV1Request: %v", err)
 	}
 	if sawSidPresent {

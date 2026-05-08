@@ -8,12 +8,8 @@ import (
 )
 
 // apiV1PathPrefix is the URL prefix for ZenTao's V1 REST API surface.
-// Documentation-only — no production caller references it yet (V1
-// wrappers haven't been written), so golangci-lint flags it as unused.
-// Kept as symmetric documentation alongside apiV2PathPrefix; remove
-// the nolint when the first V1 wrapper begins consuming it.
-//
-//nolint:all
+// Consumed by Login() (api.php/v1/tokens) in auth.go and by every
+// caller of doV1Request that composes a V1 path.
 const apiV1PathPrefix = "api.php/v1/"
 
 // doV1Request invokes a ZenTao API V1 REST endpoint. V1 uses the same

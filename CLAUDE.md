@@ -84,9 +84,14 @@ Test files mirror sources 1:1: every `*.go` has a co-named `*_test.go`. Shared t
 
 Concurrent expiry is serialised by `refreshMu` inside `refreshSession`: the first goroutine to acquire it runs `Login()`; later goroutines re-check the token under the lock and no-op if it's already been rotated.
 
-### `apiV1PathPrefix` is documentation-only
+### Path prefix constants
 
-The constant exists for symmetry with `apiV2PathPrefix` (which `productsPath` / `programsPath` consume) but has no production caller yet — V1 typed wrappers haven't been written. It carries a `//nolint:all` directive; remove it when the first V1 wrapper begins consuming the prefix.
+`apiV1PathPrefix` (in `apiv1_transport.go`) and `apiV2PathPrefix` (in `apiv2_transport.go`) are the canonical URL prefixes for the two REST surfaces. **All call sites that reference these surfaces must compose their paths from these constants** rather than hard-coding `"api.php/v1/..."` / `"api.php/v2/..."` strings:
+
+- V1: `Login()` (`auth.go`) builds `apiV1PathPrefix + "tokens"`; future V1 wrappers should follow the same pattern.
+- V2: `productsPath` / `programsPath` in `product.go` / `program.go` are derived as `apiV2PathPrefix + "products"` / `+ "programs"`; the per-id builders concatenate `"/<id>"` on top.
+
+Tests assert on the exact wire path also via the constants (e.g. `gotPath != "/" + apiV1PathPrefix + "tokens"`), so a future change to either prefix only needs touching one line.
 
 ## Probe-driven development
 
