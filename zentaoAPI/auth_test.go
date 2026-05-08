@@ -159,39 +159,10 @@ func TestLogin_NetworkError(t *testing.T) {
 	}
 }
 
-// --- isSessionExpired three-case table ---
-
-func TestIsSessionExpired(t *testing.T) {
-	cases := []struct {
-		name     string
-		status   int
-		body     string
-		location string
-		want     bool
-	}{
-		{"http 401", 401, "", "", true},
-		{"302 → user-login (controller)", 302, "", "/zentao/user-login-L3plbnRhby8=.html", true},
-		{"302 → user-login.html plain", 302, "", "https://example/user-login.html", true},
-		{"302 → unrelated redirect", 302, "", "/some/other/place", false},
-		{"200 + please login reason", 200, `{"status":"failed","reason":"please login"}`, "", true},
-		{"200 + 请重新登录", 200, `{"status":"failed","reason":"请重新登录"}`, "", true},
-		{"200 + business success", 200, `{"status":"success","data":"x"}`, "", false},
-		{"200 + unrelated failure", 200, `{"status":"fail","reason":"name exists"}`, "", false},
-		{"http 200 with empty body", 200, "", "", false},
-		{"http 404", 404, "", "", false},
-		{"http 500", 500, "", "", false},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			got := isSessionExpired(tc.status, []byte(tc.body), tc.location)
-			if got != tc.want {
-				t.Fatalf("got %v want %v", got, tc.want)
-			}
-		})
-	}
-}
-
 // --- refresh + double-check (V1 mocks) ---
+// Per-transport expiry detectors (isV1SessionExpired, isV2SessionExpired,
+// isControllerSessionExpired) are tested in their respective transport files.
+
 
 func TestRefreshSession_DoubleCheck(t *testing.T) {
 	var calls atomic.Int32

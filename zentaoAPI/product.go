@@ -153,7 +153,7 @@ const productsPath = "api.php/v2/products"
 // "Product does not exist."} shape ZenTao v2 emits at HTTP 200 instead
 // of a real 404.
 func (c *Client) GetProduct(ctx context.Context, id int) (*Product, error) {
-	body, status, err := c.doRequest(ctx, http.MethodGet, productPath(id), nil, nil)
+	body, status, err := c.doV2Request(ctx, http.MethodGet, productPath(id), nil, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -184,7 +184,7 @@ func (c *Client) GetProduct(ctx context.Context, id int) (*Product, error) {
 // v2 only echoes back the new id; the caller should re-fetch via
 // GetProduct if it needs server-defaulted/derived fields.
 func (c *Client) CreateProduct(ctx context.Context, p *Product) (*Product, error) {
-	body, status, err := c.doRequest(ctx, http.MethodPost, productsPath, nil, p)
+	body, status, err := c.doV2Request(ctx, http.MethodPost, productsPath, nil, p)
 	if err != nil {
 		return nil, err
 	}
@@ -218,7 +218,7 @@ func (c *Client) UpdateProduct(ctx context.Context, p *Product) (*Product, error
 	if p.ID == 0 {
 		return nil, fmt.Errorf("UpdateProduct: missing id")
 	}
-	body, status, err := c.doRequest(ctx, http.MethodPut, productPath(p.ID), nil, p)
+	body, status, err := c.doV2Request(ctx, http.MethodPut, productPath(p.ID), nil, p)
 	if err != nil {
 		return nil, err
 	}
@@ -247,7 +247,7 @@ func (c *Client) UpdateProduct(ctx context.Context, p *Product) (*Product, error
 // does not exist."}. Both are treated as success so reapplies and
 // post-test cleanups don't fail spuriously.
 func (c *Client) DeleteProduct(ctx context.Context, id int) error {
-	body, status, err := c.doRequest(ctx, http.MethodDelete, productPath(id), nil, nil)
+	body, status, err := c.doV2Request(ctx, http.MethodDelete, productPath(id), nil, nil)
 	if err != nil {
 		return err
 	}

@@ -39,14 +39,6 @@ type Client struct {
 	backoffInitialInterval time.Duration
 }
 
-// isV2Path reports whether path targets the V2 REST surface
-// (`api.php/v2/...`) as opposed to a PATH_INFO Controller route. V2
-// requests must NOT carry the zentaosid query param on writes because
-// ZenTao Max 8.x mis-parses it as a record id in unique-check SQL.
-func isV2Path(path string) bool {
-	return strings.HasPrefix(strings.TrimLeft(path, "/"), "api.php/")
-}
-
 func parseBaseURL(raw string) (*url.URL, error) {
 	if raw == "" {
 		return nil, fmt.Errorf("base URL is empty")
@@ -82,8 +74,8 @@ func NewClient(baseURL, account, password string) (*Client, error) {
 			Jar:     jar,
 			// Suppress automatic redirect-following so 302 → /user-login
 			// (the Controller "session expired" signal) is visible to
-			// isSessionExpired instead of being silently followed into
-			// the login page HTML.
+			// isControllerSessionExpired instead of being silently
+			// followed into the login page HTML.
 			CheckRedirect: func(*http.Request, []*http.Request) error {
 				return http.ErrUseLastResponse
 			},
@@ -97,19 +89,229 @@ func NewClient(baseURL, account, password string) (*Client, error) {
 	return c, nil
 }
 
-// doRequest performs a single API call with token-based authentication.
-// On any session-expired signal (HTTP 401, 302→login, or 200+please-
-// login envelope) it refreshes the token and replays the request once.
-func (c *Client) doRequest(ctx context.Context, method, path string, query map[string]string, body any) ([]byte, int, error) {
+// ============================================================================
+// Credential lifecycle: Login + refresh
+// ============================================================================
+
+// loginAPIV1Wire is the response shape ZenTao's `POST /api.php/v1/tokens`
+// returns. On success the body is `{"token":"<sid>"}`; on failure
+// (observed: HTTP 400 + "登录失败，请检查您的用户名或密码是否填写正确。")
+// the body collapses to `{"error":"<reason>"}`.
+//
+// Per probe 2026-05-08, the same `token` value drives all three transports —
+// Controller via `?zentaosid=<token>`; V1 and V2 REST via `Token: <token>`
+// header — so this single login replaces the older Controller-flavored
+// two-step flow that earlier code used.
+type loginAPIV1Wire struct {
+	Token string `json:"token,omitempty"`
+	Error string `json:"error,omitempty"`
+}
+
+// Login authenticates via the ZenTao API V1 token endpoint:
+//
+//	POST <baseURL>/api.php/v1/tokens
+//	Content-Type: application/json
+//	{"account":"…","password":"…"}
+//
+// On success, the returned token is stored under tokenMu and used as the
+// credential for every transport. Login bypasses doWithRefresh (it must
+// not recurse into refreshSession) and reuses c.http only for cookie jar
+// continuity with the rest of the client.
+func (c *Client) Login(ctx context.Context) error {
+	endpoint := *c.baseURL
+	endpoint.Path = strings.TrimRight(endpoint.Path, "/") + "/api.php/v1/tokens"
+
+	payload, err := json.Marshal(map[string]string{
+		"account":  c.account,
+		"password": c.password,
+	})
+	if err != nil {
+		return fmt.Errorf("login: marshal credentials: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint.String(), bytes.NewReader(payload))
+	if err != nil {
+		return fmt.Errorf("login: build request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return fmt.Errorf("login: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return fmt.Errorf("login: read body: %w (http=%d)", err, resp.StatusCode)
+	}
+
+	if resp.StatusCode == http.StatusUnauthorized {
+		return fmt.Errorf("login: %w (http=401 body=%s)", ErrUnauthorized, string(body))
+	}
+
+	var wire loginAPIV1Wire
+	parseErr := json.Unmarshal(body, &wire)
+
+	// V1 returns 4xx + {"error":"..."} for credential failure and
+	// generic validation errors. Classify via isUnauthorizedReason so
+	// "wrong password" / "登录失败" / "认证" become ErrUnauthorized
+	// while other 4xx surfaces as a structured *APIError.
+	if parseErr == nil && wire.Error != "" {
+		if isUnauthorizedReason(wire.Error) {
+			return fmt.Errorf("login: %w (reason=%s)", ErrUnauthorized, wire.Error)
+		}
+		return &APIError{HTTPStatus: resp.StatusCode, Reason: wire.Error, RawBody: body}
+	}
+
+	if resp.StatusCode >= 400 {
+		return &APIError{HTTPStatus: resp.StatusCode, RawBody: body}
+	}
+
+	if parseErr != nil {
+		return fmt.Errorf("login: parse response: %w (body=%s)", parseErr, string(body))
+	}
+
+	if wire.Token == "" {
+		return fmt.Errorf("login: empty token in response (body=%s)", string(body))
+	}
+
+	c.tokenMu.Lock()
+	c.token = wire.Token
+	c.tokenMu.Unlock()
+	return nil
+}
+
+// refreshSession re-runs Login if the caller's observed token is still
+// current. Concurrent callers serialize on refreshMu so only one Login
+// is in flight at a time; later callers re-check the token under
+// refreshMu and no-op if a peer already rotated it.
+func (c *Client) refreshSession(ctx context.Context, observedToken string) error {
+	c.refreshMu.Lock()
+	defer c.refreshMu.Unlock()
+
+	c.tokenMu.Lock()
+	current := c.token
+	c.tokenMu.Unlock()
+	if current != observedToken {
+		return nil
+	}
+	return c.Login(ctx)
+}
+
+// ============================================================================
+// Shared HTTP helpers — used by every transport
+// ============================================================================
+
+// sendHTTP performs a single API request with exponential 5xx retry.
+// It joins path onto c.baseURL, merges query, optionally injects the
+// `zentaosid` query parameter (Controller transport's auth carrier),
+// sets Accept/Content-Type/Token headers, executes with backoff, and
+// returns body + status + Location header verbatim for the caller's
+// per-transport expiry detector to classify.
+//
+// The injectZentaosid flag is the ONLY transport-specific dial here:
+//   - V1 / V2 transports pass false — they authenticate via Token header
+//     exclusively, and Max 8.x mis-parses zentaosid on V2 PUT (observed:
+//     "Unknown column" SQL error from a unique-check using the long
+//     hex value as a record id).
+//   - Controller transport passes true — PATH_INFO routes authenticate
+//     EXCLUSIVELY via this query parameter; cookie + Token header alone
+//     yields 302 → /user-login.
+//
+// A caller-supplied query["zentaosid"] always wins over auto-injection;
+// an empty token (Login still in flight) emits no auth at all. Body is
+// taken pre-encoded (JSON-marshalled or form.Encode()'d) — this helper
+// is content-type agnostic.
+func (c *Client) sendHTTP(
+	ctx context.Context,
+	method, path string,
+	query map[string]string,
+	body []byte,
+	contentType, token string,
+	injectZentaosid bool,
+) (rawBody []byte, status int, location string, err error) {
+	endpoint := *c.baseURL
+	endpoint.Path = strings.TrimRight(endpoint.Path, "/") + "/" + strings.TrimLeft(path, "/")
+	q := endpoint.Query()
+	for k, v := range query {
+		q.Set(k, v)
+	}
+	if injectZentaosid && token != "" && q.Get("zentaosid") == "" {
+		q.Set("zentaosid", token)
+	}
+	endpoint.RawQuery = q.Encode()
+
+	op := func() error {
+		var bodyReader io.Reader
+		if len(body) > 0 {
+			bodyReader = bytes.NewReader(body)
+		}
+		req, reqErr := http.NewRequestWithContext(ctx, method, endpoint.String(), bodyReader)
+		if reqErr != nil {
+			return backoff.Permanent(fmt.Errorf("build request: %w", reqErr))
+		}
+		// Content-Type is only meaningful when a body is present;
+		// setting it on a body-less GET would be nonsensical and
+		// could trigger weird server-side dispatch.
+		if len(body) > 0 && contentType != "" {
+			req.Header.Set("Content-Type", contentType)
+		}
+		req.Header.Set("Accept", "application/json")
+		if token != "" {
+			req.Header.Set("Token", token)
+		}
+		resp, doErr := c.http.Do(req)
+		if doErr != nil {
+			return doErr // retry on transient network errors
+		}
+		defer func() { _ = resp.Body.Close() }()
+		b, readErr := io.ReadAll(resp.Body)
+		if readErr != nil {
+			return readErr
+		}
+		rawBody = b
+		status = resp.StatusCode
+		location = resp.Header.Get("Location")
+		if resp.StatusCode >= 500 {
+			return fmt.Errorf("server error %d", resp.StatusCode)
+		}
+		return nil
+	}
+
+	expo := backoff.NewExponentialBackOff()
+	expo.InitialInterval = c.backoffInitialInterval
+	expo.MaxElapsedTime = c.backoffMaxElapsed
+
+	if err = backoff.Retry(op, backoff.WithContext(expo, ctx)); err != nil {
+		return rawBody, status, location, err
+	}
+	return rawBody, status, location, nil
+}
+
+// doWithRefresh implements the "send → detect expiry → refresh once →
+// replay" pattern shared by every transport. The transport supplies its
+// own expiry detector (V1: 401/403, V2: 401, Controller: 302/please-login)
+// and a send closure that knows how to actually issue the request with
+// the supplied token.
+//
+// Refresh contention is handled inside refreshSession: concurrent callers
+// observing the same expired token serialize on refreshMu and only one
+// Login round-trip fires; the rest no-op once the token has rotated.
+func (c *Client) doWithRefresh(
+	ctx context.Context,
+	isExpired func(status int, body []byte, location string) bool,
+	send func(token string) (body []byte, status int, location string, err error),
+) ([]byte, int, error) {
 	c.tokenMu.Lock()
 	observedToken := c.token
 	c.tokenMu.Unlock()
 
-	rawBody, status, location, err := c.send(ctx, method, path, query, body, observedToken)
+	rawBody, status, location, err := send(observedToken)
 	if err != nil {
 		return rawBody, status, err
 	}
-	if !isSessionExpired(status, rawBody, location) {
+	if !isExpired(status, rawBody, location) {
 		return rawBody, status, nil
 	}
 
@@ -121,96 +323,12 @@ func (c *Client) doRequest(ctx context.Context, method, path string, query map[s
 	newToken := c.token
 	c.tokenMu.Unlock()
 
-	rawBody, status, location, err = c.send(ctx, method, path, query, body, newToken)
+	rawBody, status, location, err = send(newToken)
 	if err != nil {
 		return rawBody, status, err
 	}
-	if isSessionExpired(status, rawBody, location) {
+	if isExpired(status, rawBody, location) {
 		return rawBody, status, fmt.Errorf("session refresh exhausted: still expired after replay")
 	}
 	return rawBody, status, nil
-}
-
-func (c *Client) send(ctx context.Context, method, path string, query map[string]string, body any, token string) ([]byte, int, string, error) {
-	endpoint := *c.baseURL
-	endpoint.Path = strings.TrimRight(endpoint.Path, "/") + "/" + strings.TrimLeft(path, "/")
-	q := endpoint.Query()
-	for k, v := range query {
-		q.Set(k, v)
-	}
-	// PATH_INFO Controller routes (`<module>-<method>...json`) authenticate
-	// EXCLUSIVELY via the zentaosid query parameter on ZenTao Max 8.x — the
-	// session cookie alone yields 302 → /user-login. V2 routes
-	// (`api.php/v2/...`) authenticate via Token header / cookie and must
-	// NOT receive zentaosid: ZenTao Max 8.x mis-parses it on PUT, feeding
-	// the long hex value into a SQL `id != ?` unique-check (observed:
-	// "Unknown column" SQL error on update). Caller-supplied zentaosid
-	// always wins; otherwise we fill it for Controller paths only. An
-	// empty token (Login still in flight) emits no query param either way.
-	if token != "" && q.Get("zentaosid") == "" && !isV2Path(path) {
-		q.Set("zentaosid", token)
-	}
-	endpoint.RawQuery = q.Encode()
-
-	var bodyBytes []byte
-	if body != nil {
-		var err error
-		bodyBytes, err = json.Marshal(body)
-		if err != nil {
-			return nil, 0, "", fmt.Errorf("marshal body: %w", err)
-		}
-	}
-
-	var (
-		rawBody  []byte
-		status   int
-		location string
-	)
-
-	op := func() error {
-		var reqBody io.Reader
-		if bodyBytes != nil {
-			reqBody = bytes.NewReader(bodyBytes)
-		}
-		req, err := http.NewRequestWithContext(ctx, method, endpoint.String(), reqBody)
-		if err != nil {
-			return backoff.Permanent(fmt.Errorf("build request: %w", err))
-		}
-		if bodyBytes != nil {
-			req.Header.Set("Content-Type", "application/json")
-		}
-		req.Header.Set("Accept", "application/json")
-		if token != "" {
-			req.Header.Set("Token", token)
-		}
-
-		resp, err := c.http.Do(req)
-		if err != nil {
-			return err // retry on transient network errors
-		}
-		defer func() {
-			_ = resp.Body.Close()
-		}()
-		b, readErr := io.ReadAll(resp.Body)
-		if readErr != nil {
-			return readErr
-		}
-		rawBody = b
-		status = resp.StatusCode
-		location = resp.Header.Get("Location")
-
-		if resp.StatusCode >= 500 {
-			return fmt.Errorf("server error %d", resp.StatusCode)
-		}
-		return nil
-	}
-
-	expo := backoff.NewExponentialBackOff()
-	expo.InitialInterval = c.backoffInitialInterval
-	expo.MaxElapsedTime = c.backoffMaxElapsed
-
-	if err := backoff.Retry(op, backoff.WithContext(expo, ctx)); err != nil {
-		return rawBody, status, location, err
-	}
-	return rawBody, status, location, nil
 }

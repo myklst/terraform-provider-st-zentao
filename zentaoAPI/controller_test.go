@@ -320,6 +320,135 @@ func TestCallController_PublicHappyPath(t *testing.T) {
 	}
 }
 
+// --- zentaosid query plumbing (auto-inject / empty-token / caller-supplied) ---
+
+func TestDoController_InjectsZentaosidQueryWhenTokenSet(t *testing.T) {
+	var sawSid string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		sawSid = r.URL.Query().Get("zentaosid")
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"status":"success"}`))
+	}))
+	defer srv.Close()
+
+	c := newTestClient(t, "tok-xyz", srv.URL)
+	if _, _, err := c.doController(context.Background(), "user", "view", []string{"admin"}, nil, nil); err != nil {
+		t.Fatalf("doController: %v", err)
+	}
+	if sawSid != "tok-xyz" {
+		t.Fatalf("zentaosid query = %q, want tok-xyz (auto-injected from c.token)", sawSid)
+	}
+}
+
+func TestDoController_OmitsZentaosidWhenTokenEmpty(t *testing.T) {
+	var sawSid string
+	var sawSidPresent bool
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, sawSidPresent = r.URL.Query()["zentaosid"]
+		sawSid = r.URL.Query().Get("zentaosid")
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"status":"success"}`))
+	}))
+	defer srv.Close()
+
+	c := newTestClient(t, "", srv.URL) // empty token: bootstrap window before Login completes
+	if _, _, err := c.doController(context.Background(), "product", "all", nil, nil, nil); err != nil {
+		t.Fatalf("doController: %v", err)
+	}
+	if sawSidPresent || sawSid != "" {
+		t.Fatalf("expected no zentaosid query when token empty, got %q (present=%v)", sawSid, sawSidPresent)
+	}
+}
+
+func TestDoController_RespectsCallerSuppliedZentaosid(t *testing.T) {
+	var sawSid string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		sawSid = r.URL.Query().Get("zentaosid")
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"status":"success"}`))
+	}))
+	defer srv.Close()
+
+	c := newTestClient(t, "tok-from-client", srv.URL)
+	q := map[string]string{"zentaosid": "tok-from-caller"}
+	if _, _, err := c.doController(context.Background(), "user", "view", []string{"admin"}, q, nil); err != nil {
+		t.Fatalf("doController: %v", err)
+	}
+	if sawSid != "tok-from-caller" {
+		t.Fatalf("zentaosid = %q, want caller-supplied to win", sawSid)
+	}
+}
+
+// --- 200 + please-login envelope drives refresh on Controller transport ---
+
+func TestDoController_SessionExpiry_ViaPleaseLoginBody(t *testing.T) {
+	var apiCalls, loginCalls atomic.Int32
+	srv := newV1LoginServer(t, v1Opts{
+		sessionID:  "new-tok",
+		loginCalls: &loginCalls,
+		apiCalls:   &apiCalls,
+		handler: func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			if r.URL.Query().Get("zentaosid") == "old-tok" {
+				_, _ = w.Write([]byte(`{"status":"failed","reason":"please login"}`))
+				return
+			}
+			_, _ = w.Write([]byte(`{"status":"success","data":"{\"id\":\"7\"}"}`))
+		},
+	})
+	defer srv.Close()
+
+	c := newTestClient(t, "old-tok", srv.URL)
+	_, status, err := c.doController(context.Background(), "user", "view", []string{"admin"}, nil, nil)
+	if err != nil {
+		t.Fatalf("doController: %v", err)
+	}
+	if status != http.StatusOK {
+		t.Fatalf("status = %d (post-replay)", status)
+	}
+	if loginCalls.Load() != 1 {
+		t.Fatalf("login calls = %d, want 1", loginCalls.Load())
+	}
+	if apiCalls.Load() != 2 {
+		t.Fatalf("api calls = %d, want 2", apiCalls.Load())
+	}
+}
+
+// --- isControllerSessionExpired table ---
+
+func TestIsControllerSessionExpired(t *testing.T) {
+	cases := []struct {
+		name     string
+		status   int
+		body     string
+		location string
+		want     bool
+	}{
+		{"302 → user-login (controller)", 302, "", "/zentao/user-login-L3plbnRhby8=.html", true},
+		{"302 → user-login.html plain", 302, "", "https://example/user-login.html", true},
+		{"301 → user-login", 301, "", "/zentao/user-login.html", true},
+		{"303 → user-login", 303, "", "/zentao/user-login.html", true},
+		{"302 → unrelated redirect", 302, "", "/some/other/place", false},
+		{"302 → no Location header", 302, "", "", false},
+		{"200 + please login reason", 200, `{"status":"failed","reason":"please login"}`, "", true},
+		{"200 + 请重新登录", 200, `{"status":"failed","reason":"请重新登录"}`, "", true},
+		{"200 + business success", 200, `{"status":"success","data":"x"}`, "", false},
+		{"200 + unrelated failure", 200, `{"status":"fail","reason":"name exists"}`, "", false},
+		{"200 + empty body", 200, "", "", false},
+		{"401 NOT recognised on Controller", 401, "", "", false},
+		{"404 not expired", 404, "", "", false},
+		{"500 not expired", 500, "", "", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := isControllerSessionExpired(tc.status, []byte(tc.body), tc.location)
+			if got != tc.want {
+				t.Fatalf("got %v want %v", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestCallController_EnvelopeFailureFlowsThrough(t *testing.T) {
 	// CallController is a transport-level escape hatch — it should surface
 	// the raw body + status without classifying business failures. Caller

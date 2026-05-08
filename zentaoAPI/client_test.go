@@ -45,9 +45,9 @@ func TestNewClient_CheckRedirectDisabled(t *testing.T) {
 	}
 }
 
-// --- doRequest happy paths ---
+// --- doV2Request happy paths ---
 
-func TestDoRequest_HappyPath_TokenHeader(t *testing.T) {
+func TestDoV2Request_HappyPath_TokenHeader(t *testing.T) {
 	var gotMethod, gotPath, gotToken, gotBody string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotMethod = r.Method
@@ -61,9 +61,9 @@ func TestDoRequest_HappyPath_TokenHeader(t *testing.T) {
 	defer srv.Close()
 
 	c := newTestClient(t, "tok-1", srv.URL)
-	body, status, err := c.doRequest(context.Background(), http.MethodGet, "api.php/v2/products/1", nil, nil)
+	body, status, err := c.doV2Request(context.Background(), http.MethodGet, "api.php/v2/products/1", nil, nil)
 	if err != nil {
-		t.Fatalf("doRequest: %v", err)
+		t.Fatalf("doV2Request: %v", err)
 	}
 	if status != http.StatusOK {
 		t.Fatalf("status = %d", status)
@@ -85,7 +85,7 @@ func TestDoRequest_HappyPath_TokenHeader(t *testing.T) {
 	}
 }
 
-func TestDoRequest_NoTokenHeaderWhenEmpty(t *testing.T) {
+func TestDoV2Request_NoTokenHeaderWhenEmpty(t *testing.T) {
 	var sawToken bool
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, sawToken = r.Header["Token"]
@@ -95,15 +95,15 @@ func TestDoRequest_NoTokenHeaderWhenEmpty(t *testing.T) {
 	defer srv.Close()
 
 	c := newTestClient(t, "", srv.URL)
-	if _, _, err := c.doRequest(context.Background(), http.MethodGet, "api.php/v2/products", nil, nil); err != nil {
-		t.Fatalf("doRequest: %v", err)
+	if _, _, err := c.doV2Request(context.Background(), http.MethodGet, "api.php/v2/products", nil, nil); err != nil {
+		t.Fatalf("doV2Request: %v", err)
 	}
 	if sawToken {
 		t.Fatal("expected no Token header when client has empty token")
 	}
 }
 
-func TestDoRequest_PostJSONBody(t *testing.T) {
+func TestDoV2Request_PostJSONBody(t *testing.T) {
 	var gotCT, gotBody string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotCT = r.Header.Get("Content-Type")
@@ -116,8 +116,8 @@ func TestDoRequest_PostJSONBody(t *testing.T) {
 
 	c := newTestClient(t, "tok-1", srv.URL)
 	payload := map[string]string{"name": "x"}
-	if _, _, err := c.doRequest(context.Background(), http.MethodPost, "api.php/v2/products", nil, payload); err != nil {
-		t.Fatalf("doRequest: %v", err)
+	if _, _, err := c.doV2Request(context.Background(), http.MethodPost, "api.php/v2/products", nil, payload); err != nil {
+		t.Fatalf("doV2Request: %v", err)
 	}
 	if gotCT != "application/json" {
 		t.Fatalf("content-type = %q", gotCT)
@@ -127,9 +127,9 @@ func TestDoRequest_PostJSONBody(t *testing.T) {
 	}
 }
 
-// --- session-expiry refresh & replay (three signals) ---
+// --- session-expiry refresh & replay (V2 transport: 401-driven) ---
 
-func TestDoRequest_SessionExpiry_Via401(t *testing.T) {
+func TestDoV2Request_SessionExpiry_Via401(t *testing.T) {
 	var apiCalls, loginCalls atomic.Int32
 	srv := newV1LoginServer(t, v1Opts{
 		sessionID:  "new-tok",
@@ -148,9 +148,9 @@ func TestDoRequest_SessionExpiry_Via401(t *testing.T) {
 	defer srv.Close()
 
 	c := newTestClient(t, "old-tok", srv.URL)
-	body, status, err := c.doRequest(context.Background(), http.MethodGet, "api.php/v2/products/99", nil, nil)
+	body, status, err := c.doV2Request(context.Background(), http.MethodGet, "api.php/v2/products/99", nil, nil)
 	if err != nil {
-		t.Fatalf("doRequest: %v", err)
+		t.Fatalf("doV2Request: %v", err)
 	}
 	if status != http.StatusOK {
 		t.Fatalf("status = %d", status)
@@ -166,74 +166,7 @@ func TestDoRequest_SessionExpiry_Via401(t *testing.T) {
 	}
 }
 
-func TestDoRequest_SessionExpiry_Via302LoginRedirect(t *testing.T) {
-	var apiCalls, loginCalls atomic.Int32
-	srv := newV1LoginServer(t, v1Opts{
-		sessionID:  "new-tok",
-		loginCalls: &loginCalls,
-		apiCalls:   &apiCalls,
-		handler: func(w http.ResponseWriter, r *http.Request) {
-			if r.Header.Get("Token") == "old-tok" {
-				w.Header().Set("Location", "/zentao/user-login-L3plbnRhby8=.html")
-				w.WriteHeader(http.StatusFound)
-				return
-			}
-			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(`{"status":"success","data":"{\"id\":\"42\"}"}`))
-		},
-	})
-	defer srv.Close()
-
-	c := newTestClient(t, "old-tok", srv.URL)
-	_, status, err := c.doRequest(context.Background(), http.MethodGet, "user-view-admin.json", nil, nil)
-	if err != nil {
-		t.Fatalf("doRequest: %v", err)
-	}
-	if status != http.StatusOK {
-		t.Fatalf("status = %d, want 200 (post-replay)", status)
-	}
-	if loginCalls.Load() != 1 {
-		t.Fatalf("login calls = %d, want 1", loginCalls.Load())
-	}
-	if apiCalls.Load() != 2 {
-		t.Fatalf("api calls = %d, want 2", apiCalls.Load())
-	}
-}
-
-func TestDoRequest_SessionExpiry_ViaPleaseLoginBody(t *testing.T) {
-	var apiCalls, loginCalls atomic.Int32
-	srv := newV1LoginServer(t, v1Opts{
-		sessionID:  "new-tok",
-		loginCalls: &loginCalls,
-		apiCalls:   &apiCalls,
-		handler: func(w http.ResponseWriter, r *http.Request) {
-			w.Header().Set("Content-Type", "application/json")
-			if r.Header.Get("Token") == "old-tok" {
-				_, _ = w.Write([]byte(`{"status":"failed","reason":"please login"}`))
-				return
-			}
-			_, _ = w.Write([]byte(`{"status":"success","data":"{\"id\":\"7\"}"}`))
-		},
-	})
-	defer srv.Close()
-
-	c := newTestClient(t, "old-tok", srv.URL)
-	_, status, err := c.doRequest(context.Background(), http.MethodGet, "user-view-admin.json", nil, nil)
-	if err != nil {
-		t.Fatalf("doRequest: %v", err)
-	}
-	if status != http.StatusOK {
-		t.Fatalf("status = %d", status)
-	}
-	if loginCalls.Load() != 1 {
-		t.Fatalf("login calls = %d, want 1", loginCalls.Load())
-	}
-	if apiCalls.Load() != 2 {
-		t.Fatalf("api calls = %d, want 2", apiCalls.Load())
-	}
-}
-
-func TestDoRequest_SessionExpiry_RefreshExhausted(t *testing.T) {
+func TestDoV2Request_SessionExpiry_RefreshExhausted(t *testing.T) {
 	srv := newV1LoginServer(t, v1Opts{
 		sessionID: "new-tok",
 		handler: func(w http.ResponseWriter, r *http.Request) {
@@ -243,7 +176,7 @@ func TestDoRequest_SessionExpiry_RefreshExhausted(t *testing.T) {
 	defer srv.Close()
 
 	c := newTestClient(t, "old-tok", srv.URL)
-	_, _, err := c.doRequest(context.Background(), http.MethodGet, "api.php/v2/products/1", nil, nil)
+	_, _, err := c.doV2Request(context.Background(), http.MethodGet, "api.php/v2/products/1", nil, nil)
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -252,7 +185,7 @@ func TestDoRequest_SessionExpiry_RefreshExhausted(t *testing.T) {
 	}
 }
 
-func TestDoRequest_ConcurrentExpiry_SingleLogin(t *testing.T) {
+func TestDoV2Request_ConcurrentExpiry_SingleLogin(t *testing.T) {
 	var loginCalls atomic.Int32
 	srv := newV1LoginServer(t, v1Opts{
 		sessionID:  "new-tok",
@@ -278,7 +211,7 @@ func TestDoRequest_ConcurrentExpiry_SingleLogin(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			_, _, err := c.doRequest(context.Background(), http.MethodGet, "api.php/v2/products/1", nil, nil)
+			_, _, err := c.doV2Request(context.Background(), http.MethodGet, "api.php/v2/products/1", nil, nil)
 			errs <- err
 		}()
 	}
@@ -294,9 +227,9 @@ func TestDoRequest_ConcurrentExpiry_SingleLogin(t *testing.T) {
 	}
 }
 
-// --- backoff & 4xx semantics (unchanged from V2 path) ---
+// --- backoff & 4xx semantics (sendHTTP shared across transports) ---
 
-func TestSend_BackoffOn5xx(t *testing.T) {
+func TestSendHTTP_BackoffOn5xx(t *testing.T) {
 	var calls atomic.Int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		n := calls.Add(1)
@@ -313,9 +246,9 @@ func TestSend_BackoffOn5xx(t *testing.T) {
 	c.backoffMaxElapsed = 5 * time.Second
 	c.backoffInitialInterval = 10 * time.Millisecond
 
-	body, status, err := c.doRequest(context.Background(), http.MethodGet, "api.php/v2/products", nil, nil)
+	body, status, err := c.doV2Request(context.Background(), http.MethodGet, "api.php/v2/products", nil, nil)
 	if err != nil {
-		t.Fatalf("doRequest: %v", err)
+		t.Fatalf("doV2Request: %v", err)
 	}
 	if status != http.StatusOK {
 		t.Fatalf("status = %d", status)
@@ -328,7 +261,7 @@ func TestSend_BackoffOn5xx(t *testing.T) {
 	}
 }
 
-func TestSend_NoBackoffOn4xx(t *testing.T) {
+func TestSendHTTP_NoBackoffOn4xx(t *testing.T) {
 	var calls atomic.Int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		calls.Add(1)
@@ -340,8 +273,8 @@ func TestSend_NoBackoffOn4xx(t *testing.T) {
 	c.backoffMaxElapsed = 5 * time.Second
 	c.backoffInitialInterval = 10 * time.Millisecond
 
-	if _, status, err := c.doRequest(context.Background(), http.MethodGet, "api.php/v2/products", nil, nil); err != nil {
-		t.Fatalf("doRequest: %v", err)
+	if _, status, err := c.doV2Request(context.Background(), http.MethodGet, "api.php/v2/products", nil, nil); err != nil {
+		t.Fatalf("doV2Request: %v", err)
 	} else if status != http.StatusBadRequest {
 		t.Fatalf("status = %d, want 400", status)
 	}
@@ -352,10 +285,10 @@ func TestSend_NoBackoffOn4xx(t *testing.T) {
 
 // --- cookiejar persistence verification ---
 
-func TestDoRequest_CookieJarPersistsAcrossRequests(t *testing.T) {
+func TestSendHTTP_CookieJarPersistsAcrossRequests(t *testing.T) {
 	var firstCookie, secondCookie string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/api/first" {
+		if r.URL.Path == "/api.php/v2/first" {
 			http.SetCookie(w, &http.Cookie{Name: "marker", Value: "from-first", Path: "/"})
 			if c, err := r.Cookie("marker"); err == nil {
 				firstCookie = c.Value
@@ -373,13 +306,13 @@ func TestDoRequest_CookieJarPersistsAcrossRequests(t *testing.T) {
 	defer srv.Close()
 
 	c := newTestClient(t, "tok-1", srv.URL)
-	if _, _, err := c.doRequest(context.Background(), http.MethodGet, "api/first", nil, nil); err != nil {
+	if _, _, err := c.doV2Request(context.Background(), http.MethodGet, "api.php/v2/first", nil, nil); err != nil {
 		t.Fatalf("first req: %v", err)
 	}
 	if firstCookie != "" {
 		t.Fatalf("first req should not carry cookie yet, got %q", firstCookie)
 	}
-	if _, _, err := c.doRequest(context.Background(), http.MethodGet, "api/second", nil, nil); err != nil {
+	if _, _, err := c.doV2Request(context.Background(), http.MethodGet, "api.php/v2/second", nil, nil); err != nil {
 		t.Fatalf("second req: %v", err)
 	}
 	if secondCookie != "from-first" {
@@ -387,45 +320,9 @@ func TestDoRequest_CookieJarPersistsAcrossRequests(t *testing.T) {
 	}
 }
 
-func TestSend_InjectsZentaosidQueryWhenTokenSet(t *testing.T) {
-	var sawSid string
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		sawSid = r.URL.Query().Get("zentaosid")
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"status":"success"}`))
-	}))
-	defer srv.Close()
+// --- V2 transport never injects zentaosid (regression guard) ---
 
-	c := newTestClient(t, "tok-xyz", srv.URL)
-	if _, _, err := c.doRequest(context.Background(), http.MethodGet, "user-view-admin.json", nil, nil); err != nil {
-		t.Fatalf("doRequest: %v", err)
-	}
-	if sawSid != "tok-xyz" {
-		t.Fatalf("zentaosid query = %q, want tok-xyz", sawSid)
-	}
-}
-
-func TestSend_OmitsZentaosidWhenTokenEmpty(t *testing.T) {
-	var sawSid string
-	var sawSidPresent bool
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, sawSidPresent = r.URL.Query()["zentaosid"]
-		sawSid = r.URL.Query().Get("zentaosid")
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"status":"success"}`))
-	}))
-	defer srv.Close()
-
-	c := newTestClient(t, "", srv.URL) // empty token: bootstrap window
-	if _, _, err := c.doRequest(context.Background(), http.MethodGet, "product-all.json", nil, nil); err != nil {
-		t.Fatalf("doRequest: %v", err)
-	}
-	if sawSidPresent || sawSid != "" {
-		t.Fatalf("expected no zentaosid query when token empty, got %q (present=%v)", sawSid, sawSidPresent)
-	}
-}
-
-func TestSend_OmitsZentaosidOnV2Path(t *testing.T) {
+func TestDoV2Request_NeverInjectsZentaosid(t *testing.T) {
 	var sawSidPresent bool
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, sawSidPresent = r.URL.Query()["zentaosid"]
@@ -435,39 +332,22 @@ func TestSend_OmitsZentaosidOnV2Path(t *testing.T) {
 	defer srv.Close()
 
 	c := newTestClient(t, "tok-xyz", srv.URL)
-	if _, _, err := c.doRequest(context.Background(), http.MethodPut, "api.php/v2/programs/77",
+	if _, _, err := c.doV2Request(context.Background(), http.MethodPut, "api.php/v2/programs/77",
 		nil, map[string]string{"name": "x"}); err != nil {
-		t.Fatalf("doRequest: %v", err)
+		t.Fatalf("doV2Request: %v", err)
 	}
 	if sawSidPresent {
 		t.Fatal("V2 path must NOT receive zentaosid query (server mis-parses on PUT)")
 	}
 }
 
-func TestSend_RespectsCallerSuppliedZentaosid(t *testing.T) {
-	var sawSid string
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		sawSid = r.URL.Query().Get("zentaosid")
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"status":"success"}`))
-	}))
-	defer srv.Close()
+// --- redirect suppression (CheckRedirect plumbing) ---
 
-	c := newTestClient(t, "tok-from-client", srv.URL)
-	if _, _, err := c.doRequest(context.Background(), http.MethodGet, "x.json",
-		map[string]string{"zentaosid": "tok-from-caller"}, nil); err != nil {
-		t.Fatalf("doRequest: %v", err)
-	}
-	if sawSid != "tok-from-caller" {
-		t.Fatalf("zentaosid = %q, want caller-supplied to win", sawSid)
-	}
-}
-
-func TestDoRequest_AutoRedirectDisabled(t *testing.T) {
+func TestDoV2Request_AutoRedirectDisabled(t *testing.T) {
 	var hits atomic.Int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		hits.Add(1)
-		if r.URL.Path == "/somewhere" {
+		if r.URL.Path == "/api.php/v2/somewhere" {
 			w.Header().Set("Location", "/elsewhere")
 			w.WriteHeader(http.StatusFound)
 			return
@@ -478,9 +358,9 @@ func TestDoRequest_AutoRedirectDisabled(t *testing.T) {
 	defer srv.Close()
 
 	c := newTestClient(t, "tok-1", srv.URL)
-	_, status, err := c.doRequest(context.Background(), http.MethodGet, "somewhere", nil, nil)
+	_, status, err := c.doV2Request(context.Background(), http.MethodGet, "api.php/v2/somewhere", nil, nil)
 	if err != nil {
-		t.Fatalf("doRequest: %v", err)
+		t.Fatalf("doV2Request: %v", err)
 	}
 	if status != http.StatusFound {
 		t.Fatalf("status = %d, want 302 (auto-follow should be disabled)", status)
@@ -490,16 +370,41 @@ func TestDoRequest_AutoRedirectDisabled(t *testing.T) {
 	}
 }
 
+// --- isV2SessionExpired table ---
+
+func TestIsV2SessionExpired(t *testing.T) {
+	cases := []struct {
+		name   string
+		status int
+		want   bool
+	}{
+		{"http 401 → expired", 401, true},
+		{"http 200 → fine", 200, false},
+		{"http 403 → not recognised on V2 (only 401 is documented)", 403, false},
+		{"http 404 → not expired", 404, false},
+		{"http 400 → not expired", 400, false},
+		{"http 500 → not expired (server fault, not auth)", 500, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := isV2SessionExpired(tc.status, nil, "")
+			if got != tc.want {
+				t.Fatalf("got %v want %v", got, tc.want)
+			}
+		})
+	}
+}
+
 // --- shared test helpers ---
 
 func newTestClient(t *testing.T, token string, srvURL string) *Client {
 	t.Helper()
 	jar, _ := cookiejar.New(nil)
 	c := &Client{
-		baseURL:                mustParseURL(t, srvURL),
-		account:                "admin",
+		baseURL:  mustParseURL(t, srvURL),
+		account:  "admin",
 		password: "p",
-		token:                  token,
+		token:    token,
 		http: &http.Client{
 			Jar: jar,
 			CheckRedirect: func(*http.Request, []*http.Request) error {
