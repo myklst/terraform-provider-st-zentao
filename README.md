@@ -1,14 +1,26 @@
 # terraform-provider-st-zentao
 
-Custom Terraform provider for [ZenTao](https://www.zentao.net/) — self-hosted open source plus Pro / Biz / Max editions. Authenticates via the v1 two-step apilogin flow; the resulting session drives both the **ZenTao RESTful API v2** (`/api.php/v2/...`) and the legacy **PATH_INFO Controller** routes (`/<module>-<method>-...json`), so resources can target whichever entity surface ZenTao exposes.
+Custom Terraform provider for [ZenTao](https://www.zentao.net/) — self-hosted open source plus Pro / Biz / Max editions. Authenticates via `POST /api.php/v1/tokens` (the documented [V1 token endpoint](https://www.zentao.net/book/api/664.html)); the issued sessionID drives all three of ZenTao's API surfaces, so resources can target whichever surface exposes a given entity:
+
+- **API V1** (`/api.php/v1/...`) — RESTful, JSON, `Token:` header (open-source 16.5+)
+- **API V2** (`/api.php/v2/...`) — RESTful, JSON, `Token:` header
+- **Controller / PATH_INFO** (`/<module>-<method>-...json`) — legacy, JSON or form-urlencoded, `?zentaosid=` query parameter
 
 ## Status
 
-Initial release: ships the `st-zentao_product` and `st-zentao_program` resources, plus matching data sources. More resources (project, execution, user, group) planned — these will use the Controller transport since V2 doesn't expose them.
+Initial release: ships the `st-zentao_product` and `st-zentao_program` resources (V2-backed), plus matching data sources, plus typed wrappers for User CRUD (Controller-backed, since V2 doesn't expose users on Max 8.x). More resources (project, execution, group) planned — choice of transport per entity follows what the target ZenTao version actually accepts.
 
 ## Architecture
 
-The HTTP client (`zentaoAPI/`) carries a single auth pipeline that serves two transport flavours. V2 wrappers (`api.php/v2/...`) and Controller wrappers (`<module>-<method>-...json`) both flow through the same `doRequest` → `send` → cookiejar+`Token` header chain, and share the same session refresh logic. See `docs/superpowers/specs/2026-05-06-controller-extension-stage1.md` for the design contract and `docs/superpowers/specs/probe-controller-auth.md` for the auth probe that informs it.
+The HTTP client (`zentaoAPI/`) is split into three transport files, each owning the full request lifecycle (URL composition, body encoding, expiry detection, refresh & replay) for one ZenTao surface:
+
+- `apiv1_transport.go` → `doV1Request` (RESTful, `Token:` header, expiry = 401/403)
+- `apiv2_transport.go` → `doV2Request` (RESTful, `Token:` header, expiry = 401)
+- `controller_transport.go` → `doController` + `doControllerForm` (PATH_INFO, `?zentaosid=` query, expiry = 302→user-login or 200+please-login envelope)
+
+A single `Login()` (in `client.go`) calls `POST /api.php/v1/tokens` and stores the resulting sessionID in `*Client`; per probe, the same sessionID authenticates every transport, so refresh remains a single round-trip even when several transports are in concurrent use. Common HTTP plumbing (URL composition, optional zentaosid injection, 5xx backoff) is concentrated in `client.go`'s `sendHTTP` helper, and the send→detect-expiry→refresh→replay loop is shared via `doWithRefresh`, parameterised by each transport's expiry detector.
+
+See `docs/superpowers/specs/2026-05-06-controller-extension-stage1.md` for the original design contract and `docs/superpowers/specs/probe-controller-auth.md` for the auth probes (Controller-flavoured 2026-05-06; V1 token cross-transport compatibility 2026-05-08).
 
 For Controller endpoints not yet covered by a typed wrapper, the client exposes `CallController(ctx, module, method, pathArgs, query, body)` — marked **EXPERIMENTAL**; prefer typed methods when they exist.
 

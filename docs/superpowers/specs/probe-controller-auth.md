@@ -75,3 +75,37 @@ Therefore the client should:
 - Response parser needs a `decodeData` helper for the `string-encoded JSON in data` shape.
 - Login flow becomes two HTTP round-trips. `Login()` and `refreshSession` must coordinate both (existing serialization via `refreshMu` carries over unchanged).
 - Auth probe artefacts retained at `/tmp/probe-*` during the probe session; not committed.
+
+---
+
+## Addendum — V1 endpoint compat (probed 2026-05-08)
+
+**Probe target:** same as above (`http://lek-ws.sige.la:8080/zentao/`, Max 8.1).
+**Probe operator:** Claude (via terraform-provider-st-zentao /grill-me session).
+**Trigger:** the original probe (above) tested whether the Controller-flavoured two-step login's sessionID drives V2; it did NOT test ZenTao's RESTful **API V1** surface (`/api.php/v1/...`, distinct from "v1 apilogin" naming used in the table above for the legacy two-step login). The 2026-05-08 probe filled that gap and led to the current implementation switching from the two-step flow to V1's documented `POST /api.php/v1/tokens`.
+
+### Experiments
+
+| # | Endpoint | Auth | Result | Conclusion |
+|---|---|---|---|---|
+| V1-1 | `GET /api.php/v1/products` | none | 403 Forbidden + `Set-Cookie: zentaosid=…` | V1 surface exists; expiry signal is **403**, not 401 |
+| V1-2 | `POST /api.php/v1/tokens` | bad creds | 400 + `{"error":"登录失败，请检查您的用户名或密码是否填写正确。"}` | V1 login error envelope is `{"error":"<reason>"}`; classify via `isUnauthorizedReason` |
+| V1-3 | `POST /api.php/v1/tokens` | good creds | 201 + `{"token":"<32-hex>"}` + `Set-Cookie: zentaosid=<32-hex>` | V1 login is one round-trip and emits both Token (body) and zentaosid (cookie) values |
+| V1-4 | two-step sessionID as `Token:` header → `GET /api.php/v1/products` | two-step SID | 200 + `{"page","total","limit","products":[…]}` | **Controller two-step sessionID also authenticates V1** — the token store is shared |
+| V1-5 | V1 token (from V1-3) as `Token:` header → V1 endpoint | V1 token | 200 + business JSON | V1 token works on its own surface (sanity) |
+| V1-6 | V1 token as `Token:` header → Controller endpoint | V1 token | **302 → /user-login** | V1 token does NOT pass cookie-style auth on Controller |
+| V1-7 | V1 token as `?zentaosid=<v1tok>` → Controller endpoint | V1 token via query | 200 | V1 token DOES authenticate Controller when passed via query — same as a sessionID |
+| V1-8 | V1 token as `Token:` header → V2 endpoint | V1 token | 200 | V1 token works on V2 too |
+| V1-9 | V1 token → V2 CRUD lifecycle (POST/PUT/DELETE on `/api.php/v2/products`) | V1 token | All 200 + success envelopes | V1 token works on V2 writes (only GET had been tested before) |
+
+### Conclusion
+
+**Controller-flavoured two-step sessionID and V1 token are interchangeable** — the strings differ (each login flow emits a fresh value) but ZenTao's token store is shared across all three transports. Either credential, passed through its transport-specific carrier (`Token:` header for V1/V2, `?zentaosid=` query for Controller), authenticates any of the three surfaces.
+
+This unblocks the simplification adopted in `feat/zentao-controller-extension`:
+
+1. `Login()` now uses **`POST /api.php/v1/tokens`** (one round-trip, documented contract) instead of the legacy two-step flow.
+2. The single sessionID drives all three transports — no per-transport login is needed.
+3. Per-transport expiry detection is independent: V1 uses 401/403, V2 uses 401, Controller uses 302→user-login or 200+please-login envelope.
+
+The two-step flow is documented here for archival reasons but no longer exercised by the production client.
