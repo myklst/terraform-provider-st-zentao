@@ -143,17 +143,17 @@ func jsonNumberToInt(n json.Number, field string) (int, error) {
 }
 
 func productPath(id int) string {
-	return "api.php/v2/products/" + strconv.Itoa(id)
+	return productsPath + "/" + strconv.Itoa(id)
 }
 
-const productsPath = "api.php/v2/products"
+const productsPath = apiV2PathPrefix + "products"
 
 // GetProduct fetches a product by ID via GET /api.php/v2/products/{id}.
 // Returns ErrNotFound on HTTP 404 OR on the {"status":"fail","message":
 // "Product does not exist."} shape ZenTao v2 emits at HTTP 200 instead
 // of a real 404.
 func (c *Client) GetProduct(ctx context.Context, id int) (*Product, error) {
-	body, status, err := c.doRequest(ctx, http.MethodGet, productPath(id), nil, nil)
+	body, status, err := c.doV2Request(ctx, http.MethodGet, productPath(id), nil, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -184,7 +184,7 @@ func (c *Client) GetProduct(ctx context.Context, id int) (*Product, error) {
 // v2 only echoes back the new id; the caller should re-fetch via
 // GetProduct if it needs server-defaulted/derived fields.
 func (c *Client) CreateProduct(ctx context.Context, p *Product) (*Product, error) {
-	body, status, err := c.doRequest(ctx, http.MethodPost, productsPath, nil, p)
+	body, status, err := c.doV2Request(ctx, http.MethodPost, productsPath, nil, p)
 	if err != nil {
 		return nil, err
 	}
@@ -218,7 +218,7 @@ func (c *Client) UpdateProduct(ctx context.Context, p *Product) (*Product, error
 	if p.ID == 0 {
 		return nil, fmt.Errorf("UpdateProduct: missing id")
 	}
-	body, status, err := c.doRequest(ctx, http.MethodPut, productPath(p.ID), nil, p)
+	body, status, err := c.doV2Request(ctx, http.MethodPut, productPath(p.ID), nil, p)
 	if err != nil {
 		return nil, err
 	}
@@ -247,7 +247,7 @@ func (c *Client) UpdateProduct(ctx context.Context, p *Product) (*Product, error
 // does not exist."}. Both are treated as success so reapplies and
 // post-test cleanups don't fail spuriously.
 func (c *Client) DeleteProduct(ctx context.Context, id int) error {
-	body, status, err := c.doRequest(ctx, http.MethodDelete, productPath(id), nil, nil)
+	body, status, err := c.doV2Request(ctx, http.MethodDelete, productPath(id), nil, nil)
 	if err != nil {
 		return err
 	}
@@ -268,13 +268,6 @@ func (c *Client) DeleteProduct(ctx context.Context, id int) error {
 		return nil
 	}
 	return apiError(status, body)
-}
-
-// isNotFoundReason recognises ZenTao's various ways of saying "the row
-// you asked about does not exist" inside a 200-OK envelope.
-func isNotFoundReason(reason string) bool {
-	r := strings.ToLower(reason)
-	return strings.Contains(r, "not exist") || strings.Contains(r, "not found")
 }
 
 // apiError builds an APIError, parsing the envelope status/reason out of

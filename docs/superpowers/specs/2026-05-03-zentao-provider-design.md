@@ -1,9 +1,11 @@
 # terraform-provider-st-zentao — Design Spec
 
 **Date:** 2026-05-03
-**Status:** Approved (brainstorming)
+**Status:** Approved (brainstorming) — partially superseded 2026-05-06.
 **Owner:** myklst
 **Reference repos studied:** all 14 `terraform-provider-st-*` repos under github.com/myklst (notably digicert, cloudflare, namecheap, domain-management)
+
+> **2026-05-06 update:** §4.4–§4.6 (auth flow / session refresh) and §5.3 (envelope quirks) are partially revised. The auth probe at [probe-controller-auth.md](probe-controller-auth.md) showed the V2 single-shot login is API-only; the v1 two-step `apilogin` flow is a strict superset and now drives both V2 and Controller transport paths. The current contract lives in [2026-05-06-controller-extension-stage1.md](2026-05-06-controller-extension-stage1.md). Read this spec for original intent and the stage-1 doc for actually-implemented behaviour.
 
 ---
 

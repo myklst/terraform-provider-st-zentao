@@ -111,16 +111,16 @@ func (w programV2Wire) toProgram() (*Program, error) {
 }
 
 func programPath(id int) string {
-	return "api.php/v2/programs/" + strconv.Itoa(id)
+	return programsPath + "/" + strconv.Itoa(id)
 }
 
-const programsPath = "api.php/v2/programs"
+const programsPath = apiV2PathPrefix + "programs"
 
 // GetProgram fetches a program by ID via GET /api.php/v2/programs/{id}.
 // Returns ErrNotFound on HTTP 404 OR on the {"status":"fail","message":
 // "...does not exist..."} shape v2 emits at HTTP 200.
 func (c *Client) GetProgram(ctx context.Context, id int) (*Program, error) {
-	body, status, err := c.doRequest(ctx, http.MethodGet, programPath(id), nil, nil)
+	body, status, err := c.doV2Request(ctx, http.MethodGet, programPath(id), nil, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -150,7 +150,7 @@ func (c *Client) GetProgram(ctx context.Context, id int) (*Program, error) {
 // echoes back the new id; the caller should re-fetch via GetProgram if it
 // needs server-defaulted fields like opened_by / status / parent.
 func (c *Client) CreateProgram(ctx context.Context, p *Program) (*Program, error) {
-	body, status, err := c.doRequest(ctx, http.MethodPost, programsPath, nil, p)
+	body, status, err := c.doV2Request(ctx, http.MethodPost, programsPath, nil, p)
 	if err != nil {
 		return nil, err
 	}
@@ -183,7 +183,7 @@ func (c *Client) UpdateProgram(ctx context.Context, p *Program) (*Program, error
 	if p.ID == 0 {
 		return nil, fmt.Errorf("UpdateProgram: missing id")
 	}
-	body, status, err := c.doRequest(ctx, http.MethodPut, programPath(p.ID), nil, p)
+	body, status, err := c.doV2Request(ctx, http.MethodPut, programPath(p.ID), nil, p)
 	if err != nil {
 		return nil, err
 	}
@@ -209,7 +209,7 @@ func (c *Client) UpdateProgram(ctx context.Context, p *Program) (*Program, error
 // DeleteProgram removes a program via DELETE /api.php/v2/programs/{id}.
 // Idempotent on missing rows (HTTP 404 OR HTTP 200 + "does not exist").
 func (c *Client) DeleteProgram(ctx context.Context, id int) error {
-	body, status, err := c.doRequest(ctx, http.MethodDelete, programPath(id), nil, nil)
+	body, status, err := c.doV2Request(ctx, http.MethodDelete, programPath(id), nil, nil)
 	if err != nil {
 		return err
 	}
