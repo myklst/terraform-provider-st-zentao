@@ -338,6 +338,30 @@ func TestDoV2Request_AutoRedirectDisabled(t *testing.T) {
 	}
 }
 
+// --- V2 envelope: ZentaoResponse.ZentaoFailReason ---
+
+func TestZentaoResponse_FailReason(t *testing.T) {
+	cases := []struct {
+		name string
+		env  ZentaoResponse
+		want string
+	}{
+		{"v2 error field", ZentaoResponse{Error: "name exists"}, "name exists"},
+		{"v2 message field", ZentaoResponse{Message: "Product does not exist."}, "Product does not exist."},
+		{"v1 reason field", ZentaoResponse{Reason: "please login"}, "please login"},
+		{"error wins over message", ZentaoResponse{Error: "e", Message: "m", Reason: "r"}, "e"},
+		{"message wins over reason", ZentaoResponse{Message: "m", Reason: "r"}, "m"},
+		{"empty", ZentaoResponse{}, ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := tc.env.ZentaoFailReason(); got != tc.want {
+				t.Fatalf("got %q want %q", got, tc.want)
+			}
+		})
+	}
+}
+
 // --- isV2SessionExpired table ---
 
 func TestIsV2SessionExpired(t *testing.T) {

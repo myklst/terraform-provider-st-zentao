@@ -143,10 +143,10 @@ func jsonNumberToInt(n json.Number, field string) (int, error) {
 }
 
 func productPath(id int) string {
-	return "api.php/v2/products/" + strconv.Itoa(id)
+	return productsPath + "/" + strconv.Itoa(id)
 }
 
-const productsPath = "api.php/v2/products"
+const productsPath = apiV2PathPrefix + "products"
 
 // GetProduct fetches a product by ID via GET /api.php/v2/products/{id}.
 // Returns ErrNotFound on HTTP 404 OR on the {"status":"fail","message":

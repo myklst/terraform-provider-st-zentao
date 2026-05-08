@@ -2,6 +2,8 @@ package zentaoapi
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -469,5 +471,271 @@ func TestCallController_EnvelopeFailureFlowsThrough(t *testing.T) {
 	}
 	if !strings.Contains(string(body), "name exists") {
 		t.Fatalf("body should carry envelope verbatim, got %s", body)
+	}
+}
+
+// ============================================================================
+// Controller wire envelope tests + classifiers + DecodeData + reason helper
+// ============================================================================
+
+func TestCtrlEnvelope_FailReason(t *testing.T) {
+	cases := []struct {
+		name string
+		env  CtrlEnvelope
+		want string
+	}{
+		{"error field", CtrlEnvelope{Error: "duplicate"}, "duplicate"},
+		{"message field", CtrlEnvelope{Message: "user not exist"}, "user not exist"},
+		{"reason field", CtrlEnvelope{Reason: "please login"}, "please login"},
+		{"error wins", CtrlEnvelope{Error: "e", Message: "m", Reason: "r"}, "e"},
+		{"empty", CtrlEnvelope{}, ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := tc.env.ZentaoFailReason(); got != tc.want {
+				t.Fatalf("got %q want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestCtrlSimpleResponse_IsSuccess(t *testing.T) {
+	cases := []struct {
+		name string
+		r    CtrlSimpleResponse
+		want bool
+	}{
+		{"success", CtrlSimpleResponse{Result: "success"}, true},
+		{"fail", CtrlSimpleResponse{Result: "fail"}, false},
+		{"empty result", CtrlSimpleResponse{}, false},
+		{"weird value", CtrlSimpleResponse{Result: "maybe"}, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := tc.r.IsSuccess(); got != tc.want {
+				t.Fatalf("got %v want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestCtrlSimpleResponse_FieldErrors(t *testing.T) {
+	t.Run("flat string message", func(t *testing.T) {
+		r := CtrlSimpleResponse{
+			Result:  "fail",
+			Message: json.RawMessage(`"系统用户人数已达授权的上限"`),
+		}
+		flat, fields := r.FieldErrors()
+		if flat != "系统用户人数已达授权的上限" {
+			t.Fatalf("flat = %q", flat)
+		}
+		if fields != nil {
+			t.Fatalf("fields should be nil for flat message, got %v", fields)
+		}
+	})
+
+	t.Run("per-field map message", func(t *testing.T) {
+		r := CtrlSimpleResponse{
+			Result:  "fail",
+			Message: json.RawMessage(`{"verifyPassword":["验证失败"],"visions":["『界面类型』不能为空。"]}`),
+		}
+		flat, fields := r.FieldErrors()
+		if flat != "" {
+			t.Fatalf("flat should be empty for map message, got %q", flat)
+		}
+		if got := fields["verifyPassword"]; len(got) != 1 || got[0] != "验证失败" {
+			t.Fatalf("verifyPassword field = %v", got)
+		}
+		if got := fields["visions"]; len(got) != 1 || got[0] != "『界面类型』不能为空。" {
+			t.Fatalf("visions field = %v", got)
+		}
+	})
+
+	t.Run("absent message", func(t *testing.T) {
+		r := CtrlSimpleResponse{Result: "success"}
+		flat, fields := r.FieldErrors()
+		if flat != "" || fields != nil {
+			t.Fatalf("absent message should yield empty: flat=%q fields=%v", flat, fields)
+		}
+	})
+
+	t.Run("malformed message", func(t *testing.T) {
+		r := CtrlSimpleResponse{
+			Result:  "fail",
+			Message: json.RawMessage(`12345`),
+		}
+		flat, fields := r.FieldErrors()
+		if flat == "" && fields == nil {
+			t.Log("acceptable as long as it doesn't crash")
+		}
+	})
+}
+
+func TestDecodeData(t *testing.T) {
+	type sample struct {
+		Title    string         `json:"title"`
+		Products map[string]any `json:"products"`
+	}
+
+	t.Run("V1 string-encoded JSON object", func(t *testing.T) {
+		raw := `"{\"title\":\"产品\",\"products\":{\"218\":\"ds_x\"}}"`
+		env := CtrlEnvelope{Status: "success", Data: json.RawMessage(raw)}
+		var got sample
+		if err := DecodeData(env, &got); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if got.Title != "产品" || got.Products["218"] != "ds_x" {
+			t.Fatalf("unexpected decode: %+v", got)
+		}
+	})
+
+	t.Run("V2 direct object", func(t *testing.T) {
+		raw := `{"title":"x","products":{"1":"a"}}`
+		env := CtrlEnvelope{Status: "success", Data: json.RawMessage(raw)}
+		var got sample
+		if err := DecodeData(env, &got); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if got.Title != "x" {
+			t.Fatalf("unexpected decode: %+v", got)
+		}
+	})
+
+	t.Run("direct array", func(t *testing.T) {
+		raw := `[1,2,3]`
+		env := CtrlEnvelope{Status: "success", Data: json.RawMessage(raw)}
+		var got []int
+		if err := DecodeData(env, &got); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(got) != 3 || got[0] != 1 {
+			t.Fatalf("unexpected decode: %v", got)
+		}
+	})
+
+	t.Run("null data", func(t *testing.T) {
+		env := CtrlEnvelope{Status: "success", Data: json.RawMessage(`null`)}
+		var got sample
+		if err := DecodeData(env, &got); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if got.Title != "" {
+			t.Fatalf("expected zero-value, got %+v", got)
+		}
+	})
+
+	t.Run("absent data", func(t *testing.T) {
+		env := CtrlEnvelope{Status: "success"}
+		var got sample
+		if err := DecodeData(env, &got); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+
+	t.Run("empty string data", func(t *testing.T) {
+		env := CtrlEnvelope{Status: "success", Data: json.RawMessage(`""`)}
+		var got sample
+		if err := DecodeData(env, &got); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+
+	t.Run("non-JSON data is error", func(t *testing.T) {
+		env := CtrlEnvelope{Status: "success", Data: json.RawMessage(`garbage`)}
+		var got sample
+		if err := DecodeData(env, &got); err == nil {
+			t.Fatalf("expected error, got nil with %+v", got)
+		}
+	})
+
+	t.Run("string-encoded with malformed inner JSON", func(t *testing.T) {
+		// Outer is a valid quoted string, but inner content isn't JSON.
+		env := CtrlEnvelope{Status: "success", Data: json.RawMessage(`"not json"`)}
+		var got sample
+		if err := DecodeData(env, &got); err == nil {
+			t.Fatalf("expected inner-decode error")
+		}
+	})
+
+	t.Run("direct object with type mismatch", func(t *testing.T) {
+		// target expects object, data is array — should error from unmarshal.
+		env := CtrlEnvelope{Status: "success", Data: json.RawMessage(`[1,2,3]`)}
+		var got sample
+		if err := DecodeData(env, &got); err == nil {
+			t.Fatalf("expected unmarshal type error")
+		}
+	})
+}
+
+func TestClassifyCtrlError(t *testing.T) {
+	t.Run("not found via message", func(t *testing.T) {
+		env := CtrlEnvelope{Status: "fail", Message: "User does not exist"}
+		err := classifyCtrlError(200, env, []byte(`{}`))
+		if !errors.Is(err, ErrNotFound) {
+			t.Fatalf("expected ErrNotFound, got %v", err)
+		}
+	})
+
+	t.Run("unauthorized via reason", func(t *testing.T) {
+		env := CtrlEnvelope{Status: "fail", Reason: "wrong password"}
+		err := classifyCtrlError(200, env, []byte(`{}`))
+		if !errors.Is(err, ErrUnauthorized) {
+			t.Fatalf("expected ErrUnauthorized, got %v", err)
+		}
+	})
+
+	t.Run("unauthorized chinese 密码错误", func(t *testing.T) {
+		env := CtrlEnvelope{Status: "fail", Reason: "用户名或密码错误"}
+		err := classifyCtrlError(200, env, []byte(`{}`))
+		if !errors.Is(err, ErrUnauthorized) {
+			t.Fatalf("expected ErrUnauthorized, got %v", err)
+		}
+	})
+
+	t.Run("generic fail → APIError", func(t *testing.T) {
+		raw := []byte(`{"status":"fail","message":"validation failed"}`)
+		env := CtrlEnvelope{Status: "fail", Message: "validation failed"}
+		err := classifyCtrlError(200, env, raw)
+		var apiErr *APIError
+		if !errors.As(err, &apiErr) {
+			t.Fatalf("expected *APIError, got %v", err)
+		}
+		if apiErr.ZentaoStatus != "fail" || apiErr.Reason != "validation failed" {
+			t.Fatalf("unexpected APIError: %+v", apiErr)
+		}
+	})
+
+	t.Run("login redirect ≠ unauthorized", func(t *testing.T) {
+		env := CtrlEnvelope{Status: "fail", Reason: "please login"}
+		err := classifyCtrlError(200, env, []byte(`{}`))
+		// session-expired reason should NOT collapse into ErrUnauthorized;
+		// it's a transport-layer concern handled before classifyCtrlError.
+		if errors.Is(err, ErrUnauthorized) {
+			t.Fatalf("please-login should not be classified as ErrUnauthorized: %v", err)
+		}
+	})
+}
+
+func TestIsLoginRedirectReason(t *testing.T) {
+	cases := []struct {
+		reason string
+		want   bool
+	}{
+		{"please login", true},
+		{"Please Login", true},
+		{"PLEASE LOGIN.", true},
+		{"请重新登录", true},
+		{"请登录", true},
+		{"session expired", true},
+		{"Product does not exist.", false},
+		{"name exists", false},
+		{"", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.reason, func(t *testing.T) {
+			if got := isLoginRedirectReason(tc.reason); got != tc.want {
+				t.Fatalf("isLoginRedirectReason(%q) = %v, want %v", tc.reason, got, tc.want)
+			}
+		})
 	}
 }

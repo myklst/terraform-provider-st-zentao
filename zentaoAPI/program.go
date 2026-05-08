@@ -111,10 +111,10 @@ func (w programV2Wire) toProgram() (*Program, error) {
 }
 
 func programPath(id int) string {
-	return "api.php/v2/programs/" + strconv.Itoa(id)
+	return programsPath + "/" + strconv.Itoa(id)
 }
 
-const programsPath = "api.php/v2/programs"
+const programsPath = apiV2PathPrefix + "programs"
 
 // GetProgram fetches a program by ID via GET /api.php/v2/programs/{id}.
 // Returns ErrNotFound on HTTP 404 OR on the {"status":"fail","message":

@@ -7,7 +7,6 @@ import (
 	"net/http"
 )
 
-//nolint:all
 // apiV2PathPrefix is the URL prefix for ZenTao's V2 REST API surface.
 // Used only for documentation / sanity assertions; doV2Request does
 // not validate the caller's path against this prefix because some
@@ -48,4 +47,29 @@ func (c *Client) doV2Request(
 // 401; the body and Location header are unused on this transport.
 func isV2SessionExpired(status int, _ []byte, _ string) bool {
 	return status == http.StatusUnauthorized
+}
+
+// ZentaoResponse is the minimal envelope shared by all V2 endpoints.
+// V2 responses are flat: {"status":"success", ...resource fields...} or
+// {"status":"fail", "error":"..."} — no nested "data" wrapper, so the
+// concrete fields are decoded by per-endpoint structs that embed
+// ZentaoResponse via Go's anonymous-field composition.
+//
+// Failure descriptions arrive under three different keys depending on
+// which V2 handler answered: "error" (most common), "message" (e.g.
+// product DELETE on a missing row), and "reason" (legacy v1 carryover
+// some endpoints still emit). All three are decoded so ZentaoFailReason
+// can pick whichever one was populated.
+type ZentaoResponse struct {
+	Status  string `json:"status"`
+	Error   string `json:"error,omitempty"`
+	Message string `json:"message,omitempty"`
+	Reason  string `json:"reason,omitempty"`
+}
+
+// ZentaoFailReason returns whichever non-empty failure description the
+// envelope carried, preferring the most specific shape observed in the
+// wild: error → message → reason.
+func (e ZentaoResponse) ZentaoFailReason() string {
+	return zentaoFailReason(e.Error, e.Message, e.Reason)
 }
