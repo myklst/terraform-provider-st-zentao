@@ -264,7 +264,10 @@ func TestCreateProgram_PreflightValidation(t *testing.T) {
 	}
 }
 
-func TestUpdateProgram_PostFormThenRefetch(t *testing.T) {
+// UpdateProgram now does GET-baseline → POST-merged → GET-refetch.
+// Verifies the merged form preserves baseline ACL/Budget/Whitelist when
+// the input only changes Name/Desc.
+func TestUpdateProgram_BaselineMergeThenRefetch(t *testing.T) {
 	var puts, gets int
 	var postBody string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -279,7 +282,9 @@ func TestUpdateProgram_PostFormThenRefetch(t *testing.T) {
 		case r.Method == http.MethodGet && r.URL.Path == "/program-edit-5.json":
 			gets++
 			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(`{"status":"success","data":"{\"program\":{\"id\":5,\"name\":\"NewName\",\"begin\":\"2026-02-01\",\"end\":\"2026-11-30\",\"PM\":\"pm\",\"status\":\"doing\"}}"}`))
+			// Baseline carries acl=private, budget=1000, whitelist=u1,u2,
+			// parent=9 — none of which the caller mentions in the input.
+			_, _ = w.Write([]byte(`{"status":"success","data":"{\"program\":{\"id\":5,\"name\":\"OldName\",\"begin\":\"2026-01-01\",\"end\":\"2026-12-31\",\"PM\":\"alice\",\"desc\":\"old\",\"acl\":\"private\",\"budget\":\"1000\",\"budgetUnit\":\"USD\",\"whitelist\":\"u1,u2\",\"parent\":9,\"status\":\"doing\"}}"}`))
 		default:
 			t.Errorf("unexpected request %s %s", r.Method, r.URL.Path)
 			w.WriteHeader(http.StatusInternalServerError)
@@ -288,17 +293,31 @@ func TestUpdateProgram_PostFormThenRefetch(t *testing.T) {
 	defer srv.Close()
 
 	c := newTestClient(t, "tok-1", srv.URL)
-	out, err := c.UpdateProgram(context.Background(), &Program{ID: 5, Name: "NewName", Begin: "2026-02-01", End: "2026-11-30", PM: "pm"})
+	out, err := c.UpdateProgram(context.Background(), &Program{ID: 5, Name: "NewName", Desc: "fresh"})
 	if err != nil {
 		t.Fatalf("UpdateProgram: %v", err)
 	}
-	if puts != 1 || gets != 1 {
-		t.Fatalf("posts=%d gets=%d, want 1/1", puts, gets)
+	// 2 GETs: baseline fetch + post-update refetch. 1 POST.
+	if puts != 1 || gets != 2 {
+		t.Fatalf("posts=%d gets=%d, want 1/2", puts, gets)
 	}
-	if !strings.Contains(postBody, "name=NewName") || !strings.Contains(postBody, "begin=2026-02-01") || !strings.Contains(postBody, "PM=pm") {
-		t.Fatalf("POST body = %q", postBody)
+	// Caller-supplied changes must surface on the wire.
+	for _, mustSend := range []string{"name=NewName", "desc=fresh"} {
+		if !strings.Contains(postBody, mustSend) {
+			t.Errorf("POST body missing override %q: %s", mustSend, postBody)
+		}
 	}
-	if out.Name != "NewName" || out.ID != 5 || out.Begin != "2026-02-01" {
+	// Baseline values for fields the caller did NOT touch must be sent
+	// (otherwise ZenTao would reset them to defaults — F2 in §8).
+	for _, mustPreserve := range []string{"acl=private", "budget=1000", "budgetUnit=USD", "whitelist=u1%2Cu2", "parent=9", "PM=alice", "begin=2026-01-01", "end=2026-12-31"} {
+		if !strings.Contains(postBody, mustPreserve) {
+			t.Errorf("POST body missing baseline preservation %q: %s", mustPreserve, postBody)
+		}
+	}
+	// The mock returns the same baseline body for both GETs (it's not
+	// stateful), so we don't assert on out.Name here — the merge proof
+	// lives in the POST body assertions above.
+	if out.ID != 5 {
 		t.Fatalf("got %+v", out)
 	}
 }
@@ -400,25 +419,93 @@ func TestDeleteProgram_OtherFailure(t *testing.T) {
 	}
 }
 
-// programToForm only emits non-empty optional fields, but always emits
-// the required name/begin/end (preflight rejects empty values before
-// the wrapper ever calls programToForm).
-func TestProgramToForm_OmitsEmptyOptionals(t *testing.T) {
+// programToForm always emits every form.php writeable field. ZenTao's
+// program-edit POST resets any omitted field to its default — see probe
+// finding F2 in probe-program-controller.md §8.
+func TestProgramToForm_AlwaysSetsAllWriteableFields(t *testing.T) {
 	form := programToForm(&Program{
 		Name:  "x",
 		Begin: "2026-01-01",
 		End:   "2026-12-31",
 	})
-	must := []string{"name", "begin", "end"}
-	for _, k := range must {
-		if form.Get(k) == "" {
-			t.Errorf("form missing required key %q: %v", k, form)
+	for _, k := range []string{"name", "begin", "end", "parent", "PM", "desc", "acl", "budget", "budgetUnit", "whitelist"} {
+		if _, ok := form[k]; !ok {
+			t.Errorf("form must always carry key %q (always-set rule): %v", k, form)
 		}
 	}
-	for _, k := range []string{"PM", "desc", "acl", "budget", "budgetUnit", "whitelist", "parent"} {
-		if _, ok := form[k]; ok {
-			t.Errorf("form should not include empty optional %q: %v", k, form)
-		}
+	if form.Get("parent") != "0" {
+		t.Errorf("parent must be explicit \"0\" when zero, got %q", form.Get("parent"))
+	}
+	if form.Get("desc") != "" || form.Get("PM") != "" {
+		t.Errorf("empty-string optionals must be sent as empty, got desc=%q PM=%q", form.Get("desc"), form.Get("PM"))
+	}
+}
+
+func TestMergeProgramBaseline_PreservesBaselineWhenInputZero(t *testing.T) {
+	baseline := &Program{
+		ID: 5, Name: "Base", Begin: "2026-01-01", End: "2026-12-31",
+		Parent: 9, PM: "alice", Desc: "old desc", ACL: "private",
+		Budget: "1000", BudgetUnit: "USD", Whitelist: "u1,u2",
+	}
+	cases := []struct {
+		name  string
+		input *Program
+		check func(t *testing.T, m *Program)
+	}{
+		{
+			"only Name set — preserve everything else",
+			&Program{ID: 5, Name: "NewName"},
+			func(t *testing.T, m *Program) {
+				if m.Name != "NewName" {
+					t.Errorf("Name not overridden: %q", m.Name)
+				}
+				if m.Parent != 9 || m.PM != "alice" || m.Desc != "old desc" || m.ACL != "private" || m.Budget != "1000" || m.BudgetUnit != "USD" || m.Whitelist != "u1,u2" {
+					t.Errorf("baseline not preserved: %+v", m)
+				}
+			},
+		},
+		{
+			"only Desc set — preserve PM/ACL/Budget",
+			&Program{ID: 5, Desc: "new desc"},
+			func(t *testing.T, m *Program) {
+				if m.Desc != "new desc" {
+					t.Errorf("Desc not overridden: %q", m.Desc)
+				}
+				if m.PM != "alice" || m.ACL != "private" || m.Budget != "1000" {
+					t.Errorf("non-Desc fields wiped: %+v", m)
+				}
+			},
+		},
+		{
+			"only Parent set — overrides parent, preserves others",
+			&Program{ID: 5, Parent: 13},
+			func(t *testing.T, m *Program) {
+				if m.Parent != 13 {
+					t.Errorf("Parent not overridden: %d", m.Parent)
+				}
+				if m.Name != "Base" || m.PM != "alice" {
+					t.Errorf("non-Parent fields wiped: %+v", m)
+				}
+			},
+		},
+		{
+			"all fields set — overrides everything",
+			&Program{ID: 5, Name: "N2", Begin: "2027-01-01", End: "2027-12-31", Parent: 1, PM: "bob", Desc: "d2", ACL: "open", Budget: "2", BudgetUnit: "CNY", Whitelist: "x"},
+			func(t *testing.T, m *Program) {
+				if m.Name != "N2" || m.Begin != "2027-01-01" || m.End != "2027-12-31" || m.Parent != 1 || m.PM != "bob" || m.Desc != "d2" || m.ACL != "open" || m.Budget != "2" || m.BudgetUnit != "CNY" || m.Whitelist != "x" {
+					t.Errorf("override incomplete: %+v", m)
+				}
+			},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			merged := mergeProgramBaseline(tc.input, baseline)
+			tc.check(t, merged)
+			if baseline.Name != "Base" {
+				t.Errorf("baseline mutated: %+v", baseline)
+			}
+		})
 	}
 }
 
