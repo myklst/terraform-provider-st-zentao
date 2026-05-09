@@ -8,7 +8,7 @@ Custom Terraform provider for [ZenTao](https://www.zentao.net/) — self-hosted 
 
 ## Status
 
-Initial release: ships the `st-zentao_product`, `st-zentao_program`, and `st-zentao_project` resources (V2-backed), plus matching data sources, plus typed wrappers for User CRUD (Controller-backed, since V2 doesn't expose users on Max 8.x). More resources (execution, group) planned — choice of transport per entity follows what the target ZenTao version actually accepts.
+Initial release: ships the `st-zentao_product`, `st-zentao_program`, `st-zentao_project`, and `st-zentao_group` resources, plus matching data sources, plus typed wrappers for User CRUD. The first three are V2-backed; permission groups and users use the Controller transport because the V1/V2 RESTful APIs do not expose them on Max 8.x. More resources (execution, group privs, group members) planned — choice of transport per entity follows what the target ZenTao version actually accepts.
 
 ## Architecture
 
@@ -136,6 +136,62 @@ See `docs/superpowers/specs/probe-project-v2.md` for the full V2 surface
 contract — including the `productsBox`/`products` validator-name mismatch
 and the `result:fail` envelope variant on validation errors.
 
+### `st-zentao_group`
+
+```hcl
+# Project-scoped (recommended): grants the role inside one project only.
+resource "st-zentao_group" "developers" {
+  project = 28          # Optional + RequiresReplace; default 0 (system flavour)
+  name    = "Developers"
+  role    = "dev"       # Optional, free-text (bound to ZenTao role registry)
+  desc    = "Developers working on this project (Terraform-managed)."
+}
+
+# System-scoped: org-wide RBAC. Omit `project` (or set it to 0) to opt in.
+resource "st-zentao_group" "org_finance" {
+  name = "Finance Reviewers"
+  role = "fin"
+}
+```
+
+Manages a row in `zt_group`. The same row shape covers two flavours,
+distinguished by the `project` attribute:
+
+- `project = 0` (the default) → **system group** (org-wide RBAC; e.g.
+  the built-in admin group)
+- `project > 0` → **project-scoped permission group** (the in-project
+  RBAC bucket users typically think of as "project group")
+
+Backed by the **Controller transport**, not V2 — the V1/V2 RESTful APIs
+do not expose group CRUD on ZenTao Max 8.x. URL plumbing routes through
+`module/group/control.php` for both flavours; the `module/project/control.php`
+action of the same name is just a per-project listing view, not its own
+CRUD module.
+
+Two non-obvious server behaviours encoded in the wrapper (see the spec
+for the full probe transcript):
+
+- **Update silently no-ops on missing rows.** `POST /group-edit-<id>.json`
+  on a non-existent id returns the same `{result:success, message:"保存成功"}`
+  envelope as a real update. The wrapper re-reads after every POST and
+  surfaces `ErrNotFound` when the row is gone.
+- **Delete is a destructive `GET` with no `confirm=yes` gate** (unlike
+  `user-delete`). The endpoint executes immediately. Idempotent on
+  missing rows.
+
+> ⚠️ Managing system groups (`project = 0`) via Terraform affects
+> org-wide RBAC. Most installs reserve system groups for manual admin
+> work; prefer `project > 0` unless you specifically intend to put
+> org-level RBAC under IaC.
+
+In-scope for this resource: `project`, `name`, `role`, `desc`. Out of
+scope (planned as separate resources): per-group permission lists
+(`groupManagePriv`) and group membership (`zt_usergroup` joins).
+
+See `docs/superpowers/specs/probe-group-controller.md` for the full
+probe transcript including the §0 safety notes that drove these
+decisions.
+
 ## Data Sources
 
 ### `st-zentao_product`
@@ -184,6 +240,24 @@ Note: the V2 GET endpoint does not echo the project's product associations
 back, so the `products` attribute is exposed as `Computed` but always reads
 as an empty list — the live association set has to be queried via the
 Controller surface (not yet wrapped).
+
+### `st-zentao_group`
+
+Look up an existing permission group by its numeric id:
+
+```hcl
+data "st-zentao_group" "existing" {
+  id = "10000002"
+}
+
+output "group_name" {
+  value = data.st-zentao_group.existing.name
+}
+```
+
+The data source surfaces both system groups (`project=0`) and
+project-scoped groups (`project>0`); the matching `st-zentao_group`
+resource manages either flavour.
 
 ## API client only — `User`
 
