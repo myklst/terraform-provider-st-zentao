@@ -159,7 +159,11 @@ func (e CtrlEnvelope) ZentaoFailReason() string {
 type CtrlSimpleResponse struct {
 	Result  string          `json:"result"`
 	Message json.RawMessage `json:"message,omitempty"`
-	Load    string          `json:"load,omitempty"`
+	// Load is shape-variant across modules: user-create / group-delete
+	// return a redirect URL string, while group-create / group-edit
+	// return a bool. We don't consume the value, so RawMessage absorbs
+	// every shape without forcing transports into a custom decoder.
+	Load json.RawMessage `json:"load,omitempty"`
 }
 
 // IsSuccess reports whether the controller operation succeeded.

@@ -86,7 +86,7 @@ Concurrent expiry is serialised by `refreshMu` inside `refreshSession`: the firs
 
 ### Path prefix constants
 
-`apiV1PathPrefix` (in `apiv1_transport.go`) and `apiV2PathPrefix` (in `apiv2_transport.go`) are the canonical URL prefixes for the two REST surfaces. **All call sites that reference these surfaces must compose their paths from these constants** rather than hard-coding `"api.php/v1/..."` / `"api.php/v2/..."` strings:
+`apiV1PathPrefix` (in `apiv1_transport.go`) and `apiV2PathPrefix` (in `apiv2_transport.go`) are the canonical URL prefixes for the two REST surfaces. **All call sites that reference these surfaces must compose their paths from these constants** rather than hard-coding `"/api.php/v1/..."` / `"/api.php/v2/..."` strings:
 
 - V1: `Login()` (`auth.go`) builds `apiV1PathPrefix + "tokens"`; future V1 wrappers should follow the same pattern.
 - V2: `productsPath` / `programsPath` in `product.go` / `program.go` are derived as `apiV2PathPrefix + "products"` / `+ "programs"`; the per-id builders concatenate `"/<id>"` on top.
@@ -110,3 +110,4 @@ ZenTao Max 8.1 has several behavioural quirks that aren't documented upstream (e
 - **Rename impacts on tests are large** — the `c.token` field, `tokenMu`, `refreshMu`, `backoffInitialInterval`, and `backoffMaxElapsed` are read directly by `newTestClient` and several tests. Renaming any of them touches multiple test files.
 - **Integration test env vars** match `.envrc.sample` exactly — `ZENTAO_URL` / `ZENTAO_ACCOUNT` / `ZENTAO_PASSWORD` (no `_INTEGRATION_` infix). The same vars feed both Go integration tests and Terraform acceptance tests.
 - **`CallController` is the escape hatch**, not the primary surface — typed wrappers should be added for any endpoint that gets called more than once.
+- **Don't git push**
