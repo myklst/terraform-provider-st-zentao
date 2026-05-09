@@ -141,7 +141,7 @@ func (r *productResource) Schema(_ context.Context, _ resource.SchemaRequest, re
 				Description:   "Release Lead username.",
 				Optional:      true,
 				Computed:      true,
-				PlanModifiers: useStateForString
+				PlanModifiers: useStateForString,
 			},
 			"reviewer": schema.ListAttribute{
 				Description:   "Reviewer usernames.",
