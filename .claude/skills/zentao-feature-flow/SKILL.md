@@ -5,11 +5,10 @@ description: End-to-end workflow for adding a new entity (resource + data source
 
 # ZenTao Feature Flow
 
-Add a new ZenTao entity (resource + data source) to this provider end-to-end. This skill is **the** way to ship a feature here — it codifies what worked when shipping `st-zentao_product`, `st-zentao_program`, and `st-zentao_project`. Skipping any phase costs more downstream.
+Add a new ZenTao entity (resource + data source) to this provider end-to-end. This skill is **the** way to ship a feature here. Skipping any phase costs more downstream.
 
 ## Hard rules (non-negotiable)
 
-- **Respond in Chinese** to the user. All user-facing questions, status updates, summaries — Chinese. (Code, comments, doc content stays in the language the surrounding files use; only the conversation surface is Chinese.)
 - **Never commit on `main`.** Cut a `feat/<topic>` branch first, even before any exploration touches the working tree.
 - **Probe before assuming.** ZenTao's public V2 docs routinely omit server-required fields and lie about envelope shapes. If you guess instead of probing, you ship a broken resource.
 - **Spec is the source of truth.** Code that contradicts the spec is wrong. If reality changes, update the spec **first**, then the code.
