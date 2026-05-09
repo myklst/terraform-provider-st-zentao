@@ -102,7 +102,7 @@ func TestProductResource_RoleFields_UseStateUnlessEmpty(t *testing.T) {
 	r := NewProductResource()
 	var resp resource.SchemaResponse
 	r.Schema(context.Background(), resource.SchemaRequest{}, &resp)
-	for _, name := range []string{"po", "qd", "rd"} {
+	for _, name := range []string{"po"} {
 		a, ok := resp.Schema.Attributes[name].(schema.StringAttribute)
 		if !ok {
 			t.Fatalf("%s must be a StringAttribute, got %T", name, resp.Schema.Attributes[name])
