@@ -132,16 +132,16 @@ func (r *productResource) Schema(_ context.Context, _ resource.SchemaRequest, re
 				PlanModifiers: []planmodifier.String{useStateUnlessEmpty()},
 			},
 			"qd": schema.StringAttribute{
-				Description:   "QA Lead username. Defaults to the requesting account if omitted.",
+				Description:   "QA Lead username.",
 				Optional:      true,
 				Computed:      true,
-				PlanModifiers: []planmodifier.String{useStateUnlessEmpty()},
+				PlanModifiers: useStateForString,
 			},
 			"rd": schema.StringAttribute{
-				Description:   "Release Lead username. Defaults to the requesting account if omitted.",
+				Description:   "Release Lead username.",
 				Optional:      true,
 				Computed:      true,
-				PlanModifiers: []planmodifier.String{useStateUnlessEmpty()},
+				PlanModifiers: useStateForString
 			},
 			"reviewer": schema.ListAttribute{
 				Description:   "Reviewer usernames.",
