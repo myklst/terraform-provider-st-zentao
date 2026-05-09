@@ -9,27 +9,21 @@ import (
 	"strings"
 )
 
-// Product is the canonical in-memory representation of a ZenTao product.
-// Fields tagged with omitempty are sent to the server on write; the
-// "Read-only" block is populated by GetProduct and ignored by Create/
-// Update bodies (server values are authoritative).
+// Product represents a ZenTao product.
 type Product struct {
-	// Identity & content
 	ID   int    `json:"id,omitempty"`
 	Name string `json:"name"`
 
-	// Optional writeable fields per v2 docs (POST/PUT body).
-	Program     int      `json:"program,omitempty"`
-	Line        int      `json:"line,omitempty"`
-	Type        string   `json:"type,omitempty"`
-	Description string   `json:"desc,omitempty"`
-	ACL         string   `json:"acl,omitempty"`
-	PO          string   `json:"PO,omitempty"`
-	QD          string   `json:"QD,omitempty"`
-	RD          string   `json:"RD,omitempty"`
-	Reviewer    []string `json:"reviewer,omitempty"`
+	Program  int      `json:"program,omitempty"`
+	Line     int      `json:"line,omitempty"`
+	Type     string   `json:"type,omitempty"`
+	Desc     string   `json:"desc,omitempty"`
+	ACL      string   `json:"acl,omitempty"`
+	PO       string   `json:"PO,omitempty"`
+	QD       string   `json:"QD,omitempty"`
+	RD       string   `json:"RD,omitempty"`
+	Reviewer []string `json:"reviewer,omitempty"`
 
-	// Read-only / server-managed (decoded from GET, not sent on write).
 	Code        string `json:"-"`
 	Status      string `json:"-"`
 	CreatedBy   string `json:"-"`
@@ -37,10 +31,6 @@ type Product struct {
 	ProgramName string `json:"-"`
 }
 
-// productV2Wire is the on-the-wire shape returned by v2 GET endpoints.
-// v2 returns numeric IDs / FK columns as JSON strings ("1") and the
-// reviewer list either as a JSON array or a comma-separated string,
-// so each ambiguous field is decoded through a forgiving type.
 type productV2Wire struct {
 	ID          json.Number        `json:"id"`
 	Name        string             `json:"name"`
@@ -49,7 +39,7 @@ type productV2Wire struct {
 	Line        json.Number        `json:"line"`
 	Type        string             `json:"type"`
 	Status      string             `json:"status"`
-	Description string             `json:"desc"`
+	Desc        string             `json:"desc"`
 	ACL         string             `json:"acl"`
 	PO          string             `json:"PO"`
 	QD          string             `json:"QD"`
@@ -61,8 +51,7 @@ type productV2Wire struct {
 }
 
 // flexibleStringList accepts either a JSON array of strings or a
-// comma-separated JSON string. ZenTao v2 has both shapes in the wild
-// (the write body uses array; some read endpoints serialize scalars).
+// comma-separated JSON string.
 type flexibleStringList []string
 
 func (f *flexibleStringList) UnmarshalJSON(data []byte) error {
@@ -119,7 +108,7 @@ func (w productV2Wire) toProduct() (*Product, error) {
 		Line:        line,
 		Type:        w.Type,
 		Status:      w.Status,
-		Description: w.Description,
+		Desc:        w.Desc,
 		ACL:         w.ACL,
 		PO:          w.PO,
 		QD:          w.QD,
@@ -148,10 +137,6 @@ func productPath(id int) string {
 
 const productsPath = apiV2PathPrefix + "products"
 
-// GetProduct fetches a product by ID via GET /api.php/v2/products/{id}.
-// Returns ErrNotFound on HTTP 404 OR on the {"status":"fail","message":
-// "Product does not exist."} shape ZenTao v2 emits at HTTP 200 instead
-// of a real 404.
 func (c *Client) GetProduct(ctx context.Context, id int) (*Product, error) {
 	body, status, err := c.doV2Request(ctx, http.MethodGet, productPath(id), nil, nil)
 	if err != nil {
@@ -163,7 +148,6 @@ func (c *Client) GetProduct(ctx context.Context, id int) (*Product, error) {
 	if status >= 400 {
 		return nil, apiError(status, body)
 	}
-	// v2 GET single-product shape: {"status":"success","product":{...}}
 	var resp struct {
 		ZentaoResponse
 		Product productV2Wire `json:"product"`
@@ -180,9 +164,6 @@ func (c *Client) GetProduct(ctx context.Context, id int) (*Product, error) {
 	return resp.Product.toProduct()
 }
 
-// CreateProduct creates a product via POST /api.php/v2/products.
-// v2 only echoes back the new id; the caller should re-fetch via
-// GetProduct if it needs server-defaulted/derived fields.
 func (c *Client) CreateProduct(ctx context.Context, p *Product) (*Product, error) {
 	body, status, err := c.doV2Request(ctx, http.MethodPost, productsPath, nil, p)
 	if err != nil {
@@ -210,10 +191,6 @@ func (c *Client) CreateProduct(ctx context.Context, p *Product) (*Product, error
 	return &out, nil
 }
 
-// UpdateProduct edits a product via PUT /api.php/v2/products/{id}. v2 only
-// returns {status}, so on success we re-fetch the product to surface the
-// authoritative state to the caller. ErrNotFound is returned for both the
-// HTTP 404 and the 200+fail+"does not exist" shapes.
 func (c *Client) UpdateProduct(ctx context.Context, p *Product) (*Product, error) {
 	if p.ID == 0 {
 		return nil, fmt.Errorf("UpdateProduct: missing id")
@@ -241,11 +218,6 @@ func (c *Client) UpdateProduct(ctx context.Context, p *Product) (*Product, error
 	return c.GetProduct(ctx, p.ID)
 }
 
-// DeleteProduct removes a product via DELETE /api.php/v2/products/{id}.
-// Idempotent on missing rows: ZenTao v2 sometimes returns a true HTTP 404
-// and sometimes returns HTTP 200 + {"status":"fail","message":"Product
-// does not exist."}. Both are treated as success so reapplies and
-// post-test cleanups don't fail spuriously.
 func (c *Client) DeleteProduct(ctx context.Context, id int) error {
 	body, status, err := c.doV2Request(ctx, http.MethodDelete, productPath(id), nil, nil)
 	if err != nil {
@@ -270,8 +242,6 @@ func (c *Client) DeleteProduct(ctx context.Context, id int) error {
 	return apiError(status, body)
 }
 
-// apiError builds an APIError, parsing the envelope status/reason out of
-// the body when possible so callers get a structured failure description.
 func apiError(httpStatus int, body []byte) error {
 	var env ZentaoResponse
 	_ = json.Unmarshal(body, &env)

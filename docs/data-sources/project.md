@@ -3,12 +3,12 @@
 page_title: "st-zentao_project Data Source - st-zentao"
 subcategory: ""
 description: |-
-  Look up a ZenTao project by its numeric id. All fields the v2 GET endpoint surfaces are exposed as Computed attributes.
+  Look up a ZenTao project by its numeric id.
 ---
 
 # st-zentao_project (Data Source)
 
-Look up a ZenTao project by its numeric id. All fields the v2 GET endpoint surfaces are exposed as Computed attributes.
+Look up a ZenTao project by its numeric id.
 
 ## Example Usage
 
@@ -39,32 +39,33 @@ output "project" {
 
 ### Required
 
-- `id` (String) Numeric ZenTao project ID (stringified).
+- `id` (String) Numeric ZenTao project ID.
 
 ### Read-Only
 
-- `acl` (String) Access control level (open/private/custom).
+- `acl` (String) Access control (`open` / `private` / `custom`).
 - `begin` (String) Planned start date (YYYY-MM-DD).
 - `budget` (String) Project budget amount.
 - `budget_unit` (String) Currency unit of the budget.
-- `code` (String) Project short code (server-managed).
-- `description` (String) Project description (mapped from ZenTao 'desc').
+- `code` (String) Project short code.
+- `desc` (String) Description.
 - `end` (String) Planned end date (YYYY-MM-DD).
-- `last_edited_by` (String) Username of last editor.
+- `last_edited_by` (String) Last-editor username.
 - `lifetime` (String) Project lifetime classification.
-- `model` (String) Project methodology (scrum/waterfall/kanban/agileplus/waterfallplus/cmmi).
+- `model` (String) Project methodology.
+- `multiple` (Boolean) Whether iterations (sprints) are enabled.
 - `name` (String) Project display name.
 - `opened_by` (String) Creator username.
 - `opened_date` (String) Creation timestamp.
 - `pm` (String) Project Manager username.
 - `po` (String) Product Owner username.
 - `products` (List of Number) Associated product IDs.
-- `program` (Number) Parent program ID (0 if none).
+- `program` (Number) Parent program id (0 = no parent).
 - `progress` (String) Completion progress percentage.
 - `qd` (String) QA Lead username.
 - `rd` (String) Release Lead username.
 - `real_began` (String) Actual start date.
 - `real_end` (String) Actual end date.
-- `status` (String) Server-managed project status.
+- `status` (String) Project status.
 - `team_count` (String) Total team members.
-- `workflow_group` (Number) Workflow scheme group ID.
+- `workflow_group` (Number) Workflow scheme id.

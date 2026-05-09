@@ -52,56 +52,35 @@ func (r *groupResource) Schema(_ context.Context, _ resource.SchemaRequest, resp
 	useStateForString := []planmodifier.String{stringplanmodifier.UseStateForUnknown()}
 
 	resp.Schema = schema.Schema{
-		Description: "Manages a ZenTao permission group (a row in `zt_group`) via the Controller " +
-			"transport. The same row shape covers two flavours, distinguished by the `project` " +
-			"attribute: `project = 0` for **system groups** (org-wide, e.g. the built-in admin " +
-			"group), and `project > 0` for **project-scoped groups** (the in-project RBAC " +
-			"buckets). CRUD plumbing lives in `module/group/control.php` for both flavours; the " +
-			"`module/project/control.php` action of the same name is just a per-project listing " +
-			"view, not its own CRUD module. v1 manages the group entity itself (name/desc/role); " +
-			"permission lists and members are out of scope and will land as separate follow-up " +
-			"resources.",
+		Description: "Manages a ZenTao permission group. `project = 0` (default) is a system " +
+			"(org-wide) group; `project > 0` is a project-scoped group.",
 		Attributes: map[string]schema.Attribute{
 			"id": schema.StringAttribute{
-				Description:   "Numeric ZenTao group ID (stringified).",
+				Description:   "Numeric ZenTao group ID.",
 				Computed:      true,
 				PlanModifiers: useStateForString,
 			},
 			"project": schema.Int64Attribute{
-				Description: "Parent project ID. `0` (the default) creates a **system group** " +
-					"applying org-wide; any positive integer creates a **project-scoped group** " +
-					"under that project. ZenTao does not document a way to move a group across " +
-					"the system/project boundary or between projects, so changing this attribute " +
-					"forces resource replacement.\n\n" +
-					"WARNING: managing system groups (`project = 0`) via Terraform affects " +
-					"org-wide RBAC. Most installs reserve system groups for manual administration; " +
-					"prefer `project > 0` unless you specifically intend to manage org-level roles.",
-				Optional: true,
-				Computed: true,
-				Default:  int64default.StaticInt64(0),
+				Description: "Parent project id. `0` = system (org-wide) group; positive integer = project-scoped group. Changing this forces resource replacement.",
+				Optional:    true,
+				Computed:    true,
+				Default:     int64default.StaticInt64(0),
 				PlanModifiers: []planmodifier.Int64{
 					int64planmodifier.RequiresReplace(),
 				},
 			},
 			"name": schema.StringAttribute{
-				Description: "Group display name. Mutable. Within a given scope (system, or a " +
-					"specific project) names are assumed unique — the provider relies on name " +
-					"uniqueness to discover the new id after Create (the `group-create` endpoint " +
-					"does not echo the id).",
-				Required: true,
+				Description: "Group display name. Must be unique within its scope.",
+				Required:    true,
 			},
 			"role": schema.StringAttribute{
-				Description: "Free-text role binding (ZenTao's built-in role table). The server " +
-					"accepts an empty string, so this is Optional+Computed without a static " +
-					"default. No enum validator: ZenTao installs may add custom roles, and the " +
-					"probe did not exhaustively enumerate accepted values.",
+				Description:   "Free-text role label.",
 				Optional:      true,
 				Computed:      true,
 				PlanModifiers: useStateForString,
 			},
 			"desc": schema.StringAttribute{
-				Description: "Optional plain-text description. The server returns \"\" when " +
-					"unset, so we default to the empty string to keep plans drift-free.",
+				Description:   "Description.",
 				Optional:      true,
 				Computed:      true,
 				Default:       stringdefault.StaticString(""),
@@ -132,16 +111,11 @@ func (r *groupResource) Create(ctx context.Context, req resource.CreateRequest, 
 	if resp.Diagnostics.HasError() {
 		return
 	}
-	// CreateGroup performs the post-create list-and-filter lookup
-	// internally, so the returned *Group already has ID populated.
 	created, err := r.client.CreateGroup(ctx, plan.toAPI())
 	if err != nil {
 		resp.Diagnostics.AddError("Create group failed", err.Error())
 		return
 	}
-	// Re-fetch via the canonical Read primitive to capture authoritative
-	// server state (server-normalised desc, role, etc.) — mirrors the
-	// project resource's create-then-fetch pattern.
 	fetched, err := r.client.GetGroup(ctx, created.ID)
 	if err != nil {
 		resp.Diagnostics.AddError("Re-fetch after create failed", err.Error())
@@ -162,8 +136,6 @@ func (r *groupResource) Read(ctx context.Context, req resource.ReadRequest, resp
 		return
 	}
 	fetched, err := r.client.GetGroup(ctx, id)
-	// Probe spec §2.3: not-found is signalled by HTTP 200 with inner
-	// group:null; the wrapper translates this to ErrNotFound.
 	if errors.Is(err, zentaoapi.ErrNotFound) {
 		resp.State.RemoveResource(ctx)
 		return

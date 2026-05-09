@@ -22,11 +22,22 @@ func TestProgramResource_Schema(t *testing.T) {
 	if resp.Diagnostics.HasError() {
 		t.Fatalf("schema diagnostics: %v", resp.Diagnostics)
 	}
+	// Schema sketches the controller-backed surface — much wider than
+	// the prior V2 echo subset because `program-edit-{id}.json` GET
+	// surfaces the full ~70-field row.
 	expected := []string{
-		"id", "code", "name", "begin", "end", "pm", "description",
-		"status", "parent", "type", "category", "acl", "po", "qd", "rd",
-		"budget", "budget_unit", "opened_by", "opened_date",
-		"real_began", "real_end", "progress", "team_count",
+		"id", "name", "begin", "end", "parent", "pm", "desc",
+		"acl", "budget", "budget_unit", "whitelist",
+		"code", "status", "type", "category", "lifetime", "vision",
+		"attribute", "model", "program_path", "grade",
+		"multiple", "parallel", "has_product", "workflow_group", "story_type",
+		"days", "first_end",
+		"opened_by", "opened_date", "last_edited_by", "last_edited_date",
+		"real_began", "real_end",
+		"closed_by", "closed_date", "closed_reason",
+		"canceled_by", "canceled_date", "suspended_date",
+		"po", "qd", "rd", "team",
+		"progress", "percent", "estimate", "consumed", "left", "team_count",
 	}
 	for _, attr := range expected {
 		if _, ok := resp.Schema.Attributes[attr]; !ok {
@@ -38,11 +49,29 @@ func TestProgramResource_Schema(t *testing.T) {
 			t.Errorf("%s must be Required", required)
 		}
 	}
+	// Writeable per form.php — Optional+Computed so the server can apply
+	// defaults when the user leaves them unset, and prior state is
+	// preserved across plans (UseStateForUnknown).
+	for _, optional := range []string{"parent", "pm", "desc", "acl", "budget", "budget_unit", "whitelist"} {
+		a := resp.Schema.Attributes[optional]
+		if !a.IsOptional() || !a.IsComputed() {
+			t.Errorf("%s must be Optional+Computed (got optional=%v computed=%v)", optional, a.IsOptional(), a.IsComputed())
+		}
+	}
+	// Server-managed fields surfaced by program-edit-{id} that must not
+	// accept user input. Sample of the pure-Computed bucket — exhaustive
+	// would just duplicate the schema.
 	for _, computedOnly := range []string{
-		"id", "code", "status", "parent", "type", "category",
-		"acl", "po", "qd", "rd", "budget", "budget_unit",
-		"opened_by", "opened_date", "real_began", "real_end",
-		"progress", "team_count",
+		"id", "code", "status", "type", "category", "lifetime", "vision",
+		"attribute", "model", "program_path", "grade",
+		"multiple", "parallel", "has_product", "workflow_group", "story_type",
+		"days", "first_end",
+		"opened_by", "opened_date", "last_edited_by", "last_edited_date",
+		"real_began", "real_end",
+		"closed_by", "closed_date", "closed_reason",
+		"canceled_by", "canceled_date", "suspended_date",
+		"po", "qd", "rd", "team",
+		"progress", "percent", "estimate", "consumed", "left", "team_count",
 	} {
 		a := resp.Schema.Attributes[computedOnly]
 		if !a.IsComputed() {
@@ -50,12 +79,6 @@ func TestProgramResource_Schema(t *testing.T) {
 		}
 		if a.IsRequired() || a.IsOptional() {
 			t.Errorf("%s must be Computed-only (got required=%v optional=%v)", computedOnly, a.IsRequired(), a.IsOptional())
-		}
-	}
-	for _, optional := range []string{"pm", "description"} {
-		a := resp.Schema.Attributes[optional]
-		if !a.IsOptional() || !a.IsComputed() {
-			t.Errorf("%s must be Optional+Computed (got optional=%v computed=%v)", optional, a.IsOptional(), a.IsComputed())
 		}
 	}
 }
@@ -78,10 +101,10 @@ func TestAccProgramResource_basic(t *testing.T) {
 			{
 				Config: providerBlock() + fmt.Sprintf(`
 resource "st-zentao_program" "p" {
-  name        = %q
-  begin       = "2026-01-01"
-  end         = "2026-12-31"
-  description = "initial"
+  name  = %q
+  begin = "2026-01-01"
+  end   = "2026-12-31"
+  desc  = "initial"
 }`, name),
 				Check: tfresource.ComposeAggregateTestCheckFunc(
 					tfresource.TestCheckResourceAttr("st-zentao_program.p", "name", name),
@@ -95,15 +118,15 @@ resource "st-zentao_program" "p" {
 			{
 				Config: providerBlock() + fmt.Sprintf(`
 resource "st-zentao_program" "p" {
-  name        = %q
-  begin       = "2026-02-01"
-  end         = "2026-11-30"
-  description = "updated"
+  name  = %q
+  begin = "2026-02-01"
+  end   = "2026-11-30"
+  desc  = "updated"
 }`, name+"-renamed"),
 				Check: tfresource.ComposeAggregateTestCheckFunc(
 					tfresource.TestCheckResourceAttr("st-zentao_program.p", "name", name+"-renamed"),
 					tfresource.TestCheckResourceAttr("st-zentao_program.p", "begin", "2026-02-01"),
-					tfresource.TestCheckResourceAttr("st-zentao_program.p", "description", "updated"),
+					tfresource.TestCheckResourceAttr("st-zentao_program.p", "desc", "updated"),
 				),
 			},
 		},

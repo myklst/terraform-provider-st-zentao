@@ -3,12 +3,12 @@
 page_title: "st-zentao_project Resource - st-zentao"
 subcategory: ""
 description: |-
-  Manages a ZenTao project (type=project) via the v2 RESTful API. Beyond the documented v2 fields, ZenTao Max 8.x requires products (>=1) and workflow_group on create; both are surfaced as first-class attributes. Server-managed fields (audit columns, lifetime, progress, budget) are exposed Computed-only.
+  Manages a ZenTao project.
 ---
 
 # st-zentao_project (Resource)
 
-Manages a ZenTao project (type=project) via the v2 RESTful API. Beyond the documented v2 fields, ZenTao Max 8.x requires `products` (>=1) and `workflow_group` on create; both are surfaced as first-class attributes. Server-managed fields (audit columns, lifetime, progress, budget) are exposed Computed-only.
+Manages a ZenTao project.
 
 ## Example Usage
 
@@ -19,23 +19,14 @@ resource "st-zentao_project" "example" {
   begin = "2026-01-01"
   end   = "2026-12-31"
 
-  # Required by ZenTao Max 8.x: at least one product id and a workflow
-  # group id. The validator name "productsBox" surfaces in error
-  # messages but the wire field is "products". The workflow group id
-  # is install-specific (commonly 1 = default).
-  products       = [1]
   workflow_group = 1
 
-  # Optional: parent program (mapped to ZenTao "parent"). 0 / unset
-  # leaves the project at top level — the server does NOT auto-assign
-  # a default program.
+  products = [1]
+  multiple = true
+
   program = 1
-
-  description = "Created by Terraform"
-
-  # Optional: assign a PM. ZenTao auto-assigns the calling account
-  # when unset.
-  pm = "testPM"
+  pm      = "testPM"
+  desc    = "Created by Terraform"
 }
 ```
 
@@ -44,35 +35,36 @@ resource "st-zentao_project" "example" {
 
 ### Required
 
-- `begin` (String) Planned start date in YYYY-MM-DD format.
-- `end` (String) Planned end date in YYYY-MM-DD format.
-- `model` (String) Project execution model. One of: "scrum", "waterfall", "kanban", "agileplus", "waterfallplus", "cmmi". ZenTao does not support changing the model in-place, so this attribute forces resource replacement on change.
+- `begin` (String) Planned start date (YYYY-MM-DD).
+- `end` (String) Planned end date (YYYY-MM-DD).
+- `model` (String) Project execution model. One of: "scrum", "waterfall", "kanban", "agileplus", "waterfallplus", "cmmi". Changing this forces resource replacement.
 - `name` (String) Project display name.
-- `products` (List of Number) Associated product IDs. ZenTao Max 8.x requires at least one product on create (validator key 'productsBox'). The v2 GET endpoint does not echo the product list back, so this attribute is preserved from the prior plan/state to prevent spurious drift.
-- `workflow_group` (Number) Workflow scheme id (mapped to ZenTao 'workflowGroup'). Required by ZenTao Max 8.x on create. The server accepts any int; there is no documented enum.
+- `workflow_group` (Number) Workflow scheme id.
 
 ### Optional
 
-- `acl` (String) Access control. One of: "open", "private", "custom". Server-defaulted when unset (no static default here).
-- `description` (String) Optional description (mapped to ZenTao 'desc'). Empty string when unset.
-- `pm` (String) Project Manager username. ZenTao auto-assigns the calling account when unset, so this stays Optional+Computed without a static default to avoid 'inconsistent result after apply' drift.
-- `po` (String) Product Owner username. Server may auto-assign; Optional+Computed without static default.
-- `program` (Number) Parent program ID (mapped to ZenTao 'parent'). 0 means no parent program; the server does not auto-assign one when omitted.
-- `qd` (String) QA Lead username. Server may auto-assign; Optional+Computed without static default.
-- `rd` (String) Release Lead username. Server may auto-assign; Optional+Computed without static default.
+- `acl` (String) Access control. One of: "open", "private", "custom".
+- `desc` (String) Description.
+- `multiple` (Boolean) Whether iterations (sprints) are enabled.
+- `pm` (String) Project Manager username.
+- `po` (String) Product Owner username.
+- `products` (List of Number) Associated product IDs.
+- `program` (Number) Parent program id (0 = no parent program).
+- `qd` (String) QA Lead username.
+- `rd` (String) Release Lead username.
 
 ### Read-Only
 
-- `budget` (String) Project budget amount (server-managed; string per ZenTao API).
-- `budget_unit` (String) Currency unit of the budget (server-managed).
-- `code` (String) Project short code (server-managed).
-- `id` (String) Numeric ZenTao project ID (stringified).
-- `last_edited_by` (String) Last editor username (server-managed).
-- `lifetime` (String) Project lifetime classification (server-managed).
-- `opened_by` (String) Creator username (server-managed).
-- `opened_date` (String) Creation timestamp (server-managed).
-- `progress` (String) Completion progress percentage (server-managed; string per ZenTao API).
-- `real_began` (String) Actual start date (server-managed).
-- `real_end` (String) Actual end date (server-managed).
-- `status` (String) Server-managed project status (e.g. "wait", "doing", "closed").
-- `team_count` (String) Total team members (server-managed; string per ZenTao API).
+- `budget` (String) Project budget amount.
+- `budget_unit` (String) Currency unit of the budget.
+- `code` (String) Project short code.
+- `id` (String) Numeric ZenTao project ID.
+- `last_edited_by` (String) Last-editor username.
+- `lifetime` (String) Project lifetime classification.
+- `opened_by` (String) Creator username.
+- `opened_date` (String) Creation timestamp.
+- `progress` (String) Completion progress percentage.
+- `real_began` (String) Actual start date.
+- `real_end` (String) Actual end date.
+- `status` (String) Project status.
+- `team_count` (String) Total team members.

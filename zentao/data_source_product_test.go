@@ -17,7 +17,7 @@ func TestProductDataSource_Schema(t *testing.T) {
 		t.Fatalf("schema diagnostics: %v", resp.Diagnostics)
 	}
 	expected := []string{
-		"id", "code", "name", "program", "line", "type", "description",
+		"id", "code", "name", "program", "line", "type", "desc",
 		"acl", "po", "qd", "rd", "reviewer",
 		"status", "created_by", "created_date", "program_name",
 	}

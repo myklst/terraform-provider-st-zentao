@@ -42,7 +42,7 @@ func TestProductResource_Schema(t *testing.T) {
 		t.Fatalf("schema diagnostics: %v", resp.Diagnostics)
 	}
 	expected := []string{
-		"id", "code", "name", "program", "line", "type", "description",
+		"id", "code", "name", "program", "line", "type", "desc",
 		"acl", "po", "qd", "rd", "reviewer",
 		"status", "created_by", "created_date", "program_name",
 	}
@@ -63,7 +63,7 @@ func TestProductResource_Schema(t *testing.T) {
 			t.Errorf("%s must be Computed-only (got required=%v optional=%v)", computedOnly, a.IsRequired(), a.IsOptional())
 		}
 	}
-	for _, optional := range []string{"program", "line", "type", "description", "acl", "po", "qd", "rd", "reviewer"} {
+	for _, optional := range []string{"program", "line", "type", "desc", "acl", "po", "qd", "rd", "reviewer"} {
 		a := resp.Schema.Attributes[optional]
 		if !a.IsOptional() || !a.IsComputed() {
 			t.Errorf("%s must be Optional+Computed (got optional=%v computed=%v)", optional, a.IsOptional(), a.IsComputed())

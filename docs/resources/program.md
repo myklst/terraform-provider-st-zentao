@@ -3,25 +3,28 @@
 page_title: "st-zentao_program Resource - st-zentao"
 subcategory: ""
 description: |-
-  Manages a ZenTao program (project portfolio) via the v2 RESTful API. The v2 create/update endpoints accept only name/begin/end/PM/desc; everything else (status, audit columns, role assignments, budget) is server-managed and exposed as Computed read-only attributes.
+  Manages a ZenTao program (project portfolio).
 ---
 
 # st-zentao_program (Resource)
 
-Manages a ZenTao program (project portfolio) via the v2 RESTful API. The v2 create/update endpoints accept only name/begin/end/PM/desc; everything else (status, audit columns, role assignments, budget) is server-managed and exposed as Computed read-only attributes.
+Manages a ZenTao program (project portfolio).
 
 ## Example Usage
 
 ```terraform
 resource "st-zentao_program" "example" {
-  name        = "Smart Home"
-  begin       = "2026-01-01"
-  end         = "2026-12-31"
-  description = "Created by Terraform"
+  name  = "Smart Home"
+  begin = "2026-01-01"
+  end   = "2026-12-31"
+  desc  = "Created by Terraform"
 
-  # Optional: assign a Project Manager. If unset, ZenTao auto-assigns
-  # the calling account.
-  pm = "testPM"
+  pm          = "testPM"
+  parent      = 0
+  acl         = "private" # open | private | custom
+  budget      = "100000"
+  budget_unit = "CNY"
+  # whitelist = "alice,bob" # only when acl = "custom"
 }
 ```
 
@@ -30,32 +33,59 @@ resource "st-zentao_program" "example" {
 
 ### Required
 
-- `begin` (String) Planned start date in YYYY-MM-DD format.
-- `end` (String) Planned end date in YYYY-MM-DD format.
+- `begin` (String) Planned start date (YYYY-MM-DD).
+- `end` (String) Planned end date (YYYY-MM-DD).
 - `name` (String) Program display name.
 
 ### Optional
 
-- `description` (String) Optional description (mapped to ZenTao 'desc'). Empty string when unset.
-- `pm` (String) Project Manager username. ZenTao auto-assigns the calling account when unset, so this stays Optional+Computed without a static default to avoid 'inconsistent result after apply' drift.
+- `acl` (String) Access control. One of: "open", "private", "custom".
+- `budget` (String) Program budget amount.
+- `budget_unit` (String) Currency unit of the budget.
+- `desc` (String) Description.
+- `parent` (Number) Parent program id (0 = top-level).
+- `pm` (String) Project Manager username.
+- `whitelist` (String) Comma-joined account list when `acl = "custom"`.
 
 ### Read-Only
 
-- `acl` (String) Access control level (server-managed).
-- `budget` (String) Program budget amount (server-managed; string per ZenTao API).
-- `budget_unit` (String) Currency unit of the budget (server-managed).
-- `category` (String) Program category (server-managed; e.g. "rnd").
-- `code` (String) Program short code (server-managed).
-- `id` (String) Numeric ZenTao program ID (stringified).
-- `opened_by` (String) Creator username (server-managed).
-- `opened_date` (String) Creation timestamp (server-managed).
-- `parent` (Number) Parent program ID (0 if top-level).
-- `po` (String) Product Owner username (server-managed).
-- `progress` (String) Completion progress percentage (server-managed; string per ZenTao API).
-- `qd` (String) QA Lead username (server-managed).
-- `rd` (String) Release Lead username (server-managed).
-- `real_began` (String) Actual start date (server-managed).
-- `real_end` (String) Actual end date (server-managed).
-- `status` (String) Server-managed program status (e.g. "wait", "doing", "closed").
-- `team_count` (String) Total team members (server-managed; string per ZenTao API).
-- `type` (String) Program type (server-managed).
+- `attribute` (String) Attribute.
+- `canceled_by` (String) User who canceled the program.
+- `canceled_date` (String) When the program was canceled.
+- `category` (String) Program category.
+- `closed_by` (String) User who closed the program.
+- `closed_date` (String) When the program was closed.
+- `closed_reason` (String) Reason recorded at close time.
+- `code` (String) Program short code.
+- `consumed` (String) Consumed effort.
+- `days` (Number) Working-day count.
+- `estimate` (String) Estimated effort.
+- `first_end` (String) First planned end date.
+- `grade` (Number) Depth in program hierarchy.
+- `has_product` (Boolean) Whether the program has any associated products.
+- `id` (String) Numeric ZenTao program ID.
+- `last_edited_by` (String) Last-editor username.
+- `last_edited_date` (String) Timestamp of the last edit.
+- `left` (String) Remaining effort.
+- `lifetime` (String) Program lifetime classification.
+- `model` (String) Methodology marker.
+- `multiple` (Boolean) Whether iterations / sub-projects are enabled.
+- `opened_by` (String) Creator username.
+- `opened_date` (String) Creation timestamp.
+- `parallel` (Boolean) Parallel execution flag.
+- `percent` (String) Auxiliary completion percent.
+- `po` (String) Product Owner username.
+- `program_path` (String) Hierarchy path.
+- `progress` (String) Completion progress percentage.
+- `qd` (String) QA Lead username.
+- `rd` (String) Release Lead username.
+- `real_began` (String) Actual start date.
+- `real_end` (String) Actual end date.
+- `status` (String) Program status.
+- `story_type` (String) Story type marker.
+- `suspended_date` (String) When the program was suspended.
+- `team` (String) Team designator.
+- `team_count` (Number) Total team members.
+- `type` (String) Program type.
+- `vision` (String) Vision (`rnd` / `lite`).
+- `workflow_group` (Number) Workflow scheme id.

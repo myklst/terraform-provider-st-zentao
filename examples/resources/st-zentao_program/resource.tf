@@ -1,10 +1,13 @@
 resource "st-zentao_program" "example" {
-  name        = "Smart Home"
-  begin       = "2026-01-01"
-  end         = "2026-12-31"
-  description = "Created by Terraform"
+  name  = "Smart Home"
+  begin = "2026-01-01"
+  end   = "2026-12-31"
+  desc  = "Created by Terraform"
 
-  # Optional: assign a Project Manager. If unset, ZenTao auto-assigns
-  # the calling account.
-  pm = "testPM"
+  pm          = "testPM"
+  parent      = 0
+  acl         = "private" # open | private | custom
+  budget      = "100000"
+  budget_unit = "CNY"
+  # whitelist = "alice,bob" # only when acl = "custom"
 }

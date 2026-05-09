@@ -32,12 +32,13 @@ type projectDataSourceModel struct {
 	Program       types.Int64  `tfsdk:"program"`
 	Products      types.List   `tfsdk:"products"`
 	WorkflowGroup types.Int64  `tfsdk:"workflow_group"`
+	Multiple      types.Bool   `tfsdk:"multiple"`
 	ACL           types.String `tfsdk:"acl"`
 	PM            types.String `tfsdk:"pm"`
 	PO            types.String `tfsdk:"po"`
 	QD            types.String `tfsdk:"qd"`
 	RD            types.String `tfsdk:"rd"`
-	Description   types.String `tfsdk:"description"`
+	Desc          types.String `tfsdk:"desc"`
 	Code          types.String `tfsdk:"code"`
 	Status        types.String `tfsdk:"status"`
 	Lifetime      types.String `tfsdk:"lifetime"`
@@ -60,32 +61,32 @@ func (d *projectDataSource) Metadata(_ context.Context, req datasource.MetadataR
 
 func (d *projectDataSource) Schema(_ context.Context, _ datasource.SchemaRequest, resp *datasource.SchemaResponse) {
 	resp.Schema = schema.Schema{
-		Description: "Look up a ZenTao project by its numeric id. " +
-			"All fields the v2 GET endpoint surfaces are exposed as Computed attributes.",
+		Description: "Look up a ZenTao project by its numeric id.",
 		Attributes: map[string]schema.Attribute{
 			"id": schema.StringAttribute{
-				Description: "Numeric ZenTao project ID (stringified).",
+				Description: "Numeric ZenTao project ID.",
 				Required:    true,
 			},
 			"name":           schema.StringAttribute{Description: "Project display name.", Computed: true},
-			"model":          schema.StringAttribute{Description: "Project methodology (scrum/waterfall/kanban/agileplus/waterfallplus/cmmi).", Computed: true},
+			"model":          schema.StringAttribute{Description: "Project methodology.", Computed: true},
 			"begin":          schema.StringAttribute{Description: "Planned start date (YYYY-MM-DD).", Computed: true},
 			"end":            schema.StringAttribute{Description: "Planned end date (YYYY-MM-DD).", Computed: true},
-			"program":        schema.Int64Attribute{Description: "Parent program ID (0 if none).", Computed: true},
+			"program":        schema.Int64Attribute{Description: "Parent program id (0 = no parent).", Computed: true},
 			"products":       schema.ListAttribute{Description: "Associated product IDs.", Computed: true, ElementType: types.Int64Type},
-			"workflow_group": schema.Int64Attribute{Description: "Workflow scheme group ID.", Computed: true},
-			"acl":            schema.StringAttribute{Description: "Access control level (open/private/custom).", Computed: true},
+			"workflow_group": schema.Int64Attribute{Description: "Workflow scheme id.", Computed: true},
+			"multiple":       schema.BoolAttribute{Description: "Whether iterations (sprints) are enabled.", Computed: true},
+			"acl":            schema.StringAttribute{Description: "Access control (`open` / `private` / `custom`).", Computed: true},
 			"pm":             schema.StringAttribute{Description: "Project Manager username.", Computed: true},
 			"po":             schema.StringAttribute{Description: "Product Owner username.", Computed: true},
 			"qd":             schema.StringAttribute{Description: "QA Lead username.", Computed: true},
 			"rd":             schema.StringAttribute{Description: "Release Lead username.", Computed: true},
-			"description":    schema.StringAttribute{Description: "Project description (mapped from ZenTao 'desc').", Computed: true},
-			"code":           schema.StringAttribute{Description: "Project short code (server-managed).", Computed: true},
-			"status":         schema.StringAttribute{Description: "Server-managed project status.", Computed: true},
+			"desc":           schema.StringAttribute{Description: "Description.", Computed: true},
+			"code":           schema.StringAttribute{Description: "Project short code.", Computed: true},
+			"status":         schema.StringAttribute{Description: "Project status.", Computed: true},
 			"lifetime":       schema.StringAttribute{Description: "Project lifetime classification.", Computed: true},
 			"opened_by":      schema.StringAttribute{Description: "Creator username.", Computed: true},
 			"opened_date":    schema.StringAttribute{Description: "Creation timestamp.", Computed: true},
-			"last_edited_by": schema.StringAttribute{Description: "Username of last editor.", Computed: true},
+			"last_edited_by": schema.StringAttribute{Description: "Last-editor username.", Computed: true},
 			"real_began":     schema.StringAttribute{Description: "Actual start date.", Computed: true},
 			"real_end":       schema.StringAttribute{Description: "Actual end date.", Computed: true},
 			"progress":       schema.StringAttribute{Description: "Completion progress percentage.", Computed: true},
@@ -156,12 +157,13 @@ func (d *projectDataSource) Read(ctx context.Context, req datasource.ReadRequest
 		Program:       types.Int64Value(int64(fetched.Parent)),
 		Products:      products,
 		WorkflowGroup: types.Int64Value(int64(fetched.WorkflowGroup)),
+		Multiple:      multipleWireToBool(fetched.Multiple),
 		ACL:           types.StringValue(fetched.ACL),
 		PM:            types.StringValue(fetched.PM),
 		PO:            types.StringValue(fetched.PO),
 		QD:            types.StringValue(fetched.QD),
 		RD:            types.StringValue(fetched.RD),
-		Description:   types.StringValue(fetched.Description),
+		Desc:          types.StringValue(fetched.Desc),
 		Code:          types.StringValue(fetched.Code),
 		Status:        types.StringValue(fetched.Status),
 		Lifetime:      types.StringValue(fetched.Lifetime),
