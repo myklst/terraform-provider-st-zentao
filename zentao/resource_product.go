@@ -148,7 +148,11 @@ func (r *productResource) Schema(_ context.Context, _ resource.SchemaRequest, re
 			"status":       schema.StringAttribute{Description: "Product status.", Computed: true, PlanModifiers: useStateForString},
 			"created_by":   schema.StringAttribute{Description: "Creator username.", Computed: true, PlanModifiers: useStateForString},
 			"created_date": schema.StringAttribute{Description: "Creation timestamp.", Computed: true, PlanModifiers: useStateForString},
-			"program_name": schema.StringAttribute{Description: "Associated program name.", Computed: true, PlanModifiers: useStateForString},
+			// program_name is derived from `program` on the server side — it must NOT
+			// use UseStateForUnknown, otherwise changing `program` keeps the stale
+			// program_name in the plan, then Update returns the new name and Terraform
+			// raises "Provider produced inconsistent result after apply".
+			"program_name": schema.StringAttribute{Description: "Associated program name.", Computed: true},
 		},
 	}
 }
