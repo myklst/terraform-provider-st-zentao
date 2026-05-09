@@ -6,6 +6,7 @@ import (
 
 	"github.com/hashicorp/terraform-plugin-framework/provider"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 )
 
 func TestProvider_Schema_HasExpectedAttributes(t *testing.T) {
@@ -68,6 +69,23 @@ func TestProductResource_Schema(t *testing.T) {
 		if !a.IsOptional() || !a.IsComputed() {
 			t.Errorf("%s must be Optional+Computed (got optional=%v computed=%v)", optional, a.IsOptional(), a.IsComputed())
 		}
+	}
+}
+
+// program_name is server-derived from `program`. Pinning it via
+// UseStateForUnknown causes "Provider produced inconsistent result after apply"
+// when `program` changes (state holds the old program's name; Update returns
+// the new one). Regression guard for that bug.
+func TestProductResource_ProgramName_NoUseStateForUnknown(t *testing.T) {
+	r := NewProductResource()
+	var resp resource.SchemaResponse
+	r.Schema(context.Background(), resource.SchemaRequest{}, &resp)
+	a, ok := resp.Schema.Attributes["program_name"].(schema.StringAttribute)
+	if !ok {
+		t.Fatalf("program_name must be a StringAttribute, got %T", resp.Schema.Attributes["program_name"])
+	}
+	if len(a.PlanModifiers) != 0 {
+		t.Errorf("program_name must have no plan modifiers (got %d) — UseStateForUnknown causes inconsistent-after-apply when `program` changes", len(a.PlanModifiers))
 	}
 }
 

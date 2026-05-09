@@ -196,6 +196,57 @@ Each agent's prompt MUST include:
 
 If a sub-agent reports failure, do NOT recover by rewriting their output — read the failing file, understand why the spec was misapplied, and re-dispatch with sharper guidance.
 
+### 6b-bis. `UseStateForUnknown` is unsafe on server-derived Computed fields
+
+**The hazard.** A Computed (or Optional+Computed) attribute whose value the server **recomputes from another input field on the same resource** must NOT carry `UseStateForUnknown`. The plan modifier pins the prior state value into the planned value; Update then returns the freshly recomputed value; Terraform raises `Provider produced inconsistent result after apply: was cty.StringVal("OLD"), but now cty.StringVal("NEW")` and the apply hard-fails.
+
+Concrete case shipped in this repo: [zentao/resource_product.go](../../../zentao/resource_product.go) `program_name`. The product's `program` is an Optional+Computed FK; ZenTao joins on it and returns `programName` in the GET response. When a user changes `program` from id A to id B:
+
+1. Plan: `program = B` (user input). `program_name` Computed → `UseStateForUnknown` pins it to the old `programName` (e.g. `"PROGRAM_001"`).
+2. Apply: PUT then re-GET returns `programName = "PROGRAM_001_01"`.
+3. Terraform diff plan vs. apply → inconsistent-after-apply error.
+
+Fix is a one-line schema edit: drop the plan modifier on that single attribute. Plan will now print `(known after apply)` for it whenever the upstream input is changing — that's the correct UX.
+
+**Triage rule.** For every Computed-only and Optional+Computed attribute, ask: *"if the user changes one of THIS resource's other inputs, will Update make the server recompute this attribute?"*
+
+- **Yes** (FK-join field, server-flipped flag tied to another input, derived label) → no `UseStateForUnknown`.
+- **No, value is stable from create-time** (`code`, `created_by`, `created_date`, hard IDs) → keep `UseStateForUnknown`. Plan stability matters.
+- **No, value drifts from external sources** (workflow `status`, foreign-resource attachments mutating it via a sibling resource, server-tick timestamps like `last_edited_date`) → keep `UseStateForUnknown`. Update on this resource doesn't recompute it, so apply ≡ plan; only refresh shows the drift, which is benign.
+
+**Don't conflate "server-derived" with "user-input-derived."** A field driven by an external resource (e.g. program's `parent` / `program_path` / `grade`, all set via `st-zentao_program_parent_attachment`) is server-derived but **not** derived from a user input on the same resource. The program resource's own Update never recomputes `parent`/`program_path`/`grade`, so `UseStateForUnknown` on those is safe — the worst case is a one-cycle refresh-detected drift, never an inconsistent-after-apply. Only the same-resource-input → derived-field edge is dangerous.
+
+**Symmetric rule for user-toggle fields that look derived.** Some attributes are user-set switches whose default *appears* coupled to other inputs but isn't actually recomputed by Update once set (e.g. `multiple` on project — a "enable iterations" switch the user owns; the server only defaults it on create). These are Optional+Computed user inputs, **not** derived fields. `UseStateForUnknown` is correct for them. Always confirm the read with the user / probe before declaring something "derived."
+
+**Regression test pattern.** When you remove `UseStateForUnknown` for a derived field, lock the decision in with a schema test:
+
+```go
+// In zentao/provider_test.go (or per-resource _test.go).
+func TestXxxResource_DerivedField_NoUseStateForUnknown(t *testing.T) {
+    r := NewXxxResource()
+    var resp resource.SchemaResponse
+    r.Schema(context.Background(), resource.SchemaRequest{}, &resp)
+    a := resp.Schema.Attributes["<derived_field>"].(schema.StringAttribute)
+    if len(a.PlanModifiers) != 0 {
+        t.Errorf("<derived_field> must have no plan modifiers — UseStateForUnknown causes inconsistent-after-apply when <input_field> changes")
+    }
+}
+```
+
+The test is cheap, names the underlying invariant, and stops a future refactor from re-introducing the bug "to keep plan output tidy."
+
+**Audit checklist when reviewing schema additions.** For each new Computed attribute, write one line:
+
+| Attribute | Type | Source of value | UseStateForUnknown? |
+|---|---|---|---|
+| `code` | Computed-only | Server-set at create, immutable | yes |
+| `program_name` | Computed-only | Joined from `program` (Optional input) | **no** |
+| `multiple` | Optional+Computed | User toggle, server default on create only | yes |
+| `parent` | Computed-only | Set via sibling attachment resource | yes (drift, not inconsistency) |
+| `last_edited_date` | Computed-only | Server timestamp on every edit | yes |
+
+If a row's "Source" column references another input attribute on the same resource — flip the modifier to **no**.
+
 ### 6c. Examples + README + docs
 
 After both agents complete:
