@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
 )
 
 // Program represents a ZenTao program (project portfolio).
@@ -388,6 +389,62 @@ func (c *Client) UpdateProgram(ctx context.Context, p *Program) (*Program, error
 		return nil, classifyCtrlSimple(status, resp, body)
 	}
 	return c.GetProgram(ctx, p.ID)
+}
+
+// SetProgramParent attaches childID under parentID, or detaches childID
+// when parentID is 0. ZenTao silently accepts self-attach and multi-level
+// cycles (probe finding F3) — this wrapper rejects both client-side
+// before issuing the form POST.
+//
+// Implementation: fetch the child as baseline, override only the Parent
+// field (the rest of the program-edit form is preserved verbatim — see
+// the M-Z merge note on UpdateProgram), then submit. programToForm
+// always-sets parent so a parentID of 0 actually clears the column.
+func (c *Client) SetProgramParent(ctx context.Context, childID, parentID int) error {
+	if childID <= 0 {
+		return fmt.Errorf("SetProgramParent: childID must be positive, got %d", childID)
+	}
+	if parentID < 0 {
+		return fmt.Errorf("SetProgramParent: parentID cannot be negative, got %d", parentID)
+	}
+	if parentID == childID {
+		return fmt.Errorf("SetProgramParent: %w (self-attach: child=parent=%d)", ErrCycleDetected, childID)
+	}
+	baseline, err := c.GetProgram(ctx, childID)
+	if err != nil {
+		return fmt.Errorf("SetProgramParent: fetch child baseline: %w", err)
+	}
+	if parentID > 0 {
+		parentRow, err := c.GetProgram(ctx, parentID)
+		if err != nil {
+			return fmt.Errorf("SetProgramParent: fetch parent for cycle check: %w", err)
+		}
+		// path is comma-delimited ancestry (e.g. ",1,5,7,"). If childID
+		// already sits in parent's lineage, attaching would form a cycle.
+		if strings.Contains(parentRow.Path, fmt.Sprintf(",%d,", childID)) {
+			return fmt.Errorf("SetProgramParent: %w (parent %d has child %d in path %q)", ErrCycleDetected, parentID, childID, parentRow.Path)
+		}
+	}
+	out := *baseline
+	out.Parent = parentID
+	body, status, err := c.doControllerForm(ctx, "program", "edit", []string{strconv.Itoa(childID)}, nil, programToForm(&out))
+	if err != nil {
+		return err
+	}
+	if status == http.StatusNotFound {
+		return ErrNotFound
+	}
+	if status >= 400 {
+		return apiError(status, body)
+	}
+	var resp CtrlSimpleResponse
+	if err := json.Unmarshal(body, &resp); err != nil {
+		return fmt.Errorf("decode set-program-parent envelope: %w (body=%s)", err, string(body))
+	}
+	if !resp.IsSuccess() {
+		return classifyCtrlSimple(status, resp, body)
+	}
+	return nil
 }
 
 func (c *Client) DeleteProgram(ctx context.Context, id int) error {

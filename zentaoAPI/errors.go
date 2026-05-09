@@ -16,8 +16,9 @@ import (
 // for CtrlEnvelope / CtrlSimpleResponse / DecodeData / classifyCtrl*).
 
 var (
-	ErrNotFound     = errors.New("zentao: resource not found")
-	ErrUnauthorized = errors.New("zentao: invalid credentials")
+	ErrNotFound      = errors.New("zentao: resource not found")
+	ErrUnauthorized  = errors.New("zentao: invalid credentials")
+	ErrCycleDetected = errors.New("zentao: program parent cycle detected")
 )
 
 // APIError is the structured failure surfaced when a response neither

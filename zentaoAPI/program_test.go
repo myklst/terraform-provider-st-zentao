@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -506,6 +507,197 @@ func TestMergeProgramBaseline_PreservesBaselineWhenInputZero(t *testing.T) {
 				t.Errorf("baseline mutated: %+v", baseline)
 			}
 		})
+	}
+}
+
+// ----- SetProgramParent -----
+
+// programParentMockServer wires a small fake controller. It serves
+// program-edit-{id}.json GET from the rows map and program-edit-{id}.json
+// POST by capturing the form body.
+type programParentMockServer struct {
+	rows           map[int]string // id -> JSON for "program" inner field
+	postBody       string
+	postPath       string
+	postCount      int
+	getCounts      map[int]int
+	postRespStatus int
+	postRespBody   string
+}
+
+func newProgramParentMockServer() *programParentMockServer {
+	return &programParentMockServer{
+		rows:           map[int]string{},
+		getCounts:      map[int]int{},
+		postRespStatus: 200,
+		postRespBody:   `{"result":"success","message":"保存成功","locate":"/program-browse.json"}`,
+	}
+}
+
+func (m *programParentMockServer) handler(t *testing.T) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		// Match "/program-edit-<id>.json"
+		path := r.URL.Path
+		if !strings.HasPrefix(path, "/program-edit-") || !strings.HasSuffix(path, ".json") {
+			t.Errorf("unexpected path %s", path)
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		idStr := strings.TrimSuffix(strings.TrimPrefix(path, "/program-edit-"), ".json")
+		id, err := strconv.Atoi(idStr)
+		if err != nil {
+			t.Errorf("bad id in path %s", path)
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		switch r.Method {
+		case http.MethodGet:
+			m.getCounts[id]++
+			row, ok := m.rows[id]
+			var inner string
+			if !ok {
+				inner = `{"program":false}`
+			} else {
+				inner = `{"program":` + row + `}`
+			}
+			// data is a JSON-string-encoded payload — marshal to get
+			// proper backslash-escaping of the inner quotes.
+			payload, _ := json.Marshal(map[string]any{"status": "success", "data": inner})
+			_, _ = w.Write(payload)
+		case http.MethodPost:
+			m.postCount++
+			m.postPath = path
+			buf := make([]byte, 8192)
+			n, _ := r.Body.Read(buf)
+			m.postBody = string(buf[:n])
+			w.WriteHeader(m.postRespStatus)
+			_, _ = w.Write([]byte(m.postRespBody))
+		default:
+			t.Errorf("unexpected method %s %s", r.Method, path)
+		}
+	}
+}
+
+func TestSetProgramParent_PreflightRejects(t *testing.T) {
+	c := newTestClient(t, "tok-1", "http://example.invalid")
+	cases := []struct {
+		name    string
+		child   int
+		parent  int
+		wantErr error
+		wantSub string
+	}{
+		{"child zero", 0, 5, nil, "childID must be positive"},
+		{"child negative", -1, 5, nil, "childID must be positive"},
+		{"parent negative", 5, -1, nil, "parentID cannot be negative"},
+		{"self-attach", 7, 7, ErrCycleDetected, "self-attach"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := c.SetProgramParent(context.Background(), tc.child, tc.parent)
+			if err == nil {
+				t.Fatalf("err = nil, want error")
+			}
+			if tc.wantErr != nil && !errors.Is(err, tc.wantErr) {
+				t.Errorf("err = %v, want errors.Is %v", err, tc.wantErr)
+			}
+			if !strings.Contains(err.Error(), tc.wantSub) {
+				t.Errorf("err = %v, want substring %q", err, tc.wantSub)
+			}
+		})
+	}
+}
+
+func TestSetProgramParent_HappyAttach(t *testing.T) {
+	mock := newProgramParentMockServer()
+	mock.rows[10] = `{"id":10,"name":"child","begin":"2026-01-01","end":"2026-12-31","parent":0,"path":",10,","PM":"alice","desc":"d","acl":"private","budget":"500","budgetUnit":"USD","whitelist":"u1"}`
+	mock.rows[5] = `{"id":5,"name":"parent","begin":"2026-01-01","end":"2026-12-31","parent":0,"path":",5,"}`
+	srv := httptest.NewServer(mock.handler(t))
+	defer srv.Close()
+
+	c := newTestClient(t, "tok-1", srv.URL)
+	if err := c.SetProgramParent(context.Background(), 10, 5); err != nil {
+		t.Fatalf("SetProgramParent: %v", err)
+	}
+	if mock.postCount != 1 || mock.postPath != "/program-edit-10.json" {
+		t.Fatalf("posts=%d path=%s", mock.postCount, mock.postPath)
+	}
+	if mock.getCounts[10] != 1 || mock.getCounts[5] != 1 {
+		t.Fatalf("get counts: child=%d parent=%d", mock.getCounts[10], mock.getCounts[5])
+	}
+	// Form must override parent and preserve every other writeable field.
+	for _, want := range []string{"parent=5", "name=child", "PM=alice", "desc=d", "acl=private", "budget=500", "budgetUnit=USD", "whitelist=u1"} {
+		if !strings.Contains(mock.postBody, want) {
+			t.Errorf("POST body missing %q: %s", want, mock.postBody)
+		}
+	}
+}
+
+func TestSetProgramParent_DetachWritesParentZero(t *testing.T) {
+	mock := newProgramParentMockServer()
+	mock.rows[10] = `{"id":10,"name":"child","begin":"2026-01-01","end":"2026-12-31","parent":5,"path":",5,10,"}`
+	srv := httptest.NewServer(mock.handler(t))
+	defer srv.Close()
+
+	c := newTestClient(t, "tok-1", srv.URL)
+	if err := c.SetProgramParent(context.Background(), 10, 0); err != nil {
+		t.Fatalf("SetProgramParent: %v", err)
+	}
+	// Detach must not look up a parent (parentID=0 short-circuits the cycle check).
+	if mock.getCounts[10] != 1 || len(mock.getCounts) != 1 {
+		t.Fatalf("unexpected GETs: %v", mock.getCounts)
+	}
+	if !strings.Contains(mock.postBody, "parent=0") {
+		t.Errorf("detach must send parent=0: %s", mock.postBody)
+	}
+}
+
+func TestSetProgramParent_RejectsCycleViaPath(t *testing.T) {
+	// Setup: child=10, prospective parent=20. parent.path=",10,20,"
+	// (10 is already an ancestor of 20). Attaching 10 under 20 would
+	// form a cycle.
+	mock := newProgramParentMockServer()
+	mock.rows[10] = `{"id":10,"name":"c","begin":"2026-01-01","end":"2026-12-31","parent":0,"path":",10,"}`
+	mock.rows[20] = `{"id":20,"name":"p","begin":"2026-01-01","end":"2026-12-31","parent":10,"path":",10,20,"}`
+	srv := httptest.NewServer(mock.handler(t))
+	defer srv.Close()
+
+	c := newTestClient(t, "tok-1", srv.URL)
+	err := c.SetProgramParent(context.Background(), 10, 20)
+	if !errors.Is(err, ErrCycleDetected) {
+		t.Fatalf("err = %v, want errors.Is(ErrCycleDetected)", err)
+	}
+	// No POST should have been issued.
+	if mock.postCount != 0 {
+		t.Errorf("posts=%d, expected zero (cycle should reject before POST)", mock.postCount)
+	}
+}
+
+func TestSetProgramParent_ChildNotFound(t *testing.T) {
+	mock := newProgramParentMockServer()
+	// Empty rows map -> any GET returns program:false -> ErrNotFound.
+	srv := httptest.NewServer(mock.handler(t))
+	defer srv.Close()
+
+	c := newTestClient(t, "tok-1", srv.URL)
+	err := c.SetProgramParent(context.Background(), 999, 5)
+	if !errors.Is(err, ErrNotFound) {
+		t.Fatalf("err = %v, want errors.Is(ErrNotFound)", err)
+	}
+}
+
+func TestSetProgramParent_ParentNotFound(t *testing.T) {
+	mock := newProgramParentMockServer()
+	mock.rows[10] = `{"id":10,"name":"c","begin":"2026-01-01","end":"2026-12-31","parent":0,"path":",10,"}`
+	// Parent 999 missing.
+	srv := httptest.NewServer(mock.handler(t))
+	defer srv.Close()
+
+	c := newTestClient(t, "tok-1", srv.URL)
+	err := c.SetProgramParent(context.Background(), 10, 999)
+	if !errors.Is(err, ErrNotFound) {
+		t.Fatalf("err = %v, want errors.Is(ErrNotFound)", err)
 	}
 }
 
