@@ -52,17 +52,17 @@ func TestProgramResource_Schema(t *testing.T) {
 	// Writeable per form.php — Optional+Computed so the server can apply
 	// defaults when the user leaves them unset, and prior state is
 	// preserved across plans (UseStateForUnknown).
-	for _, optional := range []string{"parent", "pm", "desc", "acl", "budget", "budget_unit", "whitelist"} {
+	for _, optional := range []string{"pm", "desc", "acl", "budget", "budget_unit", "whitelist"} {
 		a := resp.Schema.Attributes[optional]
 		if !a.IsOptional() || !a.IsComputed() {
 			t.Errorf("%s must be Optional+Computed (got optional=%v computed=%v)", optional, a.IsOptional(), a.IsComputed())
 		}
 	}
 	// Server-managed fields surfaced by program-edit-{id} that must not
-	// accept user input. Sample of the pure-Computed bucket — exhaustive
-	// would just duplicate the schema.
+	// accept user input. parent moved here when it became read-only —
+	// the attachment resource is the only writer.
 	for _, computedOnly := range []string{
-		"id", "code", "status", "type", "category", "lifetime", "vision",
+		"id", "parent", "code", "status", "type", "category", "lifetime", "vision",
 		"attribute", "model", "program_path", "grade",
 		"multiple", "parallel", "has_product", "workflow_group", "story_type",
 		"days", "first_end",

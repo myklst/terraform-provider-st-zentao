@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
 )
 
 // Program represents a ZenTao program (project portfolio).
@@ -217,33 +218,63 @@ type programEditInner struct {
 	Program json.RawMessage `json:"program"`
 }
 
+// programToForm always emits every form.php writeable field, even when the
+// value is empty/0. ZenTao's program-edit POST is not PATCH-semantic — any
+// omitted form.php field is reset to its form.php default. See
+// docs/superpowers/specs/probe-program-controller.md §8.
 func programToForm(p *Program) url.Values {
 	form := url.Values{}
 	form.Set("name", p.Name)
 	form.Set("begin", p.Begin)
 	form.Set("end", p.End)
-	if p.Parent != 0 {
-		form.Set("parent", strconv.Itoa(p.Parent))
-	}
-	if p.PM != "" {
-		form.Set("PM", p.PM)
-	}
-	if p.Desc != "" {
-		form.Set("desc", p.Desc)
-	}
-	if p.ACL != "" {
-		form.Set("acl", p.ACL)
-	}
-	if p.Budget != "" {
-		form.Set("budget", p.Budget)
-	}
-	if p.BudgetUnit != "" {
-		form.Set("budgetUnit", p.BudgetUnit)
-	}
-	if p.Whitelist != "" {
-		form.Set("whitelist", p.Whitelist)
-	}
+	form.Set("parent", strconv.Itoa(p.Parent))
+	form.Set("PM", p.PM)
+	form.Set("desc", p.Desc)
+	form.Set("acl", p.ACL)
+	form.Set("budget", p.Budget)
+	form.Set("budgetUnit", p.BudgetUnit)
+	form.Set("whitelist", p.Whitelist)
 	return form
+}
+
+// mergeProgramBaseline copies baseline and overrides only the fields the
+// caller explicitly set on input (non-zero / non-empty). Empty string and 0
+// are read as "preserve baseline". This is the M-Z merge that makes
+// UpdateProgram safe against ZenTao's non-PATCH semantics.
+func mergeProgramBaseline(input, baseline *Program) *Program {
+	out := *baseline
+	out.ID = input.ID
+	if input.Name != "" {
+		out.Name = input.Name
+	}
+	if input.Begin != "" {
+		out.Begin = input.Begin
+	}
+	if input.End != "" {
+		out.End = input.End
+	}
+	if input.Parent != 0 {
+		out.Parent = input.Parent
+	}
+	if input.PM != "" {
+		out.PM = input.PM
+	}
+	if input.Desc != "" {
+		out.Desc = input.Desc
+	}
+	if input.ACL != "" {
+		out.ACL = input.ACL
+	}
+	if input.Budget != "" {
+		out.Budget = input.Budget
+	}
+	if input.BudgetUnit != "" {
+		out.BudgetUnit = input.BudgetUnit
+	}
+	if input.Whitelist != "" {
+		out.Whitelist = input.Whitelist
+	}
+	return &out
 }
 
 func (c *Client) GetProgram(ctx context.Context, id int) (*Program, error) {
@@ -335,7 +366,12 @@ func (c *Client) UpdateProgram(ctx context.Context, p *Program) (*Program, error
 	if p.ID == 0 {
 		return nil, fmt.Errorf("UpdateProgram: id required")
 	}
-	body, status, err := c.doControllerForm(ctx, "program", "edit", []string{strconv.Itoa(p.ID)}, nil, programToForm(p))
+	baseline, err := c.GetProgram(ctx, p.ID)
+	if err != nil {
+		return nil, fmt.Errorf("UpdateProgram: fetch baseline for merge: %w", err)
+	}
+	merged := mergeProgramBaseline(p, baseline)
+	body, status, err := c.doControllerForm(ctx, "program", "edit", []string{strconv.Itoa(p.ID)}, nil, programToForm(merged))
 	if err != nil {
 		return nil, err
 	}
@@ -353,6 +389,62 @@ func (c *Client) UpdateProgram(ctx context.Context, p *Program) (*Program, error
 		return nil, classifyCtrlSimple(status, resp, body)
 	}
 	return c.GetProgram(ctx, p.ID)
+}
+
+// SetProgramParent attaches childID under parentID, or detaches childID
+// when parentID is 0. ZenTao silently accepts self-attach and multi-level
+// cycles (probe finding F3) — this wrapper rejects both client-side
+// before issuing the form POST.
+//
+// Implementation: fetch the child as baseline, override only the Parent
+// field (the rest of the program-edit form is preserved verbatim — see
+// the M-Z merge note on UpdateProgram), then submit. programToForm
+// always-sets parent so a parentID of 0 actually clears the column.
+func (c *Client) SetProgramParent(ctx context.Context, childID, parentID int) error {
+	if childID <= 0 {
+		return fmt.Errorf("SetProgramParent: childID must be positive, got %d", childID)
+	}
+	if parentID < 0 {
+		return fmt.Errorf("SetProgramParent: parentID cannot be negative, got %d", parentID)
+	}
+	if parentID == childID {
+		return fmt.Errorf("SetProgramParent: %w (self-attach: child=parent=%d)", ErrCycleDetected, childID)
+	}
+	baseline, err := c.GetProgram(ctx, childID)
+	if err != nil {
+		return fmt.Errorf("SetProgramParent: fetch child baseline: %w", err)
+	}
+	if parentID > 0 {
+		parentRow, err := c.GetProgram(ctx, parentID)
+		if err != nil {
+			return fmt.Errorf("SetProgramParent: fetch parent for cycle check: %w", err)
+		}
+		// path is comma-delimited ancestry (e.g. ",1,5,7,"). If childID
+		// already sits in parent's lineage, attaching would form a cycle.
+		if strings.Contains(parentRow.Path, fmt.Sprintf(",%d,", childID)) {
+			return fmt.Errorf("SetProgramParent: %w (parent %d has child %d in path %q)", ErrCycleDetected, parentID, childID, parentRow.Path)
+		}
+	}
+	out := *baseline
+	out.Parent = parentID
+	body, status, err := c.doControllerForm(ctx, "program", "edit", []string{strconv.Itoa(childID)}, nil, programToForm(&out))
+	if err != nil {
+		return err
+	}
+	if status == http.StatusNotFound {
+		return ErrNotFound
+	}
+	if status >= 400 {
+		return apiError(status, body)
+	}
+	var resp CtrlSimpleResponse
+	if err := json.Unmarshal(body, &resp); err != nil {
+		return fmt.Errorf("decode set-program-parent envelope: %w (body=%s)", err, string(body))
+	}
+	if !resp.IsSuccess() {
+		return classifyCtrlSimple(status, resp, body)
+	}
+	return nil
 }
 
 func (c *Client) DeleteProgram(ctx context.Context, id int) error {

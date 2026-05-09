@@ -96,6 +96,7 @@ func (p *zentaoProvider) Resources(_ context.Context) []func() resource.Resource
 	return []func() resource.Resource{
 		NewProductResource,
 		NewProgramResource,
+		NewProgramParentAttachmentResource,
 		NewProjectResource,
 		NewGroupResource,
 	}

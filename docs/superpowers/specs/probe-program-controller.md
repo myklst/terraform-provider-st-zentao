@@ -183,3 +183,59 @@ browse → row filtered out
 5. **Delete URL is `program-delete-{id}-yes.json`** (positional), NOT `?confirm=yes` query. This is different from `user-delete`.
 6. **`whitelist` is a comma-joined string on the wire** (form.php `filter=join`). Resource exposes the joined string as-is. Splitting/joining for an array attribute would be nicer ergonomically; deferred until a user actually needs it because slicing semantics around `acl != custom` are non-trivial.
 7. **Required vs Optional split** comes from form.php first (per the project-wide "form.php first" rule), then verified live. `end` was the only divergence — declared Optional in form.php but rejected as empty by the live install, so the schema marks it Required.
+
+## 8. Addendum 2026-05-09 — `program-edit` POST is **not** PATCH-semantic
+
+Probed while extracting `parent` into a dedicated attachment resource. Findings change how `UpdateProgram` and any future field-level wrapper must build their forms.
+
+### F1 — Omitting `parent` resets the column to 0
+
+```
+POST program-edit-{id} with parent=N → zt_project.parent = N, path/grade recomputed
+POST program-edit-{id} omitting parent entirely → zt_project.parent = 0, path/grade recomputed
+POST program-edit-{id} with parent=0 explicitly → identical to omission (clears to 0)
+```
+
+There is **no way** to "POST edit while leaving parent unchanged" — the form handler treats absent `parent` as `0`.
+
+### F2 — Same omission behaviour for every other form.php writeable field
+
+Created a probe row with `desc=initial-desc-text, PM=admin, acl=open, budget=10000`, then POST-edited with **only** `name/begin/end`. Result:
+
+| Field | Before | After omission | Behaviour |
+|---|---|---|---|
+| `desc` | `initial-desc-text` | `""` | reset |
+| `PM` | `admin` | `""` | reset |
+| `acl` | `open` | `""` | reset |
+| `budget` | `10000.00` | `0.00` | reset |
+| `budgetUnit` | `USD` | `USD` | preserved (form.php default fills in) |
+| `whitelist` | `""` | `""` | (already empty) |
+| `parent` | `0` | `0` | (already empty) |
+| `vision` | `rnd` | `rnd` | preserved (not in form.php) |
+| `multiple` | `1` | `1` | preserved (not in form.php) |
+| `storyType` | `story` | `story` | preserved (not in form.php) |
+
+So the rule is: **every form.php writeable field that is omitted gets reset to its form.php default** (which is empty/0 for most fields, `USD` for `budgetUnit`). Non-form.php columns are left alone.
+
+### F3 — ZenTao does not reject self-attach or multi-level cycles
+
+```
+POST program-edit-A parent=A   → success; A.path = ",A,A,..." (corrupted)
+POST program-edit-A parent=B (where B.parent already = A) → success; A.path includes A twice
+```
+
+ZenTao silently accepts the write, recomputes `path` to include the cycle, and returns `result: success`. It is **not safe** to rely on the server to reject illegal parent topologies.
+
+### F4 — Implications for the wrappers
+
+1. **`UpdateProgram` is not PATCH** — sending only the fields the user changed silently clears all other form.php fields. Any safe Update must:
+   - Fetch the current row (`GetProgram(id)`)
+   - Merge user-supplied non-zero fields onto that baseline (M-Z merge: zero/empty input = preserve baseline)
+   - Submit a form containing **every** form.php field, even when the value is empty/0.
+2. **`programToForm` must always-set every form.php field**, including `parent=0`, `desc=""`, `acl=""`, `budget=0`, `whitelist=""`. The `if X != "" { Set }` pattern is unsafe.
+3. **A dedicated `SetProgramParent(child, parent)` wrapper** must use the same baseline-merge pattern (only `Parent` overridden); plus client-side guards because the server has none:
+   - Reject `parent == child` (self-attach).
+   - Reject `parent.path` containing `,child,` (would form a cycle).
+4. **Detach semantics** are simply `parent = 0` on the full-form submit.
+
+Cleanup: probe rows A=100, B=101, C=102 deleted at end of session.

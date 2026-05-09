@@ -5,7 +5,6 @@ resource "st-zentao_program" "example" {
   desc  = "Created by Terraform"
 
   pm          = "testPM"
-  parent      = 0
   acl         = "private" # open | private | custom
   budget      = "100000"
   budget_unit = "CNY"
