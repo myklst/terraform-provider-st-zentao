@@ -125,8 +125,7 @@ func (r *programResource) Schema(_ context.Context, _ resource.SchemaRequest, re
 				Validators:  []validator.String{stringvalidator.RegexMatches(dateRe, `must be YYYY-MM-DD`)},
 			},
 			"parent": schema.Int64Attribute{
-				Description:   "Parent program id (0 = top-level).",
-				Optional:      true,
+				Description:   "Parent program id (0 = top-level). Read-only; set via `st-zentao_program_parent_attachment`.",
 				Computed:      true,
 				PlanModifiers: useStateForInt,
 			},
@@ -313,11 +312,12 @@ func (r *programResource) ImportState(ctx context.Context, req resource.ImportSt
 }
 
 func (m *programResourceModel) toAPI() *zentaoapi.Program {
+	// Parent is intentionally omitted — the attachment resource owns it.
+	// UpdateProgram's M-Z merge preserves the column when input.Parent == 0.
 	return &zentaoapi.Program{
 		Name:       m.Name.ValueString(),
 		Begin:      m.Begin.ValueString(),
 		End:        m.End.ValueString(),
-		Parent:     int(m.Parent.ValueInt64()),
 		PM:         m.PM.ValueString(),
 		Desc:       m.Desc.ValueString(),
 		ACL:        m.ACL.ValueString(),

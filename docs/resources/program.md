@@ -20,7 +20,6 @@ resource "st-zentao_program" "example" {
   desc  = "Created by Terraform"
 
   pm          = "testPM"
-  parent      = 0
   acl         = "private" # open | private | custom
   budget      = "100000"
   budget_unit = "CNY"
@@ -43,7 +42,6 @@ resource "st-zentao_program" "example" {
 - `budget` (String) Program budget amount.
 - `budget_unit` (String) Currency unit of the budget.
 - `desc` (String) Description.
-- `parent` (Number) Parent program id (0 = top-level).
 - `pm` (String) Project Manager username.
 - `whitelist` (String) Comma-joined account list when `acl = "custom"`.
 
@@ -73,6 +71,7 @@ resource "st-zentao_program" "example" {
 - `opened_by` (String) Creator username.
 - `opened_date` (String) Creation timestamp.
 - `parallel` (Boolean) Parallel execution flag.
+- `parent` (Number) Parent program id (0 = top-level). Read-only; set via `st-zentao_program_parent_attachment`.
 - `percent` (String) Auxiliary completion percent.
 - `po` (String) Product Owner username.
 - `program_path` (String) Hierarchy path.

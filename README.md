@@ -38,7 +38,6 @@ resource "st-zentao_program" "demo" {
   desc  = "Managed by Terraform"
 
   pm          = "alice"
-  parent      = 0
   acl         = "private"
   budget      = "100000"
   budget_unit = "CNY"
@@ -46,7 +45,20 @@ resource "st-zentao_program" "demo" {
 ```
 
 Required: `name`, `begin`, `end` (YYYY-MM-DD).
-Optional: `parent`, `pm`, `desc`, `acl` (`open` / `private` / `custom`), `budget`, `budget_unit`, `whitelist`.
+Optional: `pm`, `desc`, `acl` (`open` / `private` / `custom`), `budget`, `budget_unit`, `whitelist`.
+
+Use [`st-zentao_program_parent_attachment`](#st-zentao_program_parent_attachment) to set the parent of a program.
+
+### `st-zentao_program_parent_attachment`
+
+```hcl
+resource "st-zentao_program_parent_attachment" "child_under_parent" {
+  program = st-zentao_program.child.id
+  parent  = st-zentao_program.parent.id
+}
+```
+
+Required: `program` (child program id), `parent` (parent program id).
 
 ### `st-zentao_product`
 
