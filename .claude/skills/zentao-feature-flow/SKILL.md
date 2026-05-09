@@ -222,7 +222,7 @@ func TestXxxResource_DerivedField_NoUseStateForUnknown(t *testing.T) {
 | `multiple` | Optional+Computed | User toggle, server default on create only | yes |
 | `parent` | Computed-only | Set via sibling attachment resource | yes (drift, not inconsistency) |
 | `last_edited_date` | Computed-only | Server timestamp on every edit | yes |
-| `po` / `qd` / `rd` | Optional+Computed | User input; server backfills current account when omitted | **useStateUnlessEmpty** |
+| `po` | Optional+Computed | User input; server backfills current account when omitted | **useStateUnlessEmpty** |
 
 If "Source" references another input attribute on the same resource → flip to **no**.
 
