@@ -97,7 +97,9 @@ func TestProductResource_ProgramName_NoUseStateForUnknown(t *testing.T) {
 // `po=""`, while Update's refetch returns `"admin"` — Terraform then raises
 // "Provider produced inconsistent result after apply". Regression guard:
 // each field carries exactly one plan modifier (useStateUnlessEmpty), and
-// that modifier must leave plan as Unknown when the prior state is "".
+// that modifier must obey config/state semantics across all PlanValue inputs
+// the framework may hand us (Unknown, null, or "" — behaviour varies between
+// Terraform Core and plugin-framework versions).
 func TestProductResource_RoleFields_UseStateUnlessEmpty(t *testing.T) {
 	r := NewProductResource()
 	var resp resource.SchemaResponse
@@ -111,25 +113,56 @@ func TestProductResource_RoleFields_UseStateUnlessEmpty(t *testing.T) {
 			t.Errorf("%s expected exactly 1 plan modifier, got %d", name, len(a.PlanModifiers))
 			continue
 		}
-		// Empty state → plan must remain Unknown so server-side default wins.
-		emptyResp := planmodifier.StringResponse{PlanValue: types.StringUnknown()}
-		a.PlanModifiers[0].PlanModifyString(context.Background(),
-			planmodifier.StringRequest{
-				StateValue: types.StringValue(""),
-				PlanValue:  types.StringUnknown(),
-			}, &emptyResp)
-		if !emptyResp.PlanValue.IsUnknown() {
-			t.Errorf("%s: empty state must leave plan Unknown, got %v", name, emptyResp.PlanValue)
+		mod := a.PlanModifiers[0]
+
+		cases := []struct {
+			label    string
+			config   types.String
+			state    types.String
+			plan     types.String
+			wantPin  string // "" means assert Unknown
+			unknown  bool
+			leaveAs  bool   // assert plan stays equal to input plan
+			leaveVal string // expected literal value when leaveAs is true
+		}{
+			// User removed `po` from config; state held a real value. Plan can
+			// arrive as Unknown OR as the empty string depending on framework
+			// behaviour — both must end up pinned to the state value, otherwise
+			// Update's "admin" backfill triggers inconsistent-after-apply.
+			{label: "config-null/state-set/plan-unknown", config: types.StringNull(), state: types.StringValue("admin"), plan: types.StringUnknown(), wantPin: "admin"},
+			{label: "config-null/state-set/plan-empty", config: types.StringNull(), state: types.StringValue("admin"), plan: types.StringValue(""), wantPin: "admin"},
+			{label: "config-null/state-set/plan-null", config: types.StringNull(), state: types.StringValue("admin"), plan: types.StringNull(), wantPin: "admin"},
+			// State carries no usable value — leave plan Unknown so the server
+			// default wins regardless of what PlanValue arrived as.
+			{label: "config-null/state-empty", config: types.StringNull(), state: types.StringValue(""), plan: types.StringUnknown(), unknown: true},
+			{label: "config-null/state-null", config: types.StringNull(), state: types.StringNull(), plan: types.StringUnknown(), unknown: true},
+			// User set a value in config — modifier must not touch the plan.
+			{label: "config-set/state-set", config: types.StringValue("bob"), state: types.StringValue("admin"), plan: types.StringValue("bob"), leaveAs: true, leaveVal: "bob"},
 		}
-		// Non-empty state → plan should be pinned to the prior state value.
-		pinnedResp := planmodifier.StringResponse{PlanValue: types.StringUnknown()}
-		a.PlanModifiers[0].PlanModifyString(context.Background(),
-			planmodifier.StringRequest{
-				StateValue: types.StringValue("alice"),
-				PlanValue:  types.StringUnknown(),
-			}, &pinnedResp)
-		if pinnedResp.PlanValue.ValueString() != "alice" {
-			t.Errorf("%s: non-empty state must be pinned into plan, got %v", name, pinnedResp.PlanValue)
+
+		for _, tc := range cases {
+			r := planmodifier.StringResponse{PlanValue: tc.plan}
+			mod.PlanModifyString(context.Background(),
+				planmodifier.StringRequest{
+					ConfigValue: tc.config,
+					StateValue:  tc.state,
+					PlanValue:   tc.plan,
+				}, &r)
+
+			switch {
+			case tc.unknown:
+				if !r.PlanValue.IsUnknown() {
+					t.Errorf("%s/%s: want Unknown, got %v", name, tc.label, r.PlanValue)
+				}
+			case tc.leaveAs:
+				if r.PlanValue.ValueString() != tc.leaveVal {
+					t.Errorf("%s/%s: want %q untouched, got %v", name, tc.label, tc.leaveVal, r.PlanValue)
+				}
+			default:
+				if r.PlanValue.IsUnknown() || r.PlanValue.IsNull() || r.PlanValue.ValueString() != tc.wantPin {
+					t.Errorf("%s/%s: want pinned %q, got %v", name, tc.label, tc.wantPin, r.PlanValue)
+				}
+			}
 		}
 	}
 }
