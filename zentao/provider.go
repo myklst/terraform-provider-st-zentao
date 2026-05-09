@@ -97,6 +97,7 @@ func (p *zentaoProvider) Resources(_ context.Context) []func() resource.Resource
 		NewProductResource,
 		NewProgramResource,
 		NewProjectResource,
+		NewGroupResource,
 	}
 }
 
@@ -105,6 +106,7 @@ func (p *zentaoProvider) DataSources(_ context.Context) []func() datasource.Data
 		NewProductDataSource,
 		NewProgramDataSource,
 		NewProjectDataSource,
+		NewGroupDataSource,
 	}
 }
 
