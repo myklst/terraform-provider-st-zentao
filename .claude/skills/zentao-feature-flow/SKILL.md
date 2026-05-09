@@ -13,6 +13,9 @@ Add a new ZenTao entity (resource + data source) to this provider end-to-end. Th
 - **Probe before assuming.** ZenTao's public V2 docs routinely omit server-required fields and lie about envelope shapes. If you guess instead of probing, you ship a broken resource.
 - **Spec is the source of truth.** Code that contradicts the spec is wrong. If reality changes, update the spec **first**, then the code.
 - **No premature design.** No `force_destroy` flags, no fallback transports, no abstraction layers "for later." Build what the current task requires.
+- **TF attribute names mirror ZenTao wire names.** When a wire field is named `desc`, the Terraform schema attribute is `desc` too — do **not** rename it to `description`. Same goes for any other short ZenTao name (`PM`, `PO`, `QD`, `RD`, `acl`, `multiple`, etc.). Renaming forces the resource layer to translate between two vocabularies and obscures the spec ↔ code mapping. The only acceptable rename is when ZenTao itself uses two names for the same field (e.g. `parent` on the wire / `program` in the docs); in that case prefer the user-facing concept and document the wire mapping in the schema description.
+- **Before adding a controller-transport wrapper, read `module/<entity>/config/form.php` upstream.** That file is the authoritative list of fields and their `required` flags for controller (PATH_INFO) routes — much more reliable than the V2 docs or the controller's PHP method body. Reference: `https://github.com/easysoft/zentaopms/blob/main/module/<entity>/config/form.php`. Probe still wins over docs, but `form.php` is the cheapest first-pass to enumerate the field set and required-vs-optional split before you write a single curl probe.
+- **User-facing text is minimal; technical detail lives only in this SKILL.** Schema `Description` fields, the README, `examples/*.tf` comments, and `make generate-docs` output all describe **what the attribute is and how to use it** — not how it's implemented. Banned from user-facing surfaces: probe dates, probe filenames, upstream PHP file/line references, wire-shape language ("V2 echoes ~24 fields", "form.php declares X"), transport-name jargon ("Controller transport"), "server-managed" footnotes (just mark Computed), and the "why we chose this" rationale. All of that lives only in this SKILL plus the internal `docs/superpowers/specs/probe-*.md` archives. Go code comments follow the same diet — keep at most one line of *why-this-is-non-obvious* per declaration; cut multi-paragraph doc-comments. The README "Resources" sections stay at "example + brief attribute summary"; deeper context belongs here, not there.
 
 ## The 7 phases
 
@@ -91,6 +94,8 @@ SID=$(curl -sS -X POST "$ZENTAO_URL/api.php/v1/tokens" \
 curl -sS "$ZENTAO_URL/api.php/v2/<endpoint>" -H "Token: $SID" | jq .
 '
 ```
+
+**Before any curl probe targeting a controller (PATH_INFO) route**, fetch `module/<entity>/config/form.php` from the upstream `easysoft/zentaopms` repo and skim the field list — it tells you which keys the controller actually accepts and which ones are flagged required. This catches keys that V2 docs omit (e.g. `multiple`, `workflowGroup`) and avoids wasted probes against fields that don't exist on the controller side. Also cross-check `module/<entity>/model.php` for any required-field validators that contradict the form definition (the model layer sometimes adds extra "required" guards beyond what the form declares — and sometimes drops them, like `products` on project create which `form.php` shows as optional).
 
 The standard probe checklist for a new entity:
 1. **Single GET exists?** (`GET /api.php/v2/<entity>/{id}` — often undocumented but works)
@@ -259,6 +264,8 @@ PR body must include:
 - "The docs say X, so X." → Probe before trusting docs. The probe-project-v2.md spec exists because docs lied.
 - "I'll handle the missing-products error in the resource layer." → No. Probe surfaces required fields; they become Required TF attributes. Don't paper over server invariants in the resource layer.
 - "Let me reuse `doRequest` for V1+V2+Controller." → Per CLAUDE.md, transports are split intentionally. Adding a generic helper breaks that contract.
+- "I'll just probe the controller directly to figure out the fields." → Read upstream `module/<entity>/config/form.php` first. Probe second. Skipping the form definition turns a 30-second lookup into an hour of curl bisection.
+- "I'll call the TF schema attribute `description` for clarity." → No. The wire field is `desc`; the TF attribute is `desc`. Same vocabulary on both sides keeps the spec ↔ code mapping one-to-one.
 - "I'll commit while the agents finish." → Verify all green, then commit. A failing test in a sub-agent's output is your problem to fix, not "their" problem.
 - "I'll skip the acc test, the unit tests are enough." → Acc tests are the only thing that proves the wire shape matches reality. Skipping them is how schemas drift.
 

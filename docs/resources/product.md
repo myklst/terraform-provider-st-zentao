@@ -3,25 +3,23 @@
 page_title: "st-zentao_product Resource - st-zentao"
 subcategory: ""
 description: |-
-  Manages a ZenTao product via the v2 RESTful API. Fields not accepted by the v2 create/update endpoints (code, status, audit columns) are exposed as Computed read-only attributes.
+  Manages a ZenTao product.
 ---
 
 # st-zentao_product (Resource)
 
-Manages a ZenTao product via the v2 RESTful API. Fields not accepted by the v2 create/update endpoints (`code`, `status`, audit columns) are exposed as Computed read-only attributes.
+Manages a ZenTao product.
 
 ## Example Usage
 
 ```terraform
 resource "st-zentao_product" "example" {
-  name        = "Demo Product"
-  description = "Created by Terraform"
+  name = "Demo Product"
+  desc = "Created by Terraform"
 
-  # Optional v2 fields — set as needed for your ZenTao edition.
-  # ZenTao Biz / Max require `program`; open source / Pro can leave it 0.
   program = 0
-  type    = "normal" # one of: normal, branch, platform
-  acl     = "open"   # one of: open, private
+  type    = "normal" # normal | branch | platform
+  acl     = "open"   # open | private
 
   po       = "productManager"
   qd       = "qaLead"
@@ -39,21 +37,21 @@ resource "st-zentao_product" "example" {
 
 ### Optional
 
-- `acl` (String) Access control. One of: "open", "private". Server-defaulted when unset (no static default here).
-- `description` (String) Optional description (mapped to ZenTao 'desc'). Empty string when unset.
-- `line` (Number) Associated product line ID. Server-determined when unset.
-- `po` (String) Product Owner username. ZenTao auto-assigns the calling account when unset, so this stays Optional+Computed without a static default to avoid 'inconsistent result after apply' drift.
-- `program` (Number) Associated program (portfolio) ID. Server-determined when unset (ZenTao Biz/Max may auto-assign the user's default program).
-- `qd` (String) QA Lead username. Server may auto-assign; Optional+Computed without static default.
-- `rd` (String) Release Lead username. Server may auto-assign; Optional+Computed without static default.
+- `acl` (String) Access control. One of: "open", "private".
+- `desc` (String) Description.
+- `line` (Number) Associated product line id.
+- `po` (String) Product Owner username.
+- `program` (Number) Associated program id.
+- `qd` (String) QA Lead username.
+- `rd` (String) Release Lead username.
 - `reviewer` (List of String) Reviewer usernames.
-- `type` (String) Product type. One of: "normal", "branch", "platform". Server-defaulted when unset (no static default here, to avoid drift if the server's default ever diverges from ours).
+- `type` (String) Product type. One of: "normal", "branch", "platform".
 
 ### Read-Only
 
-- `code` (String) Product short code. Server-managed in v2 (the v2 create/update endpoints do not accept this field), so it is read-only here.
-- `created_by` (String) Creator username (server-managed).
-- `created_date` (String) Creation timestamp (server-managed).
-- `id` (String) Numeric ZenTao product ID (stringified).
-- `program_name` (String) Associated program name (server-managed; resolved from `program`).
-- `status` (String) Server-managed product status (e.g. "normal", "closed").
+- `code` (String) Product short code.
+- `created_by` (String) Creator username.
+- `created_date` (String) Creation timestamp.
+- `id` (String) Numeric ZenTao product ID.
+- `program_name` (String) Associated program name.
+- `status` (String) Product status.

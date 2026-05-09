@@ -3,20 +3,17 @@
 page_title: "st-zentao_group Data Source - st-zentao"
 subcategory: ""
 description: |-
-  Look up a ZenTao project-scoped permission group by its numeric id. Reads the row via the group-edit-<id>.json Controller endpoint and surfaces the same minimal attribute set the st-zentao_group resource manages.
+  Look up a ZenTao permission group by its numeric id.
 ---
 
 # st-zentao_group (Data Source)
 
-Look up a ZenTao project-scoped permission group by its numeric id. Reads the row via the `group-edit-<id>.json` Controller endpoint and surfaces the same minimal attribute set the st-zentao_group resource manages.
+Look up a ZenTao permission group by its numeric id.
 
 ## Example Usage
 
 ```terraform
 data "st-zentao_group" "by_id" {
-  # Numeric group id (stringified). On ZenTao Max 8.x the id space is
-  # shared across system groups (project=0) and project-scoped groups
-  # (project>0); this data source surfaces both flavours.
   id = "10000002"
 }
 
@@ -35,11 +32,11 @@ output "group" {
 
 ### Required
 
-- `id` (String) Numeric ZenTao project group ID (stringified).
+- `id` (String) Numeric ZenTao group ID.
 
 ### Read-Only
 
-- `desc` (String) Group description text.
+- `desc` (String) Description.
 - `name` (String) Group display name.
-- `project` (Number) Parent project ID (foreign key into zt_project; >0 for project-scoped groups).
-- `role` (String) Free-text role label bound to the system role registry; empty string when unset.
+- `project` (Number) Parent project id (`0` for system groups).
+- `role` (String) Free-text role label.

@@ -3,12 +3,12 @@
 page_title: "st-zentao_program Data Source - st-zentao"
 subcategory: ""
 description: |-
-  Look up a ZenTao program (project portfolio) by its numeric id. All fields the v2 GET endpoint surfaces are exposed as Computed attributes.
+  Look up a ZenTao program by its numeric id.
 ---
 
 # st-zentao_program (Data Source)
 
-Look up a ZenTao program (project portfolio) by its numeric id. All fields the v2 GET endpoint surfaces are exposed as Computed attributes.
+Look up a ZenTao program by its numeric id.
 
 ## Example Usage
 
@@ -37,29 +37,56 @@ output "program" {
 
 ### Required
 
-- `id` (String) Numeric ZenTao program ID (stringified).
+- `id` (String) Numeric ZenTao program ID.
 
 ### Read-Only
 
-- `acl` (String) Access control level.
+- `acl` (String) Access control (`open` / `private` / `custom`).
+- `attribute` (String) Attribute.
 - `begin` (String) Planned start date (YYYY-MM-DD).
 - `budget` (String) Program budget amount.
 - `budget_unit` (String) Currency unit of the budget.
+- `canceled_by` (String) User who canceled the program.
+- `canceled_date` (String) When the program was canceled.
 - `category` (String) Program category.
-- `code` (String) Program short code (server-managed).
-- `description` (String) Program description (mapped from ZenTao 'desc').
+- `closed_by` (String) User who closed the program.
+- `closed_date` (String) When the program was closed.
+- `closed_reason` (String) Reason recorded at close time.
+- `code` (String) Program short code.
+- `consumed` (String) Consumed effort.
+- `days` (Number) Working-day count.
+- `desc` (String) Description.
 - `end` (String) Planned end date (YYYY-MM-DD).
+- `estimate` (String) Estimated effort.
+- `first_end` (String) First planned end date.
+- `grade` (Number) Depth in program hierarchy.
+- `has_product` (Boolean) Whether the program has any associated products.
+- `last_edited_by` (String) Last-editor username.
+- `last_edited_date` (String) Timestamp of the last edit.
+- `left` (String) Remaining effort.
+- `lifetime` (String) Program lifetime classification.
+- `model` (String) Methodology marker.
+- `multiple` (Boolean) Whether iterations / sub-projects are enabled.
 - `name` (String) Program display name.
 - `opened_by` (String) Creator username.
 - `opened_date` (String) Creation timestamp.
-- `parent` (Number) Parent program ID (0 if top-level).
+- `parallel` (Boolean) Parallel execution flag.
+- `parent` (Number) Parent program id (0 = top-level).
+- `percent` (String) Auxiliary completion percent.
 - `pm` (String) Project Manager username.
 - `po` (String) Product Owner username.
+- `program_path` (String) Hierarchy path.
 - `progress` (String) Completion progress percentage.
 - `qd` (String) QA Lead username.
 - `rd` (String) Release Lead username.
 - `real_began` (String) Actual start date.
 - `real_end` (String) Actual end date.
-- `status` (String) Server-managed program status.
-- `team_count` (String) Total team members.
+- `status` (String) Program status.
+- `story_type` (String) Story type marker.
+- `suspended_date` (String) When the program was suspended.
+- `team` (String) Team designator.
+- `team_count` (Number) Total team members.
 - `type` (String) Program type.
+- `vision` (String) Vision (`rnd` / `lite`).
+- `whitelist` (String) Comma-joined account list when `acl = "custom"`.
+- `workflow_group` (Number) Workflow scheme id.

@@ -1,12 +1,33 @@
 # Probe: ZenTao V2 `/projects` surface
 
-**Date:** 2026-05-09
+**Date:** 2026-05-09 (initial probe), addended 2026-05-09 with upstream-source corrections
 **Server:** ZenTao Max 8.x at `${ZENTAO_URL}` (lek-ws.sige.la:8080)
-**Tool:** raw `curl` via `direnv exec .`
+**Tool:** raw `curl` via `direnv exec .`, plus upstream `easysoft/zentaopms` source review
 **Session:** all probes use a single `POST /api.php/v1/tokens` sessionID; no refresh observed.
 **Cleanup:** all probe-created project IDs deleted; final `GET /projects` filter on `tfp-*`/`tf-probe-*` returns `[]`.
 
 > Source of truth for the schema and wire shape of `zentaoAPI.Project` and the `st-zentao_project` resource. Any code that contradicts this doc is wrong; if reality changes, update this doc *first*, then the code.
+
+## 0. 2026-05-09 corrections (upstream source review)
+
+The user pointed out two errors in §2/§3/§7/§8 below — the probe surfaced a `productsBox` validator and we **incorrectly generalized it to "products is required on create"**. Re-reading the upstream PHP reveals the truth:
+
+- **`products` is NOT required on create.** Source: [`module/project/model.php#L2026`](https://github.com/easysoft/zentaopms/blob/main/module/project/model.php) — the create method does not enforce `products` as required at the model level. The `productsBox` validator we hit fires from the form-driven `_POST` flow (web UI), not from the V2 model-create path. A V2 POST that omits `products` entirely succeeds and creates a project with no product associations.
+- **`multiple` is a first-class form field.** Source: [`module/project/config/form.php#L14-L32`](https://github.com/easysoft/zentaopms/blob/main/module/project/config/form.php) — toggles whether iterations (sprints) are enabled under the project: `"1"` = multi-iteration, `"0"` = single-iteration. Server-defaulted when unset. Not surfaced in the V2 docs; previously assumed Computed-only ("server-derived from products"), but it is actually a **user-settable input**.
+
+**Schema impact** (overrides §7/§8 below):
+
+| Field | Original (wrong) | Corrected |
+|---|---|---|
+| `products` | Required | **Optional+Computed** |
+| `multiple` | Computed-only | **Optional+Computed** (BoolAttribute; resource layer translates `true`↔`"1"` and `false`↔`"0"`. Wire stays string per ZenTao; only the TF type changes for usability.) |
+
+These corrections are reflected in `resource_project.go` and `data_source_project.go` as of 2026-05-09. The §2/§3/§7/§8 tables below are **kept as-is for probe history**; treat this §0 block as the authoritative current schema.
+
+### Lessons recorded into [.claude/skills/zentao-feature-flow/SKILL.md]
+
+1. **Read `module/<entity>/config/form.php` upstream BEFORE probing controller routes** — it is the structured field whitelist + required flags. Probing is for behavior; form.php is for shape.
+2. **TF attribute names mirror ZenTao wire names.** `desc` not `description`; `multiple` not `enable_iteration`. Renaming forces a translation layer between spec and code; same vocabulary on both sides keeps the mapping one-to-one.
 
 ## 1. Endpoint summary
 

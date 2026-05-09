@@ -47,30 +47,13 @@ func (d *groupDataSource) Metadata(_ context.Context, req datasource.MetadataReq
 
 func (d *groupDataSource) Schema(_ context.Context, _ datasource.SchemaRequest, resp *datasource.SchemaResponse) {
 	resp.Schema = schema.Schema{
-		Description: "Look up a ZenTao project-scoped permission group by its numeric id. " +
-			"Reads the row via the `group-edit-<id>.json` Controller endpoint and surfaces " +
-			"the same minimal attribute set the st-zentao_group resource manages.",
+		Description: "Look up a ZenTao permission group by its numeric id.",
 		Attributes: map[string]schema.Attribute{
-			"id": schema.StringAttribute{
-				Description: "Numeric ZenTao project group ID (stringified).",
-				Required:    true,
-			},
-			"project": schema.Int64Attribute{
-				Description: "Parent project ID (foreign key into zt_project; >0 for project-scoped groups).",
-				Computed:    true,
-			},
-			"name": schema.StringAttribute{
-				Description: "Group display name.",
-				Computed:    true,
-			},
-			"role": schema.StringAttribute{
-				Description: "Free-text role label bound to the system role registry; empty string when unset.",
-				Computed:    true,
-			},
-			"desc": schema.StringAttribute{
-				Description: "Group description text.",
-				Computed:    true,
-			},
+			"id":      schema.StringAttribute{Description: "Numeric ZenTao group ID.", Required: true},
+			"project": schema.Int64Attribute{Description: "Parent project id (`0` for system groups).", Computed: true},
+			"name":    schema.StringAttribute{Description: "Group display name.", Computed: true},
+			"role":    schema.StringAttribute{Description: "Free-text role label.", Computed: true},
+			"desc":    schema.StringAttribute{Description: "Description.", Computed: true},
 		},
 	}
 }

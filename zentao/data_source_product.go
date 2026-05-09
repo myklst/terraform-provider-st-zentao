@@ -27,16 +27,16 @@ type productDataSourceModel struct {
 	ID   types.String `tfsdk:"id"`
 	Code types.String `tfsdk:"code"`
 
-	Name        types.String `tfsdk:"name"`
-	Program     types.Int64  `tfsdk:"program"`
-	Line        types.Int64  `tfsdk:"line"`
-	Type        types.String `tfsdk:"type"`
-	Description types.String `tfsdk:"description"`
-	ACL         types.String `tfsdk:"acl"`
-	PO          types.String `tfsdk:"po"`
-	QD          types.String `tfsdk:"qd"`
-	RD          types.String `tfsdk:"rd"`
-	Reviewer    types.List   `tfsdk:"reviewer"`
+	Name     types.String `tfsdk:"name"`
+	Program  types.Int64  `tfsdk:"program"`
+	Line     types.Int64  `tfsdk:"line"`
+	Type     types.String `tfsdk:"type"`
+	Desc     types.String `tfsdk:"desc"`
+	ACL      types.String `tfsdk:"acl"`
+	PO       types.String `tfsdk:"po"`
+	QD       types.String `tfsdk:"qd"`
+	RD       types.String `tfsdk:"rd"`
+	Reviewer types.List   `tfsdk:"reviewer"`
 
 	Status      types.String `tfsdk:"status"`
 	CreatedBy   types.String `tfsdk:"created_by"`
@@ -52,28 +52,27 @@ func (d *productDataSource) Metadata(_ context.Context, req datasource.MetadataR
 
 func (d *productDataSource) Schema(_ context.Context, _ datasource.SchemaRequest, resp *datasource.SchemaResponse) {
 	resp.Schema = schema.Schema{
-		Description: "Look up a ZenTao product by its numeric id. All product fields returned by " +
-			"the v2 GET endpoint are exposed as Computed attributes.",
+		Description: "Look up a ZenTao product by its numeric id.",
 		Attributes: map[string]schema.Attribute{
 			"id": schema.StringAttribute{
-				Description: "Numeric ZenTao product ID (stringified).",
+				Description: "Numeric ZenTao product ID.",
 				Required:    true,
 			},
-			"code":         schema.StringAttribute{Description: "Product short code (server-managed).", Computed: true},
+			"code":         schema.StringAttribute{Description: "Product short code.", Computed: true},
 			"name":         schema.StringAttribute{Description: "Product display name.", Computed: true},
-			"program":      schema.Int64Attribute{Description: "Associated program (portfolio) ID.", Computed: true},
-			"line":         schema.Int64Attribute{Description: "Associated product line ID.", Computed: true},
-			"type":         schema.StringAttribute{Description: "Product type (\"normal\", \"branch\", \"platform\").", Computed: true},
-			"description":  schema.StringAttribute{Description: "Product description (mapped from ZenTao 'desc').", Computed: true},
-			"acl":          schema.StringAttribute{Description: "Access control (\"open\", \"private\").", Computed: true},
+			"program":      schema.Int64Attribute{Description: "Associated program id.", Computed: true},
+			"line":         schema.Int64Attribute{Description: "Associated product line id.", Computed: true},
+			"type":         schema.StringAttribute{Description: "Product type (`normal` / `branch` / `platform`).", Computed: true},
+			"desc":         schema.StringAttribute{Description: "Description.", Computed: true},
+			"acl":          schema.StringAttribute{Description: "Access control (`open` / `private`).", Computed: true},
 			"po":           schema.StringAttribute{Description: "Product Owner username.", Computed: true},
 			"qd":           schema.StringAttribute{Description: "QA Lead username.", Computed: true},
 			"rd":           schema.StringAttribute{Description: "Release Lead username.", Computed: true},
 			"reviewer":     schema.ListAttribute{Description: "Reviewer usernames.", Computed: true, ElementType: types.StringType},
-			"status":       schema.StringAttribute{Description: "Server-managed product status.", Computed: true},
-			"created_by":   schema.StringAttribute{Description: "Creator username (server-managed).", Computed: true},
-			"created_date": schema.StringAttribute{Description: "Creation timestamp (server-managed).", Computed: true},
-			"program_name": schema.StringAttribute{Description: "Associated program name (server-managed).", Computed: true},
+			"status":       schema.StringAttribute{Description: "Product status.", Computed: true},
+			"created_by":   schema.StringAttribute{Description: "Creator username.", Computed: true},
+			"created_date": schema.StringAttribute{Description: "Creation timestamp.", Computed: true},
+			"program_name": schema.StringAttribute{Description: "Associated program name.", Computed: true},
 		},
 	}
 }
@@ -136,7 +135,7 @@ func (d *productDataSource) Read(ctx context.Context, req datasource.ReadRequest
 		Program:     types.Int64Value(int64(fetched.Program)),
 		Line:        types.Int64Value(int64(fetched.Line)),
 		Type:        types.StringValue(fetched.Type),
-		Description: types.StringValue(fetched.Description),
+		Desc:        types.StringValue(fetched.Desc),
 		ACL:         types.StringValue(fetched.ACL),
 		PO:          types.StringValue(fetched.PO),
 		QD:          types.StringValue(fetched.QD),

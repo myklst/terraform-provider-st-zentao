@@ -16,11 +16,21 @@ func TestProgramDataSource_Schema(t *testing.T) {
 	if resp.Diagnostics.HasError() {
 		t.Fatalf("schema diagnostics: %v", resp.Diagnostics)
 	}
+	// Data source mirrors the resource's controller-backed schema —
+	// every field Computed since the only input is `id`.
 	expected := []string{
-		"id", "code", "name", "begin", "end", "pm", "description",
-		"status", "parent", "type", "category", "acl", "po", "qd", "rd",
-		"budget", "budget_unit", "opened_by", "opened_date",
-		"real_began", "real_end", "progress", "team_count",
+		"id", "name", "begin", "end", "parent", "pm", "desc",
+		"acl", "budget", "budget_unit", "whitelist",
+		"code", "status", "type", "category", "lifetime", "vision",
+		"attribute", "model", "program_path", "grade",
+		"multiple", "parallel", "has_product", "workflow_group", "story_type",
+		"days", "first_end",
+		"opened_by", "opened_date", "last_edited_by", "last_edited_date",
+		"real_began", "real_end",
+		"closed_by", "closed_date", "closed_reason",
+		"canceled_by", "canceled_date", "suspended_date",
+		"po", "qd", "rd", "team",
+		"progress", "percent", "estimate", "consumed", "left", "team_count",
 	}
 	for _, attr := range expected {
 		if _, ok := resp.Schema.Attributes[attr]; !ok {

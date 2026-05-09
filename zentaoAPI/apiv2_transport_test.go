@@ -300,7 +300,7 @@ func TestDoV2Request_NeverInjectsZentaosid(t *testing.T) {
 	defer srv.Close()
 
 	c := newTestClient(t, "tok-xyz", srv.URL)
-	if _, _, err := c.doV2Request(context.Background(), http.MethodPut, programsPath+"/77",
+	if _, _, err := c.doV2Request(context.Background(), http.MethodPut, productsPath+"/77",
 		nil, map[string]string{"name": "x"}); err != nil {
 		t.Fatalf("doV2Request: %v", err)
 	}

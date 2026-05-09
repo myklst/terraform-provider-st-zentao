@@ -1,7 +1,4 @@
 data "st-zentao_group" "by_id" {
-  # Numeric group id (stringified). On ZenTao Max 8.x the id space is
-  # shared across system groups (project=0) and project-scoped groups
-  # (project>0); this data source surfaces both flavours.
   id = "10000002"
 }
 

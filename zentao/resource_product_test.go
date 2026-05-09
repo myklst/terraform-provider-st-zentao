@@ -56,7 +56,7 @@ func TestAccProductResource_basic(t *testing.T) {
 				Config: providerBlock() + fmt.Sprintf(`
 resource "st-zentao_product" "p" {
   name        = %q
-  description = "initial"
+  desc        = "initial"
 }`, name),
 				Check: resource.ComposeAggregateTestCheckFunc(
 					resource.TestCheckResourceAttr("st-zentao_product.p", "name", name),
@@ -71,13 +71,13 @@ resource "st-zentao_product" "p" {
 				Config: providerBlock() + fmt.Sprintf(`
 resource "st-zentao_product" "p" {
   name        = %q
-  description = "updated"
+  desc        = "updated"
   acl         = "private"
 }`, name+"-renamed"),
 				Check: resource.ComposeAggregateTestCheckFunc(
 					resource.TestCheckResourceAttr("st-zentao_product.p", "name", name+"-renamed"),
 					resource.TestCheckResourceAttr("st-zentao_product.p", "acl", "private"),
-					resource.TestCheckResourceAttr("st-zentao_product.p", "description", "updated"),
+					resource.TestCheckResourceAttr("st-zentao_product.p", "desc", "updated"),
 				),
 			},
 		},

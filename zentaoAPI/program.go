@@ -5,75 +5,135 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strconv"
 )
 
-// Program is the canonical in-memory representation of a ZenTao program
-// (a.k.a. project portfolio). Same conventions as Product: fields without
-// json:"-" go on the wire for POST/PUT; fields with json:"-" are decoded
-// from GET responses but never echoed back to the server.
+// Program represents a ZenTao program (project portfolio).
 type Program struct {
-	// Identity & content
-	ID    int    `json:"id,omitempty"`
-	Name  string `json:"name"`
-	Begin string `json:"begin"` // YYYY-MM-DD
-	End   string `json:"end"`   // YYYY-MM-DD
+	ID         int    `json:"-"`
+	Name       string `json:"name"`
+	Begin      string `json:"begin"`
+	End        string `json:"end"`
+	Parent     int    `json:"parent,omitempty"`
+	PM         string `json:"PM,omitempty"`
+	Desc       string `json:"desc,omitempty"`
+	ACL        string `json:"acl,omitempty"`
+	Budget     string `json:"budget,omitempty"`
+	BudgetUnit string `json:"budgetUnit,omitempty"`
+	Whitelist  string `json:"whitelist,omitempty"`
 
-	// Optional writeable fields per v2 docs (POST/PUT body).
-	PM          string `json:"PM,omitempty"`
-	Description string `json:"desc,omitempty"`
-
-	// Read-only / server-managed (decoded from GET, not sent on write).
-	Code         string `json:"-"`
-	Status       string `json:"-"`
-	Parent       int    `json:"-"`
-	Type         string `json:"-"`
-	Category     string `json:"-"`
-	ACL          string `json:"-"`
-	PO           string `json:"-"`
-	QD           string `json:"-"`
-	RD           string `json:"-"`
-	Budget       string `json:"-"`
-	BudgetUnit   string `json:"-"`
-	OpenedBy     string `json:"-"`
-	OpenedDate   string `json:"-"`
-	LastEditedBy string `json:"-"`
-	RealBegan    string `json:"-"`
-	RealEnd      string `json:"-"`
-	Progress     string `json:"-"`
-	TeamCount    string `json:"-"`
+	Code           string `json:"-"`
+	Status         string `json:"-"`
+	Type           string `json:"-"`
+	Category       string `json:"-"`
+	Lifetime       string `json:"-"`
+	Vision         string `json:"-"`
+	Attribute      string `json:"-"`
+	Model          string `json:"-"`
+	Path           string `json:"-"`
+	Grade          int    `json:"-"`
+	Multiple       string `json:"-"`
+	Parallel       string `json:"-"`
+	Enabled        string `json:"-"`
+	Frozen         string `json:"-"`
+	Deleted        string `json:"-"`
+	HasProduct     int    `json:"-"`
+	WorkflowGroup  int    `json:"-"`
+	StoryType      string `json:"-"`
+	Pri            int    `json:"-"`
+	Version        int    `json:"-"`
+	ParentVersion  int    `json:"-"`
+	Days           int    `json:"-"`
+	FirstEnd       string `json:"-"`
+	SubStatus      string `json:"-"`
+	OpenedBy       string `json:"-"`
+	OpenedDate     string `json:"-"`
+	LastEditedBy   string `json:"-"`
+	LastEditedDate string `json:"-"`
+	RealBegan      string `json:"-"`
+	RealEnd        string `json:"-"`
+	ClosedBy       string `json:"-"`
+	ClosedDate     string `json:"-"`
+	ClosedReason   string `json:"-"`
+	CanceledBy     string `json:"-"`
+	CanceledDate   string `json:"-"`
+	SuspendedDate  string `json:"-"`
+	PO             string `json:"-"`
+	QD             string `json:"-"`
+	RD             string `json:"-"`
+	Team           string `json:"-"`
+	Order          int    `json:"-"`
+	Progress       string `json:"-"`
+	Percent        string `json:"-"`
+	Estimate       string `json:"-"`
+	Consumed       string `json:"-"`
+	Left           string `json:"-"`
+	TeamCount      int    `json:"-"`
 }
 
-// programV2Wire mirrors Product's wire approach: every numeric column that
-// v2 serializes as a JSON string gets decoded through json.Number.
-type programV2Wire struct {
-	ID           json.Number `json:"id"`
-	Name         string      `json:"name"`
-	Code         string      `json:"code"`
-	Begin        string      `json:"begin"`
-	End          string      `json:"end"`
-	Status       string      `json:"status"`
-	Parent       json.Number `json:"parent"`
-	Type         string      `json:"type"`
-	Category     string      `json:"category"`
-	Description  string      `json:"desc"`
-	PM           string      `json:"PM"`
-	PO           string      `json:"PO"`
-	QD           string      `json:"QD"`
-	RD           string      `json:"RD"`
-	ACL          string      `json:"acl"`
-	Budget       string      `json:"budget"`
-	BudgetUnit   string      `json:"budgetUnit"`
-	OpenedBy     string      `json:"openedBy"`
-	OpenedDate   string      `json:"openedDate"`
-	LastEditedBy string      `json:"lastEditedBy"`
-	RealBegan    string      `json:"realBegan"`
-	RealEnd      string      `json:"realEnd"`
-	Progress     string      `json:"progress"`
-	TeamCount    string      `json:"teamCount"`
+type programCtrlWire struct {
+	ID             json.Number `json:"id"`
+	Name           string      `json:"name"`
+	Code           string      `json:"code"`
+	Begin          string      `json:"begin"`
+	End            string      `json:"end"`
+	Parent         json.Number `json:"parent"`
+	Status         string      `json:"status"`
+	Type           string      `json:"type"`
+	Category       string      `json:"category"`
+	Lifetime       string      `json:"lifetime"`
+	Vision         string      `json:"vision"`
+	Attribute      string      `json:"attribute"`
+	Model          string      `json:"model"`
+	Path           string      `json:"path"`
+	Grade          json.Number `json:"grade"`
+	Multiple       json.Number `json:"multiple"`
+	Parallel       json.Number `json:"parallel"`
+	Enabled        string      `json:"enabled"`
+	Frozen         string      `json:"frozen"`
+	Deleted        json.Number `json:"deleted"`
+	HasProduct     json.Number `json:"hasProduct"`
+	WorkflowGroup  json.Number `json:"workflowGroup"`
+	StoryType      string      `json:"storyType"`
+	Pri            json.Number `json:"pri"`
+	Version        json.Number `json:"version"`
+	ParentVersion  json.Number `json:"parentVersion"`
+	Days           json.Number `json:"days"`
+	FirstEnd       string      `json:"firstEnd"`
+	SubStatus      string      `json:"subStatus"`
+	Desc           string      `json:"desc"`
+	ACL            string      `json:"acl"`
+	Whitelist      string      `json:"whitelist"`
+	Budget         string      `json:"budget"`
+	BudgetUnit     string      `json:"budgetUnit"`
+	OpenedBy       string      `json:"openedBy"`
+	OpenedDate     string      `json:"openedDate"`
+	LastEditedBy   string      `json:"lastEditedBy"`
+	LastEditedDate string      `json:"lastEditedDate"`
+	RealBegan      string      `json:"realBegan"`
+	RealEnd        string      `json:"realEnd"`
+	ClosedBy       string      `json:"closedBy"`
+	ClosedDate     string      `json:"closedDate"`
+	ClosedReason   string      `json:"closedReason"`
+	CanceledBy     string      `json:"canceledBy"`
+	CanceledDate   string      `json:"canceledDate"`
+	SuspendedDate  string      `json:"suspendedDate"`
+	PM             string      `json:"PM"`
+	PO             string      `json:"PO"`
+	QD             string      `json:"QD"`
+	RD             string      `json:"RD"`
+	Team           string      `json:"team"`
+	Order          json.Number `json:"order"`
+	Progress       string      `json:"progress"`
+	Percent        string      `json:"percent"`
+	Estimate       string      `json:"estimate"`
+	Consumed       string      `json:"consumed"`
+	Left           string      `json:"left"`
+	TeamCount      json.Number `json:"teamCount"`
 }
 
-func (w programV2Wire) toProgram() (*Program, error) {
+func (w programCtrlWire) toProgram() (*Program, error) {
 	id, err := jsonNumberToInt(w.ID, "id")
 	if err != nil {
 		return nil, err
@@ -82,45 +142,112 @@ func (w programV2Wire) toProgram() (*Program, error) {
 	if err != nil {
 		return nil, err
 	}
+	grade, _ := jsonNumberToInt(w.Grade, "grade")
+	hasProduct, _ := jsonNumberToInt(w.HasProduct, "hasProduct")
+	workflowGroup, _ := jsonNumberToInt(w.WorkflowGroup, "workflowGroup")
+	pri, _ := jsonNumberToInt(w.Pri, "pri")
+	version, _ := jsonNumberToInt(w.Version, "version")
+	parentVersion, _ := jsonNumberToInt(w.ParentVersion, "parentVersion")
+	days, _ := jsonNumberToInt(w.Days, "days")
+	order, _ := jsonNumberToInt(w.Order, "order")
+	teamCount, _ := jsonNumberToInt(w.TeamCount, "teamCount")
 	return &Program{
-		ID:           id,
-		Name:         w.Name,
-		Code:         w.Code,
-		Begin:        w.Begin,
-		End:          w.End,
-		Status:       w.Status,
-		Parent:       parent,
-		Type:         w.Type,
-		Category:     w.Category,
-		Description:  w.Description,
-		PM:           w.PM,
-		PO:           w.PO,
-		QD:           w.QD,
-		RD:           w.RD,
-		ACL:          w.ACL,
-		Budget:       w.Budget,
-		BudgetUnit:   w.BudgetUnit,
-		OpenedBy:     w.OpenedBy,
-		OpenedDate:   w.OpenedDate,
-		LastEditedBy: w.LastEditedBy,
-		RealBegan:    w.RealBegan,
-		RealEnd:      w.RealEnd,
-		Progress:     w.Progress,
-		TeamCount:    w.TeamCount,
+		ID:             id,
+		Name:           w.Name,
+		Code:           w.Code,
+		Begin:          w.Begin,
+		End:            w.End,
+		Parent:         parent,
+		Status:         w.Status,
+		Type:           w.Type,
+		Category:       w.Category,
+		Lifetime:       w.Lifetime,
+		Vision:         w.Vision,
+		Attribute:      w.Attribute,
+		Model:          w.Model,
+		Path:           w.Path,
+		Grade:          grade,
+		Multiple:       w.Multiple.String(),
+		Parallel:       w.Parallel.String(),
+		Enabled:        w.Enabled,
+		Frozen:         w.Frozen,
+		Deleted:        w.Deleted.String(),
+		HasProduct:     hasProduct,
+		WorkflowGroup:  workflowGroup,
+		StoryType:      w.StoryType,
+		Pri:            pri,
+		Version:        version,
+		ParentVersion:  parentVersion,
+		Days:           days,
+		FirstEnd:       w.FirstEnd,
+		SubStatus:      w.SubStatus,
+		Desc:           w.Desc,
+		ACL:            w.ACL,
+		Whitelist:      w.Whitelist,
+		Budget:         w.Budget,
+		BudgetUnit:     w.BudgetUnit,
+		OpenedBy:       w.OpenedBy,
+		OpenedDate:     w.OpenedDate,
+		LastEditedBy:   w.LastEditedBy,
+		LastEditedDate: w.LastEditedDate,
+		RealBegan:      w.RealBegan,
+		RealEnd:        w.RealEnd,
+		ClosedBy:       w.ClosedBy,
+		ClosedDate:     w.ClosedDate,
+		ClosedReason:   w.ClosedReason,
+		CanceledBy:     w.CanceledBy,
+		CanceledDate:   w.CanceledDate,
+		SuspendedDate:  w.SuspendedDate,
+		PM:             w.PM,
+		PO:             w.PO,
+		QD:             w.QD,
+		RD:             w.RD,
+		Team:           w.Team,
+		Order:          order,
+		Progress:       w.Progress,
+		Percent:        w.Percent,
+		Estimate:       w.Estimate,
+		Consumed:       w.Consumed,
+		Left:           w.Left,
+		TeamCount:      teamCount,
 	}, nil
 }
 
-func programPath(id int) string {
-	return programsPath + "/" + strconv.Itoa(id)
+type programEditInner struct {
+	Program json.RawMessage `json:"program"`
 }
 
-const programsPath = apiV2PathPrefix + "programs"
+func programToForm(p *Program) url.Values {
+	form := url.Values{}
+	form.Set("name", p.Name)
+	form.Set("begin", p.Begin)
+	form.Set("end", p.End)
+	if p.Parent != 0 {
+		form.Set("parent", strconv.Itoa(p.Parent))
+	}
+	if p.PM != "" {
+		form.Set("PM", p.PM)
+	}
+	if p.Desc != "" {
+		form.Set("desc", p.Desc)
+	}
+	if p.ACL != "" {
+		form.Set("acl", p.ACL)
+	}
+	if p.Budget != "" {
+		form.Set("budget", p.Budget)
+	}
+	if p.BudgetUnit != "" {
+		form.Set("budgetUnit", p.BudgetUnit)
+	}
+	if p.Whitelist != "" {
+		form.Set("whitelist", p.Whitelist)
+	}
+	return form
+}
 
-// GetProgram fetches a program by ID via GET /api.php/v2/programs/{id}.
-// Returns ErrNotFound on HTTP 404 OR on the {"status":"fail","message":
-// "...does not exist..."} shape v2 emits at HTTP 200.
 func (c *Client) GetProgram(ctx context.Context, id int) (*Program, error) {
-	body, status, err := c.doV2Request(ctx, http.MethodGet, programPath(id), nil, nil)
+	body, status, err := c.doController(ctx, "program", "edit", []string{strconv.Itoa(id)}, nil, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -130,27 +257,49 @@ func (c *Client) GetProgram(ctx context.Context, id int) (*Program, error) {
 	if status >= 400 {
 		return nil, apiError(status, body)
 	}
-	var resp struct {
-		ZentaoResponse
-		Program programV2Wire `json:"program"`
+	var env CtrlEnvelope
+	if err := json.Unmarshal(body, &env); err != nil {
+		return nil, fmt.Errorf("decode get-program envelope: %w (body=%s)", err, string(body))
 	}
-	if err := json.Unmarshal(body, &resp); err != nil {
-		return nil, fmt.Errorf("decode get-program: %w (body=%s)", err, string(body))
+	if env.Status != "success" {
+		return nil, classifyCtrlError(status, env, body)
 	}
-	if resp.Status != "success" {
-		if isNotFoundReason(resp.ZentaoFailReason()) {
-			return nil, ErrNotFound
-		}
-		return nil, apiError(status, body)
+	var inner programEditInner
+	if err := DecodeData(env, &inner); err != nil {
+		return nil, fmt.Errorf("decode get-program data: %w (body=%s)", err, string(body))
 	}
-	return resp.Program.toProgram()
+	if len(inner.Program) == 0 || string(inner.Program) == "false" || string(inner.Program) == "null" {
+		return nil, ErrNotFound
+	}
+	var wire programCtrlWire
+	if err := json.Unmarshal(inner.Program, &wire); err != nil {
+		return nil, fmt.Errorf("decode get-program wire: %w (body=%s)", err, string(body))
+	}
+	out, err := wire.toProgram()
+	if err != nil {
+		return nil, err
+	}
+	// Soft-deleted rows still come back from edit-GET; treat as gone.
+	if out.Deleted == "1" {
+		return nil, ErrNotFound
+	}
+	return out, nil
 }
 
-// CreateProgram creates a program via POST /api.php/v2/programs. v2 only
-// echoes back the new id; the caller should re-fetch via GetProgram if it
-// needs server-defaulted fields like opened_by / status / parent.
 func (c *Client) CreateProgram(ctx context.Context, p *Program) (*Program, error) {
-	body, status, err := c.doV2Request(ctx, http.MethodPost, programsPath, nil, p)
+	if p == nil {
+		return nil, fmt.Errorf("CreateProgram: program is nil")
+	}
+	if p.Name == "" {
+		return nil, fmt.Errorf("CreateProgram: name required")
+	}
+	if p.Begin == "" {
+		return nil, fmt.Errorf("CreateProgram: begin required")
+	}
+	if p.End == "" {
+		return nil, fmt.Errorf("CreateProgram: end required")
+	}
+	body, status, err := c.doControllerForm(ctx, "program", "create", nil, nil, programToForm(p))
 	if err != nil {
 		return nil, err
 	}
@@ -158,14 +307,17 @@ func (c *Client) CreateProgram(ctx context.Context, p *Program) (*Program, error
 		return nil, apiError(status, body)
 	}
 	var resp struct {
-		ZentaoResponse
-		ID json.Number `json:"id"`
+		Result  string          `json:"result"`
+		Message json.RawMessage `json:"message,omitempty"`
+		ID      json.Number     `json:"id"`
 	}
 	if err := json.Unmarshal(body, &resp); err != nil {
 		return nil, fmt.Errorf("decode create-program: %w (body=%s)", err, string(body))
 	}
-	if resp.Status != "success" {
-		return nil, apiError(status, body)
+	if resp.Result != "success" {
+		var simple CtrlSimpleResponse
+		_ = json.Unmarshal(body, &simple)
+		return nil, classifyCtrlSimple(status, simple, body)
 	}
 	id, _ := resp.ID.Int64()
 	if id == 0 {
@@ -176,14 +328,14 @@ func (c *Client) CreateProgram(ctx context.Context, p *Program) (*Program, error
 	return &out, nil
 }
 
-// UpdateProgram edits a program via PUT /api.php/v2/programs/{id}. v2 only
-// returns {status}, so on success we re-fetch the program via GetProgram
-// to surface authoritative state to the caller.
 func (c *Client) UpdateProgram(ctx context.Context, p *Program) (*Program, error) {
-	if p.ID == 0 {
-		return nil, fmt.Errorf("UpdateProgram: missing id")
+	if p == nil {
+		return nil, fmt.Errorf("UpdateProgram: program is nil")
 	}
-	body, status, err := c.doV2Request(ctx, http.MethodPut, programPath(p.ID), nil, p)
+	if p.ID == 0 {
+		return nil, fmt.Errorf("UpdateProgram: id required")
+	}
+	body, status, err := c.doControllerForm(ctx, "program", "edit", []string{strconv.Itoa(p.ID)}, nil, programToForm(p))
 	if err != nil {
 		return nil, err
 	}
@@ -193,23 +345,18 @@ func (c *Client) UpdateProgram(ctx context.Context, p *Program) (*Program, error
 	if status >= 400 {
 		return nil, apiError(status, body)
 	}
-	var resp ZentaoResponse
+	var resp CtrlSimpleResponse
 	if err := json.Unmarshal(body, &resp); err != nil {
-		return nil, fmt.Errorf("decode update-program: %w (body=%s)", err, string(body))
+		return nil, fmt.Errorf("decode update-program envelope: %w (body=%s)", err, string(body))
 	}
-	if resp.Status != "success" {
-		if isNotFoundReason(resp.ZentaoFailReason()) {
-			return nil, ErrNotFound
-		}
-		return nil, apiError(status, body)
+	if !resp.IsSuccess() {
+		return nil, classifyCtrlSimple(status, resp, body)
 	}
 	return c.GetProgram(ctx, p.ID)
 }
 
-// DeleteProgram removes a program via DELETE /api.php/v2/programs/{id}.
-// Idempotent on missing rows (HTTP 404 OR HTTP 200 + "does not exist").
 func (c *Client) DeleteProgram(ctx context.Context, id int) error {
-	body, status, err := c.doV2Request(ctx, http.MethodDelete, programPath(id), nil, nil)
+	body, status, err := c.doController(ctx, "program", "delete", []string{strconv.Itoa(id), "yes"}, nil, nil)
 	if err != nil {
 		return err
 	}
@@ -219,15 +366,16 @@ func (c *Client) DeleteProgram(ctx context.Context, id int) error {
 	if status >= 400 {
 		return apiError(status, body)
 	}
-	var resp ZentaoResponse
+	var resp CtrlSimpleResponse
 	if err := json.Unmarshal(body, &resp); err != nil {
-		return fmt.Errorf("decode delete-program: %w (body=%s)", err, string(body))
+		return fmt.Errorf("decode delete-program envelope: %w (body=%s)", err, string(body))
 	}
-	if resp.Status == "success" {
+	if resp.IsSuccess() {
 		return nil
 	}
-	if isNotFoundReason(resp.ZentaoFailReason()) {
+	flat, _ := resp.FieldErrors()
+	if isNotFoundReason(flat) {
 		return nil
 	}
-	return apiError(status, body)
+	return classifyCtrlSimple(status, resp, body)
 }

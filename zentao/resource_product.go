@@ -42,16 +42,16 @@ type productResourceModel struct {
 	ID   types.String `tfsdk:"id"`
 	Code types.String `tfsdk:"code"`
 
-	Name        types.String `tfsdk:"name"`
-	Program     types.Int64  `tfsdk:"program"`
-	Line        types.Int64  `tfsdk:"line"`
-	Type        types.String `tfsdk:"type"`
-	Description types.String `tfsdk:"description"`
-	ACL         types.String `tfsdk:"acl"`
-	PO          types.String `tfsdk:"po"`
-	QD          types.String `tfsdk:"qd"`
-	RD          types.String `tfsdk:"rd"`
-	Reviewer    types.List   `tfsdk:"reviewer"`
+	Name     types.String `tfsdk:"name"`
+	Program  types.Int64  `tfsdk:"program"`
+	Line     types.Int64  `tfsdk:"line"`
+	Type     types.String `tfsdk:"type"`
+	Desc     types.String `tfsdk:"desc"`
+	ACL      types.String `tfsdk:"acl"`
+	PO       types.String `tfsdk:"po"`
+	QD       types.String `tfsdk:"qd"`
+	RD       types.String `tfsdk:"rd"`
+	Reviewer types.List   `tfsdk:"reviewer"`
 
 	Status      types.String `tfsdk:"status"`
 	CreatedBy   types.String `tfsdk:"created_by"`
@@ -71,18 +71,15 @@ func (r *productResource) Schema(_ context.Context, _ resource.SchemaRequest, re
 	useStateForList := []planmodifier.List{listplanmodifier.UseStateForUnknown()}
 
 	resp.Schema = schema.Schema{
-		Description: "Manages a ZenTao product via the v2 RESTful API. Fields not accepted by " +
-			"the v2 create/update endpoints (`code`, `status`, audit columns) are exposed as " +
-			"Computed read-only attributes.",
+		Description: "Manages a ZenTao product.",
 		Attributes: map[string]schema.Attribute{
 			"id": schema.StringAttribute{
-				Description:   "Numeric ZenTao product ID (stringified).",
+				Description:   "Numeric ZenTao product ID.",
 				Computed:      true,
 				PlanModifiers: useStateForString,
 			},
 			"code": schema.StringAttribute{
-				Description: "Product short code. Server-managed in v2 (the v2 create/update " +
-					"endpoints do not accept this field), so it is read-only here.",
+				Description:   "Product short code.",
 				Computed:      true,
 				PlanModifiers: useStateForString,
 			},
@@ -91,58 +88,52 @@ func (r *productResource) Schema(_ context.Context, _ resource.SchemaRequest, re
 				Required:    true,
 			},
 			"program": schema.Int64Attribute{
-				Description: "Associated program (portfolio) ID. Server-determined when unset " +
-					"(ZenTao Biz/Max may auto-assign the user's default program).",
+				Description:   "Associated program id.",
 				Optional:      true,
 				Computed:      true,
 				PlanModifiers: useStateForInt,
 			},
 			"line": schema.Int64Attribute{
-				Description:   "Associated product line ID. Server-determined when unset.",
+				Description:   "Associated product line id.",
 				Optional:      true,
 				Computed:      true,
 				PlanModifiers: useStateForInt,
 			},
 			"type": schema.StringAttribute{
-				Description: "Product type. One of: " + commaJoin(productTypeEnum) + ". " +
-					"Server-defaulted when unset (no static default here, to avoid drift " +
-					"if the server's default ever diverges from ours).",
+				Description:   "Product type. One of: " + commaJoin(productTypeEnum) + ".",
 				Optional:      true,
 				Computed:      true,
 				PlanModifiers: useStateForString,
 				Validators:    []validator.String{stringvalidator.OneOf(productTypeEnum...)},
 			},
-			"description": schema.StringAttribute{
-				Description:   "Optional description (mapped to ZenTao 'desc'). Empty string when unset.",
+			"desc": schema.StringAttribute{
+				Description:   "Description.",
 				Optional:      true,
 				Computed:      true,
 				Default:       stringdefault.StaticString(""),
 				PlanModifiers: useStateForString,
 			},
 			"acl": schema.StringAttribute{
-				Description: "Access control. One of: " + commaJoin(productACLEnum) + ". " +
-					"Server-defaulted when unset (no static default here).",
+				Description:   "Access control. One of: " + commaJoin(productACLEnum) + ".",
 				Optional:      true,
 				Computed:      true,
 				PlanModifiers: useStateForString,
 				Validators:    []validator.String{stringvalidator.OneOf(productACLEnum...)},
 			},
 			"po": schema.StringAttribute{
-				Description: "Product Owner username. ZenTao auto-assigns the calling account " +
-					"when unset, so this stays Optional+Computed without a static default to " +
-					"avoid 'inconsistent result after apply' drift.",
+				Description:   "Product Owner username.",
 				Optional:      true,
 				Computed:      true,
 				PlanModifiers: useStateForString,
 			},
 			"qd": schema.StringAttribute{
-				Description:   "QA Lead username. Server may auto-assign; Optional+Computed without static default.",
+				Description:   "QA Lead username.",
 				Optional:      true,
 				Computed:      true,
 				PlanModifiers: useStateForString,
 			},
 			"rd": schema.StringAttribute{
-				Description:   "Release Lead username. Server may auto-assign; Optional+Computed without static default.",
+				Description:   "Release Lead username.",
 				Optional:      true,
 				Computed:      true,
 				PlanModifiers: useStateForString,
@@ -154,26 +145,10 @@ func (r *productResource) Schema(_ context.Context, _ resource.SchemaRequest, re
 				ElementType:   types.StringType,
 				PlanModifiers: useStateForList,
 			},
-			"status": schema.StringAttribute{
-				Description:   "Server-managed product status (e.g. \"normal\", \"closed\").",
-				Computed:      true,
-				PlanModifiers: useStateForString,
-			},
-			"created_by": schema.StringAttribute{
-				Description:   "Creator username (server-managed).",
-				Computed:      true,
-				PlanModifiers: useStateForString,
-			},
-			"created_date": schema.StringAttribute{
-				Description:   "Creation timestamp (server-managed).",
-				Computed:      true,
-				PlanModifiers: useStateForString,
-			},
-			"program_name": schema.StringAttribute{
-				Description:   "Associated program name (server-managed; resolved from `program`).",
-				Computed:      true,
-				PlanModifiers: useStateForString,
-			},
+			"status":       schema.StringAttribute{Description: "Product status.", Computed: true, PlanModifiers: useStateForString},
+			"created_by":   schema.StringAttribute{Description: "Creator username.", Computed: true, PlanModifiers: useStateForString},
+			"created_date": schema.StringAttribute{Description: "Creation timestamp.", Computed: true, PlanModifiers: useStateForString},
+			"program_name": schema.StringAttribute{Description: "Associated program name.", Computed: true, PlanModifiers: useStateForString},
 		},
 	}
 }
@@ -302,22 +277,20 @@ func (r *productResource) ImportState(ctx context.Context, req resource.ImportSt
 	resource.ImportStatePassthroughID(ctx, path.Root("id"), req, resp)
 }
 
-// toAPI projects a Terraform plan into the API shape sent over the wire.
-// Server-managed read-only fields stay zero so json:"-" tags strip them.
 func (m *productResourceModel) toAPI(ctx context.Context) (*zentaoapi.Product, diag.Diagnostics) {
 	var reviewers []string
 	diags := m.Reviewer.ElementsAs(ctx, &reviewers, true)
 	return &zentaoapi.Product{
-		Name:        m.Name.ValueString(),
-		Program:     int(m.Program.ValueInt64()),
-		Line:        int(m.Line.ValueInt64()),
-		Type:        m.Type.ValueString(),
-		Description: m.Description.ValueString(),
-		ACL:         m.ACL.ValueString(),
-		PO:          m.PO.ValueString(),
-		QD:          m.QD.ValueString(),
-		RD:          m.RD.ValueString(),
-		Reviewer:    reviewers,
+		Name:     m.Name.ValueString(),
+		Program:  int(m.Program.ValueInt64()),
+		Line:     int(m.Line.ValueInt64()),
+		Type:     m.Type.ValueString(),
+		Desc:     m.Desc.ValueString(),
+		ACL:      m.ACL.ValueString(),
+		PO:       m.PO.ValueString(),
+		QD:       m.QD.ValueString(),
+		RD:       m.RD.ValueString(),
+		Reviewer: reviewers,
 	}, diags
 }
 
@@ -334,7 +307,7 @@ func fromAPI(ctx context.Context, p *zentaoapi.Product) (productResourceModel, d
 		Program:     types.Int64Value(int64(p.Program)),
 		Line:        types.Int64Value(int64(p.Line)),
 		Type:        types.StringValue(p.Type),
-		Description: types.StringValue(p.Description),
+		Desc:        types.StringValue(p.Desc),
 		ACL:         types.StringValue(p.ACL),
 		PO:          types.StringValue(p.PO),
 		QD:          types.StringValue(p.QD),

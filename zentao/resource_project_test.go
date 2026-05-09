@@ -61,7 +61,7 @@ func TestProjectResource_Schema(t *testing.T) {
 
 	expected := []string{
 		"id", "name", "model", "begin", "end", "program", "products",
-		"workflow_group", "acl", "pm", "po", "qd", "rd", "description",
+		"workflow_group", "multiple", "acl", "pm", "po", "qd", "rd", "desc",
 		"code", "status", "lifetime", "opened_by", "opened_date",
 		"last_edited_by", "real_began", "real_end", "progress",
 		"team_count", "budget", "budget_unit",
@@ -72,7 +72,10 @@ func TestProjectResource_Schema(t *testing.T) {
 		}
 	}
 
-	for _, required := range []string{"name", "model", "begin", "end", "products", "workflow_group"} {
+	// Per upstream module/project/config/form.php + model.php#L2026, products
+	// is NOT required on create; only name/model/begin/end/workflow_group are
+	// strictly required.
+	for _, required := range []string{"name", "model", "begin", "end", "workflow_group"} {
 		a := resp.Schema.Attributes[required]
 		if !a.IsRequired() {
 			t.Errorf("%s must be Required", required)
@@ -94,7 +97,7 @@ func TestProjectResource_Schema(t *testing.T) {
 		}
 	}
 
-	for _, optional := range []string{"program", "acl", "pm", "po", "qd", "rd", "description"} {
+	for _, optional := range []string{"program", "products", "multiple", "acl", "pm", "po", "qd", "rd", "desc"} {
 		a := resp.Schema.Attributes[optional]
 		if !a.IsOptional() || !a.IsComputed() {
 			t.Errorf("%s must be Optional+Computed (got optional=%v computed=%v)",
@@ -151,7 +154,7 @@ func TestProjectResource_RoundTrip(t *testing.T) {
 		PO:            types.StringValue("bob"),
 		QD:            types.StringValue("carol"),
 		RD:            types.StringValue("dave"),
-		Description:   types.StringValue("hello"),
+		Desc:          types.StringValue("hello"),
 	}
 
 	api, diags := original.toAPI(ctx)
@@ -170,8 +173,8 @@ func TestProjectResource_RoundTrip(t *testing.T) {
 	if len(api.Products) != 2 || api.Products[0] != 42 || api.Products[1] != 7 {
 		t.Errorf("products wrong: got %v", api.Products)
 	}
-	if api.Description != "hello" {
-		t.Errorf("description wrong: got %q", api.Description)
+	if api.Desc != "hello" {
+		t.Errorf("desc wrong: got %q", api.Desc)
 	}
 
 	// Simulate the wire shape coming back from GetProject (id assigned,
@@ -248,14 +251,14 @@ resource "st-zentao_project" "p" {
   end            = "2026-12-31"
   products       = [%d]
   workflow_group = %d
-  description    = "initial"
+  desc           = "initial"
 }`, name, productID, workflowGroup),
 				Check: tfresource.ComposeAggregateTestCheckFunc(
 					tfresource.TestCheckResourceAttr("st-zentao_project.p", "name", name),
 					tfresource.TestCheckResourceAttr("st-zentao_project.p", "model", "scrum"),
 					tfresource.TestCheckResourceAttr("st-zentao_project.p", "begin", "2026-01-01"),
 					tfresource.TestCheckResourceAttr("st-zentao_project.p", "end", "2026-12-31"),
-					tfresource.TestCheckResourceAttr("st-zentao_project.p", "description", "initial"),
+					tfresource.TestCheckResourceAttr("st-zentao_project.p", "desc", "initial"),
 					tfresource.TestCheckResourceAttrSet("st-zentao_project.p", "id"),
 					tfresource.TestCheckResourceAttrSet("st-zentao_project.p", "status"),
 					tfresource.TestCheckResourceAttrSet("st-zentao_project.p", "opened_by"),
@@ -270,12 +273,12 @@ resource "st-zentao_project" "p" {
   end            = "2026-11-30"
   products       = [%d]
   workflow_group = %d
-  description    = "updated"
+  desc           = "updated"
 }`, name+"-renamed", productID, workflowGroup),
 				Check: tfresource.ComposeAggregateTestCheckFunc(
 					tfresource.TestCheckResourceAttr("st-zentao_project.p", "name", name+"-renamed"),
 					tfresource.TestCheckResourceAttr("st-zentao_project.p", "begin", "2026-02-01"),
-					tfresource.TestCheckResourceAttr("st-zentao_project.p", "description", "updated"),
+					tfresource.TestCheckResourceAttr("st-zentao_project.p", "desc", "updated"),
 				),
 			},
 		},

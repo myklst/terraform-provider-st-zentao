@@ -68,9 +68,13 @@ controller_transport.go    controllerPath, doController, doControllerForm,
                            classifyCtrlError, classifyCtrlSimple,
                            isLoginRedirectReason, CallController (escape hatch)
 
-product.go / program.go    V2-backed typed wrappers (call doV2Request)
-user.go                    Controller-backed typed wrappers
-                           (V2 doesn't expose users on Max 8.x)
+product.go / project.go    V2-backed typed wrappers (call doV2Request)
+program.go                 Controller-backed typed wrappers (program-edit GET
+                           is the read primitive — V2 echoes only ~24 fields,
+                           controller surfaces the full ~70-field zt_project
+                           row; see probe-program-controller.md)
+user.go / group.go         Controller-backed typed wrappers
+                           (V2 doesn't expose users / groups on Max 8.x)
 
 client_integration_test.go //go:build integration — live server tests,
                            env-var-gated, off the default run

@@ -16,7 +16,7 @@ func TestProjectDataSource_Schema(t *testing.T) {
 	}
 	expected := []string{
 		"id", "name", "model", "begin", "end", "program", "products",
-		"workflow_group", "acl", "pm", "po", "qd", "rd", "description",
+		"workflow_group", "multiple", "acl", "pm", "po", "qd", "rd", "desc",
 		"code", "status", "lifetime", "opened_by", "opened_date",
 		"last_edited_by", "real_began", "real_end", "progress",
 		"team_count", "budget", "budget_unit",

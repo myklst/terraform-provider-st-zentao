@@ -3,12 +3,12 @@
 page_title: "st-zentao_product Data Source - st-zentao"
 subcategory: ""
 description: |-
-  Look up a ZenTao product by its numeric id. All product fields returned by the v2 GET endpoint are exposed as Computed attributes.
+  Look up a ZenTao product by its numeric id.
 ---
 
 # st-zentao_product (Data Source)
 
-Look up a ZenTao product by its numeric id. All product fields returned by the v2 GET endpoint are exposed as Computed attributes.
+Look up a ZenTao product by its numeric id.
 
 ## Example Usage
 
@@ -34,22 +34,22 @@ output "product" {
 
 ### Required
 
-- `id` (String) Numeric ZenTao product ID (stringified).
+- `id` (String) Numeric ZenTao product ID.
 
 ### Read-Only
 
-- `acl` (String) Access control ("open", "private").
-- `code` (String) Product short code (server-managed).
-- `created_by` (String) Creator username (server-managed).
-- `created_date` (String) Creation timestamp (server-managed).
-- `description` (String) Product description (mapped from ZenTao 'desc').
-- `line` (Number) Associated product line ID.
+- `acl` (String) Access control (`open` / `private`).
+- `code` (String) Product short code.
+- `created_by` (String) Creator username.
+- `created_date` (String) Creation timestamp.
+- `desc` (String) Description.
+- `line` (Number) Associated product line id.
 - `name` (String) Product display name.
 - `po` (String) Product Owner username.
-- `program` (Number) Associated program (portfolio) ID.
-- `program_name` (String) Associated program name (server-managed).
+- `program` (Number) Associated program id.
+- `program_name` (String) Associated program name.
 - `qd` (String) QA Lead username.
 - `rd` (String) Release Lead username.
 - `reviewer` (List of String) Reviewer usernames.
-- `status` (String) Server-managed product status.
-- `type` (String) Product type ("normal", "branch", "platform").
+- `status` (String) Product status.
+- `type` (String) Product type (`normal` / `branch` / `platform`).

@@ -61,7 +61,7 @@ func TestGetProject_FullFieldSet(t *testing.T) {
 		PO:            "po-user",
 		QD:            "qd-user",
 		RD:            "rd-user",
-		Description:   "a desc",
+		Desc:          "a desc",
 		Lifetime:      "",
 		OpenedBy:      "admin",
 		OpenedDate:    "2026-05-09 02:00:29",
@@ -185,7 +185,7 @@ func TestCreateProject_BodyShape(t *testing.T) {
 		WorkflowGroup: 2,
 		ACL:           "private",
 		PM:            "pm",
-		Description:   "d",
+		Desc:          "d",
 		// these must be stripped by json:"-"
 		Code:         "should-not-go",
 		Status:       "should-not-go",
