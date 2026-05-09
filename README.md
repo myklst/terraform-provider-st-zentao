@@ -1,14 +1,6 @@
 # terraform-provider-st-zentao
 
-Custom Terraform provider for [ZenTao](https://www.zentao.net/) — self-hosted open source plus Pro / Biz / Max editions. Authenticates via `POST /api.php/v1/tokens` (the documented [V1 token endpoint](https://www.zentao.net/book/api/664.html)); the issued sessionID drives all three of ZenTao's API surfaces, so resources can target whichever surface exposes a given entity:
-
-- **API V1** (`/api.php/v1/...`) — RESTful, JSON, `Token:` header (open-source 16.5+)
-- **API V2** (`/api.php/v2/...`) — RESTful, JSON, `Token:` header
-- **Controller / PATH_INFO** (`/<module>-<method>-...json`) — legacy, JSON or form-urlencoded, `?zentaosid=` query parameter
-
-## Status
-
-Initial release: ships the `st-zentao_product`, `st-zentao_program`, `st-zentao_project`, and `st-zentao_group` resources, plus matching data sources, plus typed wrappers for User CRUD. The first three are V2-backed; permission groups and users use the Controller transport because the V1/V2 RESTful APIs do not expose them on Max 8.x. More resources (execution, group privs, group members) planned — choice of transport per entity follows what the target ZenTao version actually accepts.
+Custom Terraform provider for [ZenTao](https://www.zentao.net/) — self-hosted open source plus Pro / Biz / Max editions.
 
 ## Architecture
 
@@ -19,10 +11,6 @@ The HTTP client (`zentaoAPI/`) is split into three transport files, each owning 
 - `controller_transport.go` → `doController` + `doControllerForm` (PATH_INFO, `?zentaosid=` query, expiry = 302→user-login or 200+please-login envelope)
 
 A single `Login()` (in `client.go`) calls `POST /api.php/v1/tokens` and stores the resulting sessionID in `*Client`; per probe, the same sessionID authenticates every transport, so refresh remains a single round-trip even when several transports are in concurrent use. Common HTTP plumbing (URL composition, optional zentaosid injection, 5xx backoff) is concentrated in `client.go`'s `sendHTTP` helper, and the send→detect-expiry→refresh→replay loop is shared via `doWithRefresh`, parameterised by each transport's expiry detector.
-
-See `docs/superpowers/specs/2026-05-06-controller-extension-stage1.md` for the original design contract and `docs/superpowers/specs/probe-controller-auth.md` for the auth probes (Controller-flavoured 2026-05-06; V1 token cross-transport compatibility 2026-05-08).
-
-For Controller endpoints not yet covered by a typed wrapper, the client exposes `CallController(ctx, module, method, pathArgs, query, body)` — marked **EXPERIMENTAL**; prefer typed methods when they exist.
 
 ## Local installation
 
@@ -52,6 +40,25 @@ provider "st-zentao" {
 
 ## Resources
 
+### `st-zentao_program`
+
+```hcl
+resource "st-zentao_program" "demo" {
+  name        = "Smart Home"
+  begin       = "2026-01-01"
+  end         = "2026-12-31"
+  description = "Managed by Terraform"
+
+  pm = "alice" # optional; ZenTao auto-assigns the calling account when unset
+}
+```
+
+Writeable fields per the v2 `POST /api.php/v2/programs` body: `name`, `begin`,
+`end`, `pm`, `desc` (mapped as `description`). `begin` and `end` must be
+`YYYY-MM-DD`. Server-managed read-only outputs include `id`, `code`, `status`,
+`parent`, `type`, `category`, `acl`, `po`, `qd`, `rd`, `budget`, `budget_unit`,
+`opened_by`, `opened_date`, `real_began`, `real_end`, `progress`, `team_count`.
+
 ### `st-zentao_product`
 
 ```hcl
@@ -74,25 +81,6 @@ The full writeable field set mirrors the v2 `POST /api.php/v2/products` body:
 Server-managed read-only outputs include `id`, `code`, `status`, `created_by`,
 `created_date`, and `program_name`. ZenTao v2 does not accept `code` on write
 — it is exposed as a Computed attribute only.
-
-### `st-zentao_program`
-
-```hcl
-resource "st-zentao_program" "demo" {
-  name        = "Smart Home"
-  begin       = "2026-01-01"
-  end         = "2026-12-31"
-  description = "Managed by Terraform"
-
-  pm = "alice" # optional; ZenTao auto-assigns the calling account when unset
-}
-```
-
-Writeable fields per the v2 `POST /api.php/v2/programs` body: `name`, `begin`,
-`end`, `pm`, `desc` (mapped as `description`). `begin` and `end` must be
-`YYYY-MM-DD`. Server-managed read-only outputs include `id`, `code`, `status`,
-`parent`, `type`, `category`, `acl`, `po`, `qd`, `rd`, `budget`, `budget_unit`,
-`opened_by`, `opened_date`, `real_began`, `real_end`, `progress`, `team_count`.
 
 ### `st-zentao_project`
 
@@ -269,9 +257,8 @@ u, err := client.GetUser(ctx, 1)            // by numeric id
 
 // Write — instance-dependent:
 _, err = client.CreateUser(ctx, &zentaoapi.User{
-    Account: "alice", Password: "P@ssw0rd",
-    Realname: "Alice", Email: "alice@example.test",
-    Dept: 500, Gender: "f",
+    Account: "alice", Password: "P@ssw0rd", Realname: "Alice",
+    Email: "alice@example.test", Dept: 500, Gender: "f",
 })
 _, err = client.UpdateUser(ctx, &zentaoapi.User{
     ID: 7, Account: "alice", Realname: "Alice Renamed",
@@ -301,17 +288,12 @@ make go-lint
 For acceptance tests:
 
 ```bash
-docker compose -f examples/docker-compose.yml up -d
 export TF_ACC=1
 export ZENTAO_URL=http://localhost:8080
 export ZENTAO_ACCOUNT=admin
 export ZENTAO_PASSWORD=...
 make go-test-acc
 ```
-
-## Why a custom provider
-
-myklst maintains a family of `terraform-provider-st-*` providers for use cases not covered by upstream providers. This one fills the gap for ZenTao project management.
 
 ## References
 
