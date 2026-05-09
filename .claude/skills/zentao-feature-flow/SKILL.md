@@ -197,6 +197,8 @@ Concrete case: [zentao/resource_product.go](../../../zentao/resource_product.go)
 
 **Symmetric: user-toggle fields that look derived.** Some Optional+Computed attrs are user-set switches whose default *appears* coupled to other inputs but isn't recomputed by Update once set (e.g. `multiple` on project — "enable iterations" toggle the user owns; server only defaults on create). These are user inputs, **not** derived. `UseStateForUnknown` is correct. Confirm with user/probe before declaring "derived."
 
+**Variant: server-backfills-on-empty.** Some Optional+Computed user-input fields get a server-side default *only when the request body lacks them* (typical for role usernames — ZenTao backfills `po`/`qd`/`rd` with the requesting account; the wire struct's `omitempty` strips empty values from the body). The user-set case is fine, but if state somehow holds `""` (import edge cases, manual state edits, prior-version bugs), `UseStateForUnknown` pins `""` into plan while Update's refetch returns the server default → same inconsistency. Use [zentao/use_state_unless_empty.go](../../../zentao/use_state_unless_empty.go) `useStateUnlessEmpty()` instead — it pins prior state only when non-empty and otherwise leaves plan as Unknown so the server-assigned default wins. Concrete case shipped: product.po/qd/rd. Schema test should drive the modifier with both empty and non-empty state values to assert the empty-state path leaves plan Unknown.
+
 **Regression test pattern.**
 
 ```go
@@ -220,6 +222,7 @@ func TestXxxResource_DerivedField_NoUseStateForUnknown(t *testing.T) {
 | `multiple` | Optional+Computed | User toggle, server default on create only | yes |
 | `parent` | Computed-only | Set via sibling attachment resource | yes (drift, not inconsistency) |
 | `last_edited_date` | Computed-only | Server timestamp on every edit | yes |
+| `po` / `qd` / `rd` | Optional+Computed | User input; server backfills current account when omitted | **useStateUnlessEmpty** |
 
 If "Source" references another input attribute on the same resource → flip to **no**.
 

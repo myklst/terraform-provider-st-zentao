@@ -7,6 +7,8 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/provider"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
+	"github.com/hashicorp/terraform-plugin-framework/types"
 )
 
 func TestProvider_Schema_HasExpectedAttributes(t *testing.T) {
@@ -86,6 +88,49 @@ func TestProductResource_ProgramName_NoUseStateForUnknown(t *testing.T) {
 	}
 	if len(a.PlanModifiers) != 0 {
 		t.Errorf("program_name must have no plan modifiers (got %d) — UseStateForUnknown causes inconsistent-after-apply when `program` changes", len(a.PlanModifiers))
+	}
+}
+
+// po/qd/rd are role-username Optional+Computed fields where ZenTao backfills
+// the requesting account when the request body omits the field. Pinning ""
+// from state via UseStateForUnknown would force the next plan to claim
+// `po=""`, while Update's refetch returns `"admin"` — Terraform then raises
+// "Provider produced inconsistent result after apply". Regression guard:
+// each field carries exactly one plan modifier (useStateUnlessEmpty), and
+// that modifier must leave plan as Unknown when the prior state is "".
+func TestProductResource_RoleFields_UseStateUnlessEmpty(t *testing.T) {
+	r := NewProductResource()
+	var resp resource.SchemaResponse
+	r.Schema(context.Background(), resource.SchemaRequest{}, &resp)
+	for _, name := range []string{"po", "qd", "rd"} {
+		a, ok := resp.Schema.Attributes[name].(schema.StringAttribute)
+		if !ok {
+			t.Fatalf("%s must be a StringAttribute, got %T", name, resp.Schema.Attributes[name])
+		}
+		if len(a.PlanModifiers) != 1 {
+			t.Errorf("%s expected exactly 1 plan modifier, got %d", name, len(a.PlanModifiers))
+			continue
+		}
+		// Empty state → plan must remain Unknown so server-side default wins.
+		emptyResp := planmodifier.StringResponse{PlanValue: types.StringUnknown()}
+		a.PlanModifiers[0].PlanModifyString(context.Background(),
+			planmodifier.StringRequest{
+				StateValue: types.StringValue(""),
+				PlanValue:  types.StringUnknown(),
+			}, &emptyResp)
+		if !emptyResp.PlanValue.IsUnknown() {
+			t.Errorf("%s: empty state must leave plan Unknown, got %v", name, emptyResp.PlanValue)
+		}
+		// Non-empty state → plan should be pinned to the prior state value.
+		pinnedResp := planmodifier.StringResponse{PlanValue: types.StringUnknown()}
+		a.PlanModifiers[0].PlanModifyString(context.Background(),
+			planmodifier.StringRequest{
+				StateValue: types.StringValue("alice"),
+				PlanValue:  types.StringUnknown(),
+			}, &pinnedResp)
+		if pinnedResp.PlanValue.ValueString() != "alice" {
+			t.Errorf("%s: non-empty state must be pinned into plan, got %v", name, pinnedResp.PlanValue)
+		}
 	}
 }
 

@@ -120,23 +120,28 @@ func (r *productResource) Schema(_ context.Context, _ resource.SchemaRequest, re
 				PlanModifiers: useStateForString,
 				Validators:    []validator.String{stringvalidator.OneOf(productACLEnum...)},
 			},
+			// po/qd/rd are role-username Optional+Computed fields. ZenTao
+			// backfills them with the requesting account when the request body
+			// omits the field, so an empty value from prior state must NOT be
+			// pinned into the plan — that would mismatch the server-assigned
+			// default and raise "Provider produced inconsistent result after apply".
 			"po": schema.StringAttribute{
-				Description:   "Product Owner username.",
+				Description:   "Product Owner username. Defaults to the requesting account if omitted.",
 				Optional:      true,
 				Computed:      true,
-				PlanModifiers: useStateForString,
+				PlanModifiers: []planmodifier.String{useStateUnlessEmpty()},
 			},
 			"qd": schema.StringAttribute{
-				Description:   "QA Lead username.",
+				Description:   "QA Lead username. Defaults to the requesting account if omitted.",
 				Optional:      true,
 				Computed:      true,
-				PlanModifiers: useStateForString,
+				PlanModifiers: []planmodifier.String{useStateUnlessEmpty()},
 			},
 			"rd": schema.StringAttribute{
-				Description:   "Release Lead username.",
+				Description:   "Release Lead username. Defaults to the requesting account if omitted.",
 				Optional:      true,
 				Computed:      true,
-				PlanModifiers: useStateForString,
+				PlanModifiers: []planmodifier.String{useStateUnlessEmpty()},
 			},
 			"reviewer": schema.ListAttribute{
 				Description:   "Reviewer usernames.",
