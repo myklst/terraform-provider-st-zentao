@@ -14,25 +14,16 @@ func TestProjectDataSource_Schema(t *testing.T) {
 	if resp.Diagnostics.HasError() {
 		t.Fatalf("schema diagnostics: %v", resp.Diagnostics)
 	}
-	expected := []string{
-		"id", "name", "model", "begin", "end", "program", "products",
+	if !resp.Schema.Attributes["id"].IsRequired() {
+		t.Error("id must be Required")
+	}
+	for _, attr := range []string{
+		"name", "model", "begin", "end", "program", "products",
 		"workflow_group", "multiple", "acl", "pm", "po", "qd", "rd", "desc",
 		"code", "status", "lifetime", "opened_by", "opened_date",
 		"last_edited_by", "real_began", "real_end", "progress",
 		"team_count", "budget", "budget_unit",
-	}
-	for _, attr := range expected {
-		if _, ok := resp.Schema.Attributes[attr]; !ok {
-			t.Errorf("missing attribute %q", attr)
-		}
-	}
-	if !resp.Schema.Attributes["id"].IsRequired() {
-		t.Error("id must be Required")
-	}
-	for _, attr := range expected {
-		if attr == "id" {
-			continue
-		}
+	} {
 		a := resp.Schema.Attributes[attr]
 		if !a.IsComputed() {
 			t.Errorf("%s must be Computed", attr)

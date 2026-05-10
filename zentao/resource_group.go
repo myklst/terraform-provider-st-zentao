@@ -130,7 +130,7 @@ func (r *groupResource) Read(ctx context.Context, req resource.ReadRequest, resp
 	if resp.Diagnostics.HasError() {
 		return
 	}
-	id, err := strconv.Atoi(prior.ID.ValueString())
+	id, err := strconv.ParseInt(prior.ID.ValueString(), 10, 64)
 	if err != nil {
 		resp.Diagnostics.AddError("Invalid id in state", err.Error())
 		return
@@ -154,7 +154,7 @@ func (r *groupResource) Update(ctx context.Context, req resource.UpdateRequest, 
 	if resp.Diagnostics.HasError() {
 		return
 	}
-	id, err := strconv.Atoi(prior.ID.ValueString())
+	id, err := strconv.ParseInt(prior.ID.ValueString(), 10, 64)
 	if err != nil {
 		resp.Diagnostics.AddError("Invalid id in state", err.Error())
 		return
@@ -214,7 +214,7 @@ func (r *groupResource) ImportState(ctx context.Context, req resource.ImportStat
 // vision="rnd" by default and the server ignores developer on Update.
 func (m *groupResourceModel) toAPI() *zentaoapi.Group {
 	return &zentaoapi.Group{
-		Project: int(m.Project.ValueInt64()),
+		Project: m.Project.ValueInt64(),
 		Name:    m.Name.ValueString(),
 		Role:    m.Role.ValueString(),
 		Desc:    m.Desc.ValueString(),
@@ -223,7 +223,7 @@ func (m *groupResourceModel) toAPI() *zentaoapi.Group {
 
 func groupFromAPI(g *zentaoapi.Group) groupResourceModel {
 	return groupResourceModel{
-		ID:      types.StringValue(strconv.Itoa(g.ID)),
+		ID:      types.StringValue(strconv.FormatInt(g.ID, 10)),
 		Project: types.Int64Value(int64(g.Project)),
 		Name:    types.StringValue(g.Name),
 		Role:    types.StringValue(g.Role),

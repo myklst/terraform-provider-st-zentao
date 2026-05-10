@@ -36,64 +36,19 @@ func TestGetProgram_FullFieldSet(t *testing.T) {
 		t.Fatalf("GetProgram: %v", err)
 	}
 	want := &Program{
-		ID:             7,
-		Name:           "Smart Home",
-		Code:           "SH",
-		Begin:          "2026-01-01",
-		End:            "2026-12-31",
-		Parent:         0,
-		Status:         "doing",
-		Type:           "program",
-		Category:       "rnd",
-		Lifetime:       "",
-		Vision:         "rnd",
-		Attribute:      "",
-		Model:          "",
-		Path:           ",7,",
-		Grade:          1,
-		Multiple:       "1",
-		Parallel:       "0",
-		Enabled:        "on",
-		Frozen:         "",
-		Deleted:        "0",
-		HasProduct:     1,
-		WorkflowGroup:  0,
-		StoryType:      "story",
-		Pri:            1,
-		Version:        1,
-		ParentVersion:  1,
-		Days:           0,
-		FirstEnd:       "",
-		SubStatus:      "",
-		Desc:           "a desc",
-		ACL:            "private",
-		Whitelist:      "",
-		Budget:         "100000",
-		BudgetUnit:     "CNY",
-		OpenedBy:       "admin",
-		OpenedDate:     "2026-01-01 09:00:00",
-		LastEditedBy:   "admin",
-		LastEditedDate: "",
-		RealBegan:      "2026-01-02",
-		RealEnd:        "",
-		ClosedBy:       "",
-		ClosedDate:     "",
-		ClosedReason:   "",
-		CanceledBy:     "",
-		CanceledDate:   "",
-		SuspendedDate:  "",
-		PM:             "pm-user",
-		PO:             "po-user",
-		QD:             "qd-user",
-		RD:             "rd-user",
-		Team:           "",
-		Order:          5,
-		Progress:       "30",
-		Percent:        "0.00",
-		Estimate:       "0",
-		Consumed:       "0",
-		Left:           "0",
-		TeamCount:      5,
+		ID:         7,
+		Parent:     0,
+		Path:       ",7,",
+		Name:       "Smart Home",
+		PM:         "pm-user",
+		Budget:     "100000",
+		BudgetUnit: "CNY",
+		Begin:      "2026-01-01",
+		End:        "2026-12-31",
+		Desc:       "a desc",
+		Status:     "doing",
+		ACL:        "private",
+		Whitelist:  "",
 	}
 	if !reflect.DeepEqual(p, want) {
 		t.Fatalf("Program mismatch:\n got %+v\nwant %+v", p, want)
@@ -188,12 +143,9 @@ func TestCreateProgram_BodyShape(t *testing.T) {
 		ACL:        "private",
 		Budget:     "100",
 		BudgetUnit: "CNY",
-		// these must be stripped by programToForm (read-only inputs)
-		Code:     "should-not-go",
-		Status:   "should-not-go",
-		Type:     "should-not-go",
-		Category: "should-not-go",
-		PO:       "should-not-go",
+		// Status is on the struct (read back via GET) but programToForm
+		// never emits it — verified by the mustNotSend assertion below.
+		Status: "should-not-go",
 	}
 	out, err := c.CreateProgram(context.Background(), in)
 	if err != nil {
@@ -583,8 +535,8 @@ func TestSetProgramParent_PreflightRejects(t *testing.T) {
 	c := newTestClient(t, "tok-1", "http://example.invalid")
 	cases := []struct {
 		name    string
-		child   int
-		parent  int
+		child   int64
+		parent  int64
 		wantErr error
 		wantSub string
 	}{

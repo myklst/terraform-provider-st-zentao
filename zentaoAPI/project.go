@@ -10,16 +10,16 @@ import (
 
 // Project represents a ZenTao project (type=project; not sprint, not program).
 type Project struct {
-	ID            int    `json:"id,omitempty"`
-	Name          string `json:"name"`
-	Model         string `json:"model"`
-	Type          string `json:"type"`
-	Begin         string `json:"begin,omitempty"`
-	End           string `json:"end,omitempty"`
-	Parent        int    `json:"parent"`
-	Products      []int  `json:"products,omitempty"`
-	WorkflowGroup int    `json:"workflowGroup,omitempty"`
-	Multiple      string `json:"multiple,omitempty"`
+	ID            int64   `json:"id,omitempty"`
+	Name          string  `json:"name"`
+	Model         string  `json:"model"`
+	Type          string  `json:"type"`
+	Begin         string  `json:"begin,omitempty"`
+	End           string  `json:"end,omitempty"`
+	Parent        int64   `json:"parent"`
+	Products      []int64 `json:"products,omitempty"`
+	WorkflowGroup int64   `json:"workflowGroup,omitempty"`
+	Multiple      string  `json:"multiple,omitempty"`
 
 	ACL  string `json:"acl,omitempty"`
 	PM   string `json:"PM,omitempty"`
@@ -73,15 +73,15 @@ type projectV2Wire struct {
 }
 
 func (w projectV2Wire) toProject() (*Project, error) {
-	id, err := jsonNumberToInt(w.ID, "id")
+	id, err := jsonNumberToInt64(w.ID, "id")
 	if err != nil {
 		return nil, err
 	}
-	parent, err := jsonNumberToInt(w.Parent, "parent")
+	parent, err := jsonNumberToInt64(w.Parent, "parent")
 	if err != nil {
 		return nil, err
 	}
-	wfg, err := jsonNumberToInt(w.WorkflowGroup, "workflowGroup")
+	wfg, err := jsonNumberToInt64(w.WorkflowGroup, "workflowGroup")
 	if err != nil {
 		return nil, err
 	}
@@ -116,13 +116,13 @@ func (w projectV2Wire) toProject() (*Project, error) {
 	}, nil
 }
 
-func projectPath(id int) string {
-	return projectsPath + "/" + strconv.Itoa(id)
+func projectPath(id int64) string {
+	return projectsPath + "/" + strconv.FormatInt(id, 10)
 }
 
 const projectsPath = apiV2PathPrefix + "projects"
 
-func (c *Client) GetProject(ctx context.Context, id int) (*Project, error) {
+func (c *Client) GetProject(ctx context.Context, id int64) (*Project, error) {
 	body, status, err := c.doV2Request(ctx, http.MethodGet, projectPath(id), nil, nil)
 	if err != nil {
 		return nil, err
@@ -184,7 +184,7 @@ func (c *Client) CreateProject(ctx context.Context, p *Project) (*Project, error
 		return nil, fmt.Errorf("create project: empty id in response (body=%s)", string(body))
 	}
 	out := *p
-	out.ID = int(id)
+	out.ID = id
 	out.Type = "project"
 	return &out, nil
 }
@@ -222,7 +222,7 @@ func (c *Client) UpdateProject(ctx context.Context, p *Project) (*Project, error
 	return c.GetProject(ctx, p.ID)
 }
 
-func (c *Client) DeleteProject(ctx context.Context, id int) error {
+func (c *Client) DeleteProject(ctx context.Context, id int64) error {
 	body, status, err := c.doV2Request(ctx, http.MethodDelete, projectPath(id), nil, nil)
 	if err != nil {
 		return err

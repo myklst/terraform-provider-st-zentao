@@ -59,19 +59,6 @@ func TestProjectResource_Schema(t *testing.T) {
 		t.Fatalf("schema diagnostics: %v", resp.Diagnostics)
 	}
 
-	expected := []string{
-		"id", "name", "model", "begin", "end", "program", "products",
-		"workflow_group", "multiple", "acl", "pm", "po", "qd", "rd", "desc",
-		"code", "status", "lifetime", "opened_by", "opened_date",
-		"last_edited_by", "real_began", "real_end", "progress",
-		"team_count", "budget", "budget_unit",
-	}
-	for _, attr := range expected {
-		if _, ok := resp.Schema.Attributes[attr]; !ok {
-			t.Errorf("missing attribute %q", attr)
-		}
-	}
-
 	// Per upstream module/project/config/form.php + model.php#L2026, products
 	// is NOT required on create; only name/model/begin/end/workflow_group are
 	// strictly required.
@@ -343,7 +330,7 @@ resource "st-zentao_project" "p" {
 						if !ok {
 							return errors.New("resource missing from state")
 						}
-						id, err := strconv.Atoi(rs.Primary.ID)
+						id, err := strconv.ParseInt(rs.Primary.ID, 10, 64)
 						if err != nil {
 							return err
 						}

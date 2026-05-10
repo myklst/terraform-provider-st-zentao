@@ -12,15 +12,15 @@ import (
 // Group represents a ZenTao permission group. project=0 is a system
 // group; project>0 is a project-scoped group.
 type Group struct {
-	ID      int `json:"-"`
-	Project int `json:"project"`
+	ID      int64 `json:"-"`
+	Project int64 `json:"project"`
 
 	Name string `json:"name"`
 	Role string `json:"role,omitempty"`
 	Desc string `json:"desc,omitempty"`
 
 	Vision    string `json:"-"`
-	Developer int    `json:"-"`
+	Developer int64  `json:"-"`
 }
 
 type groupCtrlWire struct {
@@ -35,15 +35,15 @@ type groupCtrlWire struct {
 }
 
 func (w groupCtrlWire) toGroup() (*Group, error) {
-	id, err := jsonNumberToInt(w.ID, "id")
+	id, err := jsonNumberToInt64(w.ID, "id")
 	if err != nil {
 		return nil, err
 	}
-	project, err := jsonNumberToInt(w.Project, "project")
+	project, err := jsonNumberToInt64(w.Project, "project")
 	if err != nil {
 		return nil, err
 	}
-	developer, err := jsonNumberToInt(w.Developer, "developer")
+	developer, err := jsonNumberToInt64(w.Developer, "developer")
 	if err != nil {
 		return nil, err
 	}
@@ -82,8 +82,8 @@ type groupListInner struct {
 	Groups []groupCtrlWire `json:"groups"`
 }
 
-func (c *Client) GetGroup(ctx context.Context, id int) (*Group, error) {
-	body, status, err := c.doController(ctx, "group", "edit", []string{strconv.Itoa(id)}, nil, nil)
+func (c *Client) GetGroup(ctx context.Context, id int64) (*Group, error) {
+	body, status, err := c.doController(ctx, "group", "edit", []string{strconv.FormatInt(id, 10)}, nil, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -117,7 +117,7 @@ func (c *Client) GetGroup(ctx context.Context, id int) (*Group, error) {
 func groupToForm(g *Group) url.Values {
 	form := url.Values{}
 	form.Set("name", g.Name)
-	form.Set("project", strconv.Itoa(g.Project))
+	form.Set("project", strconv.FormatInt(g.Project, 10))
 	form.Set("role", g.Role)
 	form.Set("desc", g.Desc)
 	if g.Vision != "" {
@@ -126,7 +126,7 @@ func groupToForm(g *Group) url.Values {
 		form.Set("vision", "rnd")
 	}
 	if g.Developer != 0 {
-		form.Set("developer", strconv.Itoa(g.Developer))
+		form.Set("developer", strconv.FormatInt(g.Developer, 10))
 	}
 	return form
 }
@@ -171,14 +171,14 @@ func (c *Client) CreateGroup(ctx context.Context, g *Group) (*Group, error) {
 	return &out, nil
 }
 
-func (c *Client) findGroupIDByName(ctx context.Context, projectID int, name string) (int, error) {
+func (c *Client) findGroupIDByName(ctx context.Context, projectID int64, name string) (int64, error) {
 	var module, method string
 	var pathArgs []string
 	if projectID == 0 {
 		module, method = "group", "browse"
 	} else {
 		module, method = "project", "group"
-		pathArgs = []string{strconv.Itoa(projectID)}
+		pathArgs = []string{strconv.FormatInt(projectID, 10)}
 	}
 	body, status, err := c.doController(ctx, module, method, pathArgs, nil, nil)
 	if err != nil {
@@ -203,7 +203,7 @@ func (c *Client) findGroupIDByName(ctx context.Context, projectID int, name stri
 	}
 	for _, w := range inner.Groups {
 		if w.Name == name {
-			id, err := jsonNumberToInt(w.ID, "id")
+			id, err := jsonNumberToInt64(w.ID, "id")
 			if err != nil {
 				return 0, err
 			}
@@ -222,7 +222,7 @@ func (c *Client) UpdateGroup(ctx context.Context, g *Group) (*Group, error) {
 	if g.ID == 0 {
 		return nil, fmt.Errorf("UpdateGroup: id required")
 	}
-	body, status, err := c.doControllerForm(ctx, "group", "edit", []string{strconv.Itoa(g.ID)}, nil, groupToForm(g))
+	body, status, err := c.doControllerForm(ctx, "group", "edit", []string{strconv.FormatInt(g.ID, 10)}, nil, groupToForm(g))
 	if err != nil {
 		return nil, err
 	}

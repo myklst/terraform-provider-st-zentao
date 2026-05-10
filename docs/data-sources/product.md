@@ -19,12 +19,11 @@ data "st-zentao_product" "by_id" {
 
 output "product" {
   value = {
-    name         = data.st-zentao_product.by_id.name
-    code         = data.st-zentao_product.by_id.code
-    program_name = data.st-zentao_product.by_id.program_name
-    po           = data.st-zentao_product.by_id.po
-    status       = data.st-zentao_product.by_id.status
-    created_by   = data.st-zentao_product.by_id.created_by
+    name       = data.st-zentao_product.by_id.name
+    code       = data.st-zentao_product.by_id.code
+    po         = data.st-zentao_product.by_id.po
+    status     = data.st-zentao_product.by_id.status
+    created_by = data.st-zentao_product.by_id.created_by
   }
 }
 ```
@@ -43,13 +42,14 @@ output "product" {
 - `created_by` (String) Creator username.
 - `created_date` (String) Creation timestamp.
 - `desc` (String) Description.
+- `groups` (List of String) Permission group ids granted access to this product.
 - `line` (Number) Associated product line id.
 - `name` (String) Product display name.
 - `po` (String) Product Owner username.
 - `program` (Number) Associated program id.
-- `program_name` (String) Associated program name.
 - `qd` (String) QA Lead username.
 - `rd` (String) Release Lead username.
 - `reviewer` (List of String) Reviewer usernames.
 - `status` (String) Product status.
 - `type` (String) Product type (`normal` / `branch` / `platform`).
+- `whitelist` (List of String) Whitelisted usernames granted access to this product.

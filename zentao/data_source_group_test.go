@@ -28,19 +28,10 @@ func TestGroupDataSource_Schema(t *testing.T) {
 	if resp.Diagnostics.HasError() {
 		t.Fatalf("schema diagnostics: %v", resp.Diagnostics)
 	}
-	expected := []string{"id", "project", "name", "role", "desc"}
-	for _, attr := range expected {
-		if _, ok := resp.Schema.Attributes[attr]; !ok {
-			t.Errorf("missing attribute %q", attr)
-		}
-	}
 	if !resp.Schema.Attributes["id"].IsRequired() {
 		t.Error("id must be Required")
 	}
-	for _, attr := range expected {
-		if attr == "id" {
-			continue
-		}
+	for _, attr := range []string{"project", "name", "role", "desc"} {
 		a := resp.Schema.Attributes[attr]
 		if !a.IsComputed() {
 			t.Errorf("%s must be Computed", attr)

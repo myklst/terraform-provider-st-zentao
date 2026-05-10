@@ -33,15 +33,16 @@ type productDataSourceModel struct {
 	Type     types.String `tfsdk:"type"`
 	Desc     types.String `tfsdk:"desc"`
 	ACL      types.String `tfsdk:"acl"`
-	PO       types.String `tfsdk:"po"`
-	QD       types.String `tfsdk:"qd"`
-	RD       types.String `tfsdk:"rd"`
-	Reviewer types.List   `tfsdk:"reviewer"`
+	PO        types.String `tfsdk:"po"`
+	QD        types.String `tfsdk:"qd"`
+	RD        types.String `tfsdk:"rd"`
+	Reviewer  types.List   `tfsdk:"reviewer"`
+	Groups    types.List   `tfsdk:"groups"`
+	Whitelist types.List   `tfsdk:"whitelist"`
 
 	Status      types.String `tfsdk:"status"`
 	CreatedBy   types.String `tfsdk:"created_by"`
 	CreatedDate types.String `tfsdk:"created_date"`
-	ProgramName types.String `tfsdk:"program_name"`
 }
 
 func NewProductDataSource() datasource.DataSource { return &productDataSource{} }
@@ -69,10 +70,11 @@ func (d *productDataSource) Schema(_ context.Context, _ datasource.SchemaRequest
 			"qd":           schema.StringAttribute{Description: "QA Lead username.", Computed: true},
 			"rd":           schema.StringAttribute{Description: "Release Lead username.", Computed: true},
 			"reviewer":     schema.ListAttribute{Description: "Reviewer usernames.", Computed: true, ElementType: types.StringType},
+			"groups":       schema.ListAttribute{Description: "Permission group ids granted access to this product.", Computed: true, ElementType: types.StringType},
+			"whitelist":    schema.ListAttribute{Description: "Whitelisted usernames granted access to this product.", Computed: true, ElementType: types.StringType},
 			"status":       schema.StringAttribute{Description: "Product status.", Computed: true},
 			"created_by":   schema.StringAttribute{Description: "Creator username.", Computed: true},
 			"created_date": schema.StringAttribute{Description: "Creation timestamp.", Computed: true},
-			"program_name": schema.StringAttribute{Description: "Associated program name.", Computed: true},
 		},
 	}
 }
@@ -98,7 +100,7 @@ func (d *productDataSource) Read(ctx context.Context, req datasource.ReadRequest
 	if resp.Diagnostics.HasError() {
 		return
 	}
-	id, err := strconv.Atoi(cfg.ID.ValueString())
+	id, err := strconv.ParseInt(cfg.ID.ValueString(), 10, 64)
 	if err != nil {
 		resp.Diagnostics.AddAttributeError(
 			path.Root("id"),
@@ -119,17 +121,17 @@ func (d *productDataSource) Read(ctx context.Context, req datasource.ReadRequest
 		resp.Diagnostics.AddError("Read product failed", err.Error())
 		return
 	}
-	reviewerSrc := fetched.Reviewer
-	if reviewerSrc == nil {
-		reviewerSrc = []string{}
-	}
-	reviewers, diags := types.ListValueFrom(ctx, types.StringType, reviewerSrc)
+	reviewers, diags := stringListFromSlice(ctx, fetched.Reviewer)
 	resp.Diagnostics.Append(diags...)
+	groups, gdiags := stringListFromSlice(ctx, fetched.Groups)
+	resp.Diagnostics.Append(gdiags...)
+	whitelist, wdiags := stringListFromSlice(ctx, fetched.Whitelist)
+	resp.Diagnostics.Append(wdiags...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
 	resp.Diagnostics.Append(resp.State.Set(ctx, productDataSourceModel{
-		ID:          types.StringValue(strconv.Itoa(fetched.ID)),
+		ID:          types.StringValue(strconv.FormatInt(fetched.ID, 10)),
 		Code:        types.StringValue(fetched.Code),
 		Name:        types.StringValue(fetched.Name),
 		Program:     types.Int64Value(int64(fetched.Program)),
@@ -141,9 +143,10 @@ func (d *productDataSource) Read(ctx context.Context, req datasource.ReadRequest
 		QD:          types.StringValue(fetched.QD),
 		RD:          types.StringValue(fetched.RD),
 		Reviewer:    reviewers,
+		Groups:      groups,
+		Whitelist:   whitelist,
 		Status:      types.StringValue(fetched.Status),
 		CreatedBy:   types.StringValue(fetched.CreatedBy),
 		CreatedDate: types.StringValue(fetched.CreatedDate),
-		ProgramName: types.StringValue(fetched.ProgramName),
 	})...)
 }

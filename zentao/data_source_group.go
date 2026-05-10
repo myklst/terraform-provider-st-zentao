@@ -79,7 +79,7 @@ func (d *groupDataSource) Read(ctx context.Context, req datasource.ReadRequest, 
 	if resp.Diagnostics.HasError() {
 		return
 	}
-	id, err := strconv.Atoi(cfg.ID.ValueString())
+	id, err := strconv.ParseInt(cfg.ID.ValueString(), 10, 64)
 	if err != nil {
 		resp.Diagnostics.AddAttributeError(
 			path.Root("id"),
@@ -101,7 +101,7 @@ func (d *groupDataSource) Read(ctx context.Context, req datasource.ReadRequest, 
 		return
 	}
 	resp.Diagnostics.Append(resp.State.Set(ctx, groupDataSourceModel{
-		ID:      types.StringValue(strconv.Itoa(fetched.ID)),
+		ID:      types.StringValue(strconv.FormatInt(fetched.ID, 10)),
 		Project: types.Int64Value(int64(fetched.Project)),
 		Name:    types.StringValue(fetched.Name),
 		Role:    types.StringValue(fetched.Role),

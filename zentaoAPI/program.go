@@ -11,206 +11,65 @@ import (
 )
 
 // Program represents a ZenTao program (project portfolio).
+//
+// Path is server-derived (zt_project.path, comma-bracketed ancestry list,
+// e.g. ",1,5,10,") and is read-only — programToForm never emits it.
 type Program struct {
-	ID         int    `json:"-"`
+	ID         int64  `json:"-"`
+	Parent     int64  `json:"parent,omitempty"`
+	Path       string `json:"-"`
 	Name       string `json:"name"`
-	Begin      string `json:"begin"`
-	End        string `json:"end"`
-	Parent     int    `json:"parent,omitempty"`
 	PM         string `json:"PM,omitempty"`
-	Desc       string `json:"desc,omitempty"`
-	ACL        string `json:"acl,omitempty"`
 	Budget     string `json:"budget,omitempty"`
 	BudgetUnit string `json:"budgetUnit,omitempty"`
+	Begin      string `json:"begin"`
+	End        string `json:"end"`
+	Desc       string `json:"desc,omitempty"`
+	Status     string `json:"status"`
+	ACL        string `json:"acl,omitempty"`
 	Whitelist  string `json:"whitelist,omitempty"`
-
-	Code           string `json:"-"`
-	Status         string `json:"-"`
-	Type           string `json:"-"`
-	Category       string `json:"-"`
-	Lifetime       string `json:"-"`
-	Vision         string `json:"-"`
-	Attribute      string `json:"-"`
-	Model          string `json:"-"`
-	Path           string `json:"-"`
-	Grade          int    `json:"-"`
-	Multiple       string `json:"-"`
-	Parallel       string `json:"-"`
-	Enabled        string `json:"-"`
-	Frozen         string `json:"-"`
-	Deleted        string `json:"-"`
-	HasProduct     int    `json:"-"`
-	WorkflowGroup  int    `json:"-"`
-	StoryType      string `json:"-"`
-	Pri            int    `json:"-"`
-	Version        int    `json:"-"`
-	ParentVersion  int    `json:"-"`
-	Days           int    `json:"-"`
-	FirstEnd       string `json:"-"`
-	SubStatus      string `json:"-"`
-	OpenedBy       string `json:"-"`
-	OpenedDate     string `json:"-"`
-	LastEditedBy   string `json:"-"`
-	LastEditedDate string `json:"-"`
-	RealBegan      string `json:"-"`
-	RealEnd        string `json:"-"`
-	ClosedBy       string `json:"-"`
-	ClosedDate     string `json:"-"`
-	ClosedReason   string `json:"-"`
-	CanceledBy     string `json:"-"`
-	CanceledDate   string `json:"-"`
-	SuspendedDate  string `json:"-"`
-	PO             string `json:"-"`
-	QD             string `json:"-"`
-	RD             string `json:"-"`
-	Team           string `json:"-"`
-	Order          int    `json:"-"`
-	Progress       string `json:"-"`
-	Percent        string `json:"-"`
-	Estimate       string `json:"-"`
-	Consumed       string `json:"-"`
-	Left           string `json:"-"`
-	TeamCount      int    `json:"-"`
 }
 
 type programCtrlWire struct {
-	ID             json.Number `json:"id"`
-	Name           string      `json:"name"`
-	Code           string      `json:"code"`
-	Begin          string      `json:"begin"`
-	End            string      `json:"end"`
-	Parent         json.Number `json:"parent"`
-	Status         string      `json:"status"`
-	Type           string      `json:"type"`
-	Category       string      `json:"category"`
-	Lifetime       string      `json:"lifetime"`
-	Vision         string      `json:"vision"`
-	Attribute      string      `json:"attribute"`
-	Model          string      `json:"model"`
-	Path           string      `json:"path"`
-	Grade          json.Number `json:"grade"`
-	Multiple       json.Number `json:"multiple"`
-	Parallel       json.Number `json:"parallel"`
-	Enabled        string      `json:"enabled"`
-	Frozen         string      `json:"frozen"`
-	Deleted        json.Number `json:"deleted"`
-	HasProduct     json.Number `json:"hasProduct"`
-	WorkflowGroup  json.Number `json:"workflowGroup"`
-	StoryType      string      `json:"storyType"`
-	Pri            json.Number `json:"pri"`
-	Version        json.Number `json:"version"`
-	ParentVersion  json.Number `json:"parentVersion"`
-	Days           json.Number `json:"days"`
-	FirstEnd       string      `json:"firstEnd"`
-	SubStatus      string      `json:"subStatus"`
-	Desc           string      `json:"desc"`
-	ACL            string      `json:"acl"`
-	Whitelist      string      `json:"whitelist"`
-	Budget         string      `json:"budget"`
-	BudgetUnit     string      `json:"budgetUnit"`
-	OpenedBy       string      `json:"openedBy"`
-	OpenedDate     string      `json:"openedDate"`
-	LastEditedBy   string      `json:"lastEditedBy"`
-	LastEditedDate string      `json:"lastEditedDate"`
-	RealBegan      string      `json:"realBegan"`
-	RealEnd        string      `json:"realEnd"`
-	ClosedBy       string      `json:"closedBy"`
-	ClosedDate     string      `json:"closedDate"`
-	ClosedReason   string      `json:"closedReason"`
-	CanceledBy     string      `json:"canceledBy"`
-	CanceledDate   string      `json:"canceledDate"`
-	SuspendedDate  string      `json:"suspendedDate"`
-	PM             string      `json:"PM"`
-	PO             string      `json:"PO"`
-	QD             string      `json:"QD"`
-	RD             string      `json:"RD"`
-	Team           string      `json:"team"`
-	Order          json.Number `json:"order"`
-	Progress       string      `json:"progress"`
-	Percent        string      `json:"percent"`
-	Estimate       string      `json:"estimate"`
-	Consumed       string      `json:"consumed"`
-	Left           string      `json:"left"`
-	TeamCount      json.Number `json:"teamCount"`
+	ID         json.Number `json:"id"`
+	Parent     json.Number `json:"parent"`
+	Path       string      `json:"path"`
+	Name       string      `json:"name"`
+	PM         string      `json:"PM"`
+	Budget     string      `json:"budget"`
+	BudgetUnit string      `json:"budgetUnit"`
+	Begin      string      `json:"begin"`
+	End        string      `json:"end"`
+	Desc       string      `json:"desc"`
+	Status     string      `json:"status"`
+	ACL        string      `json:"acl"`
+	Whitelist  string      `json:"whitelist"`
+	Deleted    json.Number `json:"deleted"`
 }
 
 func (w programCtrlWire) toProgram() (*Program, error) {
-	id, err := jsonNumberToInt(w.ID, "id")
+	id, err := jsonNumberToInt64(w.ID, "id")
 	if err != nil {
 		return nil, err
 	}
-	parent, err := jsonNumberToInt(w.Parent, "parent")
+	parent, err := jsonNumberToInt64(w.Parent, "parent")
 	if err != nil {
 		return nil, err
 	}
-	grade, _ := jsonNumberToInt(w.Grade, "grade")
-	hasProduct, _ := jsonNumberToInt(w.HasProduct, "hasProduct")
-	workflowGroup, _ := jsonNumberToInt(w.WorkflowGroup, "workflowGroup")
-	pri, _ := jsonNumberToInt(w.Pri, "pri")
-	version, _ := jsonNumberToInt(w.Version, "version")
-	parentVersion, _ := jsonNumberToInt(w.ParentVersion, "parentVersion")
-	days, _ := jsonNumberToInt(w.Days, "days")
-	order, _ := jsonNumberToInt(w.Order, "order")
-	teamCount, _ := jsonNumberToInt(w.TeamCount, "teamCount")
 	return &Program{
-		ID:             id,
-		Name:           w.Name,
-		Code:           w.Code,
-		Begin:          w.Begin,
-		End:            w.End,
-		Parent:         parent,
-		Status:         w.Status,
-		Type:           w.Type,
-		Category:       w.Category,
-		Lifetime:       w.Lifetime,
-		Vision:         w.Vision,
-		Attribute:      w.Attribute,
-		Model:          w.Model,
-		Path:           w.Path,
-		Grade:          grade,
-		Multiple:       w.Multiple.String(),
-		Parallel:       w.Parallel.String(),
-		Enabled:        w.Enabled,
-		Frozen:         w.Frozen,
-		Deleted:        w.Deleted.String(),
-		HasProduct:     hasProduct,
-		WorkflowGroup:  workflowGroup,
-		StoryType:      w.StoryType,
-		Pri:            pri,
-		Version:        version,
-		ParentVersion:  parentVersion,
-		Days:           days,
-		FirstEnd:       w.FirstEnd,
-		SubStatus:      w.SubStatus,
-		Desc:           w.Desc,
-		ACL:            w.ACL,
-		Whitelist:      w.Whitelist,
-		Budget:         w.Budget,
-		BudgetUnit:     w.BudgetUnit,
-		OpenedBy:       w.OpenedBy,
-		OpenedDate:     w.OpenedDate,
-		LastEditedBy:   w.LastEditedBy,
-		LastEditedDate: w.LastEditedDate,
-		RealBegan:      w.RealBegan,
-		RealEnd:        w.RealEnd,
-		ClosedBy:       w.ClosedBy,
-		ClosedDate:     w.ClosedDate,
-		ClosedReason:   w.ClosedReason,
-		CanceledBy:     w.CanceledBy,
-		CanceledDate:   w.CanceledDate,
-		SuspendedDate:  w.SuspendedDate,
-		PM:             w.PM,
-		PO:             w.PO,
-		QD:             w.QD,
-		RD:             w.RD,
-		Team:           w.Team,
-		Order:          order,
-		Progress:       w.Progress,
-		Percent:        w.Percent,
-		Estimate:       w.Estimate,
-		Consumed:       w.Consumed,
-		Left:           w.Left,
-		TeamCount:      teamCount,
+		ID:         id,
+		Parent:     parent,
+		Path:       w.Path,
+		Name:       w.Name,
+		PM:         w.PM,
+		Budget:     w.Budget,
+		BudgetUnit: w.BudgetUnit,
+		Begin:      w.Begin,
+		End:        w.End,
+		Desc:       w.Desc,
+		Status:     w.Status,
+		ACL:        w.ACL,
+		Whitelist:  w.Whitelist,
 	}, nil
 }
 
@@ -224,15 +83,15 @@ type programEditInner struct {
 // docs/superpowers/specs/probe-program-controller.md §8.
 func programToForm(p *Program) url.Values {
 	form := url.Values{}
+	form.Set("parent", strconv.FormatInt(p.Parent, 10))
 	form.Set("name", p.Name)
-	form.Set("begin", p.Begin)
-	form.Set("end", p.End)
-	form.Set("parent", strconv.Itoa(p.Parent))
 	form.Set("PM", p.PM)
-	form.Set("desc", p.Desc)
-	form.Set("acl", p.ACL)
 	form.Set("budget", p.Budget)
 	form.Set("budgetUnit", p.BudgetUnit)
+	form.Set("begin", p.Begin)
+	form.Set("end", p.End)
+	form.Set("desc", p.Desc)
+	form.Set("acl", p.ACL)
 	form.Set("whitelist", p.Whitelist)
 	return form
 }
@@ -244,26 +103,14 @@ func programToForm(p *Program) url.Values {
 func mergeProgramBaseline(input, baseline *Program) *Program {
 	out := *baseline
 	out.ID = input.ID
-	if input.Name != "" {
-		out.Name = input.Name
-	}
-	if input.Begin != "" {
-		out.Begin = input.Begin
-	}
-	if input.End != "" {
-		out.End = input.End
-	}
 	if input.Parent != 0 {
 		out.Parent = input.Parent
 	}
+	if input.Name != "" {
+		out.Name = input.Name
+	}
 	if input.PM != "" {
 		out.PM = input.PM
-	}
-	if input.Desc != "" {
-		out.Desc = input.Desc
-	}
-	if input.ACL != "" {
-		out.ACL = input.ACL
 	}
 	if input.Budget != "" {
 		out.Budget = input.Budget
@@ -271,14 +118,26 @@ func mergeProgramBaseline(input, baseline *Program) *Program {
 	if input.BudgetUnit != "" {
 		out.BudgetUnit = input.BudgetUnit
 	}
+	if input.Begin != "" {
+		out.Begin = input.Begin
+	}
+	if input.End != "" {
+		out.End = input.End
+	}
+	if input.Desc != "" {
+		out.Desc = input.Desc
+	}
+	if input.ACL != "" {
+		out.ACL = input.ACL
+	}
 	if input.Whitelist != "" {
 		out.Whitelist = input.Whitelist
 	}
 	return &out
 }
 
-func (c *Client) GetProgram(ctx context.Context, id int) (*Program, error) {
-	body, status, err := c.doController(ctx, "program", "edit", []string{strconv.Itoa(id)}, nil, nil)
+func (c *Client) GetProgram(ctx context.Context, id int64) (*Program, error) {
+	body, status, err := c.doController(ctx, "program", "edit", []string{strconv.FormatInt(id, 10)}, nil, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -306,13 +165,15 @@ func (c *Client) GetProgram(ctx context.Context, id int) (*Program, error) {
 	if err := json.Unmarshal(inner.Program, &wire); err != nil {
 		return nil, fmt.Errorf("decode get-program wire: %w (body=%s)", err, string(body))
 	}
+	// Soft-deleted rows still come back from edit-GET (probe 2026-05-09:
+	// DELETE only flips zt_project.deleted=1, the row is not removed).
+	// Surface them as gone so Terraform Read clears state.
+	if wire.Deleted.String() == "1" {
+		return nil, ErrNotFound
+	}
 	out, err := wire.toProgram()
 	if err != nil {
 		return nil, err
-	}
-	// Soft-deleted rows still come back from edit-GET; treat as gone.
-	if out.Deleted == "1" {
-		return nil, ErrNotFound
 	}
 	return out, nil
 }
@@ -355,7 +216,7 @@ func (c *Client) CreateProgram(ctx context.Context, p *Program) (*Program, error
 		return nil, fmt.Errorf("create program: empty id in response (body=%s)", string(body))
 	}
 	out := *p
-	out.ID = int(id)
+	out.ID = id
 	return &out, nil
 }
 
@@ -371,7 +232,7 @@ func (c *Client) UpdateProgram(ctx context.Context, p *Program) (*Program, error
 		return nil, fmt.Errorf("UpdateProgram: fetch baseline for merge: %w", err)
 	}
 	merged := mergeProgramBaseline(p, baseline)
-	body, status, err := c.doControllerForm(ctx, "program", "edit", []string{strconv.Itoa(p.ID)}, nil, programToForm(merged))
+	body, status, err := c.doControllerForm(ctx, "program", "edit", []string{strconv.FormatInt(p.ID, 10)}, nil, programToForm(merged))
 	if err != nil {
 		return nil, err
 	}
@@ -400,7 +261,7 @@ func (c *Client) UpdateProgram(ctx context.Context, p *Program) (*Program, error
 // field (the rest of the program-edit form is preserved verbatim — see
 // the M-Z merge note on UpdateProgram), then submit. programToForm
 // always-sets parent so a parentID of 0 actually clears the column.
-func (c *Client) SetProgramParent(ctx context.Context, childID, parentID int) error {
+func (c *Client) SetProgramParent(ctx context.Context, childID, parentID int64) error {
 	if childID <= 0 {
 		return fmt.Errorf("SetProgramParent: childID must be positive, got %d", childID)
 	}
@@ -419,15 +280,18 @@ func (c *Client) SetProgramParent(ctx context.Context, childID, parentID int) er
 		if err != nil {
 			return fmt.Errorf("SetProgramParent: fetch parent for cycle check: %w", err)
 		}
-		// path is comma-delimited ancestry (e.g. ",1,5,7,"). If childID
-		// already sits in parent's lineage, attaching would form a cycle.
-		if strings.Contains(parentRow.Path, fmt.Sprintf(",%d,", childID)) {
-			return fmt.Errorf("SetProgramParent: %w (parent %d has child %d in path %q)", ErrCycleDetected, parentID, childID, parentRow.Path)
+		// zt_project.path is a comma-bracketed ancestry list, e.g. ",1,5,20,".
+		// If childID appears as a segment in parentRow.Path, the would-be parent
+		// is already a descendant of the child — attaching would form a cycle.
+		childToken := "," + strconv.FormatInt(childID, 10) + ","
+		if strings.Contains(parentRow.Path, childToken) {
+			return fmt.Errorf("SetProgramParent: %w (child=%d is ancestor of parent=%d, parent.path=%q)",
+				ErrCycleDetected, childID, parentID, parentRow.Path)
 		}
 	}
 	out := *baseline
 	out.Parent = parentID
-	body, status, err := c.doControllerForm(ctx, "program", "edit", []string{strconv.Itoa(childID)}, nil, programToForm(&out))
+	body, status, err := c.doControllerForm(ctx, "program", "edit", []string{strconv.FormatInt(childID, 10)}, nil, programToForm(&out))
 	if err != nil {
 		return err
 	}

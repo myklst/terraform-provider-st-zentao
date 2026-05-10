@@ -16,34 +16,17 @@ func TestProgramDataSource_Schema(t *testing.T) {
 	if resp.Diagnostics.HasError() {
 		t.Fatalf("schema diagnostics: %v", resp.Diagnostics)
 	}
-	// Data source mirrors the resource's controller-backed schema —
-	// every field Computed since the only input is `id`.
-	expected := []string{
-		"id", "name", "begin", "end", "parent", "pm", "desc",
-		"acl", "budget", "budget_unit", "whitelist",
-		"code", "status", "type", "category", "lifetime", "vision",
-		"attribute", "model", "program_path", "grade",
-		"multiple", "parallel", "has_product", "workflow_group", "story_type",
-		"days", "first_end",
-		"opened_by", "opened_date", "last_edited_by", "last_edited_date",
-		"real_began", "real_end",
-		"closed_by", "closed_date", "closed_reason",
-		"canceled_by", "canceled_date", "suspended_date",
-		"po", "qd", "rd", "team",
-		"progress", "percent", "estimate", "consumed", "left", "team_count",
-	}
-	for _, attr := range expected {
-		if _, ok := resp.Schema.Attributes[attr]; !ok {
-			t.Errorf("missing attribute %q", attr)
-		}
-	}
+	// Data source mirrors zentaoapi.Program — every field other than `id`
+	// is Computed since the only input is `id`.
 	if !resp.Schema.Attributes["id"].IsRequired() {
 		t.Error("id must be Required")
 	}
-	for _, attr := range expected {
-		if attr == "id" {
-			continue
-		}
+	for _, attr := range []string{
+		"parent", "name", "pm",
+		"budget", "budget_unit",
+		"begin", "end",
+		"desc", "status", "acl", "whitelist",
+	} {
 		a := resp.Schema.Attributes[attr]
 		if !a.IsComputed() {
 			t.Errorf("%s must be Computed", attr)
@@ -84,9 +67,9 @@ data "st-zentao_program" "by_id" {
 				Check: tfresource.ComposeAggregateTestCheckFunc(
 					tfresource.TestCheckResourceAttr("data.st-zentao_program.by_id", "name", name),
 					tfresource.TestCheckResourceAttr("data.st-zentao_program.by_id", "begin", "2026-01-01"),
+					tfresource.TestCheckResourceAttr("data.st-zentao_program.by_id", "end", "2026-12-31"),
 					tfresource.TestCheckResourceAttrPair("data.st-zentao_program.by_id", "id", "st-zentao_program.src", "id"),
 					tfresource.TestCheckResourceAttrSet("data.st-zentao_program.by_id", "status"),
-					tfresource.TestCheckResourceAttrSet("data.st-zentao_program.by_id", "opened_by"),
 				),
 			},
 		},

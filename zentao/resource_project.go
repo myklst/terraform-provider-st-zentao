@@ -243,7 +243,7 @@ func (r *projectResource) Read(ctx context.Context, req resource.ReadRequest, re
 	if resp.Diagnostics.HasError() {
 		return
 	}
-	id, err := strconv.Atoi(prior.ID.ValueString())
+	id, err := strconv.ParseInt(prior.ID.ValueString(), 10, 64)
 	if err != nil {
 		resp.Diagnostics.AddError("Invalid id in state", err.Error())
 		return
@@ -273,7 +273,7 @@ func (r *projectResource) Update(ctx context.Context, req resource.UpdateRequest
 	if resp.Diagnostics.HasError() {
 		return
 	}
-	id, err := strconv.Atoi(prior.ID.ValueString())
+	id, err := strconv.ParseInt(prior.ID.ValueString(), 10, 64)
 	if err != nil {
 		resp.Diagnostics.AddError("Invalid id in state", err.Error())
 		return
@@ -304,7 +304,7 @@ func (r *projectResource) Delete(ctx context.Context, req resource.DeleteRequest
 	if resp.Diagnostics.HasError() {
 		return
 	}
-	id, err := strconv.Atoi(prior.ID.ValueString())
+	id, err := strconv.ParseInt(prior.ID.ValueString(), 10, 64)
 	if err != nil {
 		resp.Diagnostics.AddError("Invalid id in state", err.Error())
 		return
@@ -322,18 +322,16 @@ func (r *projectResource) ImportState(ctx context.Context, req resource.ImportSt
 func (m *projectResourceModel) toAPI(ctx context.Context) (*zentaoapi.Project, diag.Diagnostics) {
 	var products []int64
 	diags := m.Products.ElementsAs(ctx, &products, true)
-	intProducts := make([]int, 0, len(products))
-	for _, v := range products {
-		intProducts = append(intProducts, int(v))
-	}
+	intProducts := make([]int64, 0, len(products))
+	intProducts = append(intProducts, products...)
 	return &zentaoapi.Project{
 		Name:          m.Name.ValueString(),
 		Model:         m.Model.ValueString(),
 		Begin:         m.Begin.ValueString(),
 		End:           m.End.ValueString(),
-		Parent:        int(m.Program.ValueInt64()),
+		Parent:        m.Program.ValueInt64(),
 		Products:      intProducts,
-		WorkflowGroup: int(m.WorkflowGroup.ValueInt64()),
+		WorkflowGroup: m.WorkflowGroup.ValueInt64(),
 		Multiple:      multipleBoolToWire(m.Multiple),
 		ACL:           m.ACL.ValueString(),
 		PM:            m.PM.ValueString(),
@@ -363,11 +361,11 @@ func multipleWireToBool(s string) types.Bool {
 func projectFromAPI(ctx context.Context, p *zentaoapi.Project) (projectResourceModel, diag.Diagnostics) {
 	src := p.Products
 	if src == nil {
-		src = []int{}
+		src = []int64{}
 	}
 	productsList, diags := types.ListValueFrom(ctx, types.Int64Type, src)
 	return projectResourceModel{
-		ID:            types.StringValue(strconv.Itoa(p.ID)),
+		ID:            types.StringValue(strconv.FormatInt(p.ID, 10)),
 		Name:          types.StringValue(p.Name),
 		Model:         types.StringValue(p.Model),
 		Begin:         types.StringValue(p.Begin),

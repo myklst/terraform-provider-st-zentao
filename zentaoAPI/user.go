@@ -12,14 +12,14 @@ import (
 // User represents a ZenTao user. Password / VerifyPassword are
 // write-only: the server's hash is never round-tripped onto User.
 type User struct {
-	ID      int    `json:"-"`
+	ID      int64  `json:"-"`
 	Account string `json:"account"`
 
 	Realname string `json:"realname"`
 	Email    string `json:"email,omitempty"`
 	Phone    string `json:"phone,omitempty"`
 	Mobile   string `json:"mobile,omitempty"`
-	Dept     int    `json:"dept,omitempty"`
+	Dept     int64  `json:"dept,omitempty"`
 	Role     string `json:"role,omitempty"`
 	Gender   string `json:"gender,omitempty"`
 	Visions  string `json:"visions,omitempty"`
@@ -37,9 +37,9 @@ type User struct {
 	VerifyPassword string `json:"verifyPassword,omitempty"`
 
 	Last       string `json:"-"`
-	Visits     int    `json:"-"`
+	Visits     int64  `json:"-"`
 	Locked     string `json:"-"`
-	Deleted    int    `json:"-"`
+	Deleted    int64  `json:"-"`
 	ClientLang string `json:"-"`
 }
 
@@ -70,19 +70,19 @@ type userCtrlWire struct {
 }
 
 func (w userCtrlWire) toUser() (*User, error) {
-	id, err := jsonNumberToInt(w.ID, "id")
+	id, err := jsonNumberToInt64(w.ID, "id")
 	if err != nil {
 		return nil, err
 	}
-	dept, err := jsonNumberToInt(w.Dept, "dept")
+	dept, err := jsonNumberToInt64(w.Dept, "dept")
 	if err != nil {
 		return nil, err
 	}
-	visits, err := jsonNumberToInt(w.Visits, "visits")
+	visits, err := jsonNumberToInt64(w.Visits, "visits")
 	if err != nil {
 		return nil, err
 	}
-	deleted, err := jsonNumberToInt(w.Deleted, "deleted")
+	deleted, err := jsonNumberToInt64(w.Deleted, "deleted")
 	if err != nil {
 		return nil, err
 	}
@@ -124,8 +124,8 @@ type userEditInner struct {
 	User json.RawMessage `json:"user"`
 }
 
-func (c *Client) GetUser(ctx context.Context, id int) (*User, error) {
-	body, status, err := c.doController(ctx, "user", "edit", []string{strconv.Itoa(id)}, nil, nil)
+func (c *Client) GetUser(ctx context.Context, id int64) (*User, error) {
+	body, status, err := c.doController(ctx, "user", "edit", []string{strconv.FormatInt(id, 10)}, nil, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -176,7 +176,7 @@ func userToForm(u *User) url.Values {
 		form.Set("mobile", u.Mobile)
 	}
 	if u.Dept != 0 {
-		form.Set("dept", strconv.Itoa(u.Dept))
+		form.Set("dept", strconv.FormatInt(u.Dept, 10))
 	}
 	if u.Role != "" {
 		form.Set("role", u.Role)
@@ -259,7 +259,7 @@ func (c *Client) UpdateUser(ctx context.Context, u *User) (*User, error) {
 	if u.ID == 0 {
 		return nil, fmt.Errorf("UpdateUser: id required")
 	}
-	body, status, err := c.doControllerForm(ctx, "user", "edit", []string{strconv.Itoa(u.ID)}, nil, userToForm(u))
+	body, status, err := c.doControllerForm(ctx, "user", "edit", []string{strconv.FormatInt(u.ID, 10)}, nil, userToForm(u))
 	if err != nil {
 		return nil, err
 	}

@@ -119,7 +119,7 @@ func (r *programParentAttachmentResource) Create(ctx context.Context, req resour
 	if resp.Diagnostics.HasError() {
 		return
 	}
-	child, parent, ok := atoiPair(plan.Program.ValueString(), plan.Parent.ValueString(), &resp.Diagnostics)
+	child, parent, ok := atoi64Pair(plan.Program.ValueString(), plan.Parent.ValueString(), &resp.Diagnostics)
 	if !ok {
 		return
 	}
@@ -165,7 +165,7 @@ func (r *programParentAttachmentResource) Read(ctx context.Context, req resource
 	if resp.Diagnostics.HasError() {
 		return
 	}
-	child, err := strconv.Atoi(prior.Program.ValueString())
+	child, err := strconv.ParseInt(prior.Program.ValueString(), 10, 64)
 	if err != nil || child <= 0 {
 		resp.Diagnostics.AddError("Invalid program id in state", prior.Program.ValueString())
 		return
@@ -185,9 +185,9 @@ func (r *programParentAttachmentResource) Read(ctx context.Context, req resource
 		return
 	}
 	out := programParentAttachmentResourceModel{
-		ID:      types.StringValue(strconv.Itoa(child)),
-		Program: types.StringValue(strconv.Itoa(child)),
-		Parent:  types.StringValue(strconv.Itoa(fetched.Parent)),
+		ID:      types.StringValue(strconv.FormatInt(child, 10)),
+		Program: types.StringValue(strconv.FormatInt(child, 10)),
+		Parent:  types.StringValue(strconv.FormatInt(fetched.Parent, 10)),
 	}
 	resp.Diagnostics.Append(resp.State.Set(ctx, out)...)
 }
@@ -198,7 +198,7 @@ func (r *programParentAttachmentResource) Update(ctx context.Context, req resour
 	if resp.Diagnostics.HasError() {
 		return
 	}
-	child, parent, ok := atoiPair(plan.Program.ValueString(), plan.Parent.ValueString(), &resp.Diagnostics)
+	child, parent, ok := atoi64Pair(plan.Program.ValueString(), plan.Parent.ValueString(), &resp.Diagnostics)
 	if !ok {
 		return
 	}
@@ -216,7 +216,7 @@ func (r *programParentAttachmentResource) Delete(ctx context.Context, req resour
 	if resp.Diagnostics.HasError() {
 		return
 	}
-	child, err := strconv.Atoi(prior.Program.ValueString())
+	child, err := strconv.ParseInt(prior.Program.ValueString(), 10, 64)
 	if err != nil || child <= 0 {
 		resp.Diagnostics.AddError("Invalid program id in state", prior.Program.ValueString())
 		return
@@ -239,16 +239,16 @@ func (r *programParentAttachmentResource) ImportState(ctx context.Context, req r
 	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("program"), req.ID)...)
 }
 
-// atoiPair parses both ids and reports diagnostics on failure.
-func atoiPair(programStr, parentStr string, diags interface {
+// atoi64Pair parses both ids and reports diagnostics on failure.
+func atoi64Pair(programStr, parentStr string, diags interface {
 	AddError(string, string)
-}) (int, int, bool) {
-	child, err := strconv.Atoi(programStr)
+}) (int64, int64, bool) {
+	child, err := strconv.ParseInt(programStr, 10, 64)
 	if err != nil || child <= 0 {
 		diags.AddError("Invalid program id", programStr)
 		return 0, 0, false
 	}
-	parent, err := strconv.Atoi(parentStr)
+	parent, err := strconv.ParseInt(parentStr, 10, 64)
 	if err != nil || parent <= 0 {
 		diags.AddError("Invalid parent id", parentStr)
 		return 0, 0, false
