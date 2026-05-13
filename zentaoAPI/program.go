@@ -3,7 +3,6 @@ package zentaoapi
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -202,9 +201,6 @@ func (c *Client) GetProgram(ctx context.Context, id int64) (*Program, error) {
 	if err != nil {
 		return nil, err
 	}
-	if prog.Deleted != nil && *prog.Deleted {
-		return nil, ErrNotFound
-	}
 	return prog, nil
 }
 
@@ -220,42 +216,6 @@ func (c *Client) CreateProgram(ctx context.Context, p *Program) (*Program, error
 	}
 	if p.End == nil {
 		return nil, fmt.Errorf("CreateProgram: end required")
-	}
-	// Restore-on-soft-deleted: when the caller supplies an id (typical
-	// destroy → re-apply with stale Terraform state), replace the row
-	// with caller's input in a single edit POST — toForm always emits
-	// `deleted=0`, so a soft-deleted row flips back to alive in the same
-	// request. ErrNotFound (truly hard-gone) falls through to the
-	// fresh-create path.
-	if p.ID != nil && *p.ID != 0 {
-		// Use getProgramRow (not GetProgram) so a soft-deleted baseline
-		// still drives the M-Z merge — the form's deleted=0 will undelete
-		// the row in the same edit POST.
-		baseline, err := c.getProgramRow(ctx, *p.ID)
-		switch {
-		case err == nil:
-			merged := mergeProgramBaseline(p, baseline)
-			merged.Deleted = boolptr(false)  // Force set to false
-			body, status, err := c.doControllerForm(ctx, "program", "edit", []string{strconv.FormatInt(*p.ID, 10)}, nil, merged.toForm())
-			if err != nil {
-				return nil, err
-			}
-			if status >= 400 {
-				return nil, apiError(status, body)
-			}
-			var resp CtrlSimpleResponse
-			if err := json.Unmarshal(body, &resp); err != nil {
-				return nil, fmt.Errorf("decode program-edit response: %w (body=%s)", err, string(body))
-			}
-			if !resp.IsSuccess() {
-				return nil, classifyCtrlSimple(status, resp, body)
-			}
-			return c.GetProgram(ctx, *p.ID)
-		case errors.Is(err, ErrNotFound):
-			// fall through to fresh create
-		default:
-			return nil, fmt.Errorf("CreateProgram: pre-create lookup id=%d: %w", *p.ID, err)
-		}
 	}
 	body, status, err := c.doControllerForm(ctx, "program", "create", nil, nil, p.toForm())
 	if err != nil {

@@ -13,6 +13,7 @@ import (
 	"time"
 
 	backoff "github.com/cenkalti/backoff/v4"
+	"github.com/hashicorp/terraform-plugin-log/tflog"
 )
 
 // jsonURL is a thin alias purely for test ergonomics; consumers use *url.URL.
@@ -175,6 +176,9 @@ func (c *Client) sendHTTP(
 	if err = backoff.Retry(op, backoff.WithContext(expo, ctx)); err != nil {
 		return rawBody, status, location, err
 	}
+
+	tflog.Debug(ctx, "ZenTao Response", map[string]interface{}{"status": status, "body": rawBody})
+
 	return rawBody, status, location, nil
 }
 

@@ -229,13 +229,6 @@ func (r *programResource) Delete(ctx context.Context, req resource.DeleteRequest
 		resp.Diagnostics.AddError("Delete program failed", err.Error())
 		return
 	}
-	// Update state
-	fetched, err := r.client.GetProgram(ctx, id)
-	if err != nil {
-		resp.Diagnostics.AddError("Re-fetch after delete failed "+strconv.FormatInt(id, 10), err.Error())
-		return
-	}
-	resp.Diagnostics.Append(resp.State.Set(ctx, programFromAPI(fetched))...)
 }
 
 func (r *programResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
