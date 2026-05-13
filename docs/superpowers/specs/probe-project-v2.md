@@ -74,7 +74,7 @@ PUT is **more permissive** than POST:
 | `model` | **yes-but-mutable** | PUT with new `model` mutates the row (probe 6: `scrum → waterfall` succeeded). **Server permits methodology change on update.** This contradicts the typical assumption; see §6. |
 | `name` | yes (always sent in our wrapper) | |
 
-## 4. Response envelope shapes
+## 4. Response response shapes
 
 ### POST success
 ```json

@@ -3,6 +3,7 @@ package zentaoapi
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -10,133 +11,157 @@ import (
 	"strings"
 )
 
-// Program represents a ZenTao program (project portfolio).
-//
-// Path is server-derived (zt_project.path, comma-bracketed ancestry list,
-// e.g. ",1,5,10,") and is read-only — programToForm never emits it.
-type Program struct {
-	ID         int64  `json:"-"`
-	Parent     int64  `json:"parent,omitempty"`
-	Path       string `json:"-"`
-	Name       string `json:"name"`
-	PM         string `json:"PM,omitempty"`
-	Budget     string `json:"budget,omitempty"`
-	BudgetUnit string `json:"budgetUnit,omitempty"`
-	Begin      string `json:"begin"`
-	End        string `json:"end"`
-	Desc       string `json:"desc,omitempty"`
-	Status     string `json:"status"`
-	ACL        string `json:"acl,omitempty"`
-	Whitelist  string `json:"whitelist,omitempty"`
-}
-
-type programCtrlWire struct {
-	ID         json.Number `json:"id"`
-	Parent     json.Number `json:"parent"`
-	Path       string      `json:"path"`
-	Name       string      `json:"name"`
-	PM         string      `json:"PM"`
-	Budget     string      `json:"budget"`
-	BudgetUnit string      `json:"budgetUnit"`
-	Begin      string      `json:"begin"`
-	End        string      `json:"end"`
-	Desc       string      `json:"desc"`
-	Status     string      `json:"status"`
-	ACL        string      `json:"acl"`
-	Whitelist  string      `json:"whitelist"`
-	Deleted    json.Number `json:"deleted"`
-}
-
-func (w programCtrlWire) toProgram() (*Program, error) {
-	id, err := jsonNumberToInt64(w.ID, "id")
-	if err != nil {
-		return nil, err
-	}
-	parent, err := jsonNumberToInt64(w.Parent, "parent")
-	if err != nil {
-		return nil, err
-	}
-	return &Program{
-		ID:         id,
-		Parent:     parent,
-		Path:       w.Path,
-		Name:       w.Name,
-		PM:         w.PM,
-		Budget:     w.Budget,
-		BudgetUnit: w.BudgetUnit,
-		Begin:      w.Begin,
-		End:        w.End,
-		Desc:       w.Desc,
-		Status:     w.Status,
-		ACL:        w.ACL,
-		Whitelist:  w.Whitelist,
-	}, nil
-}
-
-type programEditInner struct {
+type programEditRespInner struct {
 	Program json.RawMessage `json:"program"`
 }
 
-// programToForm always emits every form.php writeable field, even when the
-// value is empty/0. ZenTao's program-edit POST is not PATCH-semantic — any
-// omitted form.php field is reset to its form.php default. See
-// docs/superpowers/specs/probe-program-controller.md §8.
-func programToForm(p *Program) url.Values {
+// Program represents a ZenTao program (project portfolio).
+//
+// `Path` is server-derived (zt_project.path, comma-bracketed ancestry list,
+// e.g. ",1,5,10,") and is read-only.
+type Program struct {
+	ID         *int64  `json:"id,omitempty"`
+	Parent     *int64  `json:"parent,omitempty"`
+	Path       *string `json:"path,omitempty"`
+	Name       *string `json:"name"`
+	PM         *string `json:"PM,omitempty"`
+	Budget     *string `json:"budget,omitempty"`
+	BudgetUnit *string `json:"budgetUnit,omitempty"`
+	Begin      *string `json:"begin"`
+	End        *string `json:"end"`
+	Desc       *string `json:"desc,omitempty"`
+	Status     *string `json:"status,omitempty"`
+	ACL        *string `json:"acl,omitempty"`
+	Whitelist  *string `json:"whitelist,omitempty"`
+	Deleted    *bool   `json:"deleted,omitempty"`
+}
+
+// UnmarshalJSON decodes a program-edit GET wire payload into *Program.
+// ZenTao's controller surface returns id/parent/deleted as a mix of JSON
+// numbers and quoted-number strings; the json.Number locals tolerate both
+// shapes. Absent fields stay nil so callers can distinguish "wire omitted
+// this column" from "wire said empty string".
+func (p *Program) UnmarshalJSON(data []byte) error {
+	var raw struct {
+		ID         json.Number `json:"id"`
+		Parent     json.Number `json:"parent"`
+		Path       *string     `json:"path"`
+		Name       *string     `json:"name"`
+		PM         *string     `json:"PM"`
+		Budget     *string     `json:"budget"`
+		BudgetUnit *string     `json:"budgetUnit"`
+		Begin      *string     `json:"begin"`
+		End        *string     `json:"end"`
+		Desc       *string     `json:"desc"`
+		Status     *string     `json:"status"`
+		ACL        *string     `json:"acl"`
+		Whitelist  *string     `json:"whitelist"`
+		Deleted    json.Number `json:"deleted"`
+	}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	if raw.ID != "" {
+		id, err := jsonNumberToInt64(raw.ID, "id")
+		if err != nil {
+			return err
+		}
+		p.ID = &id
+	}
+	if raw.Parent != "" {
+		parent, err := jsonNumberToInt64(raw.Parent, "parent")
+		if err != nil {
+			return err
+		}
+		p.Parent = &parent
+	}
+	if raw.Deleted != "" {
+		d := jsonNumberToBool(raw.Deleted)
+		p.Deleted = &d
+	}
+	p.Path = raw.Path
+	p.Name = raw.Name
+	p.PM = raw.PM
+	p.Budget = raw.Budget
+	p.BudgetUnit = raw.BudgetUnit
+	p.Begin = raw.Begin
+	p.End = raw.End
+	p.Desc = raw.Desc
+	p.Status = raw.Status
+	p.ACL = raw.ACL
+	p.Whitelist = raw.Whitelist
+	return nil
+}
+
+// toForm always emits every form.php writeable field, even when the value
+// is empty/0.
+func (p *Program) toForm() url.Values {
 	form := url.Values{}
-	form.Set("parent", strconv.FormatInt(p.Parent, 10))
-	form.Set("name", p.Name)
-	form.Set("PM", p.PM)
-	form.Set("budget", p.Budget)
-	form.Set("budgetUnit", p.BudgetUnit)
-	form.Set("begin", p.Begin)
-	form.Set("end", p.End)
-	form.Set("desc", p.Desc)
-	form.Set("acl", p.ACL)
-	form.Set("whitelist", p.Whitelist)
+	form.Set("parent", strconv.FormatInt(derefInt64(p.Parent), 10))
+	form.Set("name", derefString(p.Name))
+	form.Set("PM", derefString(p.PM))
+	form.Set("budget", derefString(p.Budget))
+	form.Set("budgetUnit", derefString(p.BudgetUnit))
+	form.Set("begin", derefString(p.Begin))
+	form.Set("end", derefString(p.End))
+	form.Set("desc", derefString(p.Desc))
+	form.Set("acl", derefString(p.ACL))
+	form.Set("whitelist", derefString(p.Whitelist))
+	form.Set("deleted", boolToIntStr(derefBool(p.Deleted)))
 	return form
 }
 
 // mergeProgramBaseline copies baseline and overrides only the fields the
-// caller explicitly set on input (non-zero / non-empty). Empty string and 0
-// are read as "preserve baseline". This is the M-Z merge that makes
-// UpdateProgram safe against ZenTao's non-PATCH semantics.
+// caller explicitly set on input (non-nil pointers). A nil pointer reads
+// as "preserve baseline". This is the M-Z merge that makes UpdateProgram
+// safe against ZenTao's non-PATCH semantics.
 func mergeProgramBaseline(input, baseline *Program) *Program {
 	out := *baseline
-	out.ID = input.ID
-	if input.Parent != 0 {
+	if input.ID != nil {
+		out.ID = input.ID
+	}
+	if input.Parent != nil {
 		out.Parent = input.Parent
 	}
-	if input.Name != "" {
+	if input.Name != nil {
 		out.Name = input.Name
 	}
-	if input.PM != "" {
+	if input.PM != nil {
 		out.PM = input.PM
 	}
-	if input.Budget != "" {
+	if input.Budget != nil {
 		out.Budget = input.Budget
 	}
-	if input.BudgetUnit != "" {
+	if input.BudgetUnit != nil {
 		out.BudgetUnit = input.BudgetUnit
 	}
-	if input.Begin != "" {
+	if input.Begin != nil {
 		out.Begin = input.Begin
 	}
-	if input.End != "" {
+	if input.End != nil {
 		out.End = input.End
 	}
-	if input.Desc != "" {
+	if input.Desc != nil {
 		out.Desc = input.Desc
 	}
-	if input.ACL != "" {
+	if input.ACL != nil {
 		out.ACL = input.ACL
 	}
-	if input.Whitelist != "" {
+	if input.Whitelist != nil {
 		out.Whitelist = input.Whitelist
+	}
+	if input.Deleted != nil {
+		out.Deleted = input.Deleted
 	}
 	return &out
 }
 
-func (c *Client) GetProgram(ctx context.Context, id int64) (*Program, error) {
+// getProgramRow use GET program-edit-{id} endpoint.
+// It returns the full row including the soft-delete flag on the struct so
+// callers can decide policy: GetProgram collapses *prog.Deleted=true into
+// ErrNotFound for Terraform-Read; the Create restore path keeps the row
+// to drive its M-Z merge baseline.
+func (c *Client) getProgramRow(ctx context.Context, id int64) (*Program, error) {
 	body, status, err := c.doController(ctx, "program", "edit", []string{strconv.FormatInt(id, 10)}, nil, nil)
 	if err != nil {
 		return nil, err
@@ -147,51 +172,92 @@ func (c *Client) GetProgram(ctx context.Context, id int64) (*Program, error) {
 	if status >= 400 {
 		return nil, apiError(status, body)
 	}
-	var env CtrlEnvelope
+	var env CtrlResp
 	if err := json.Unmarshal(body, &env); err != nil {
-		return nil, fmt.Errorf("decode get-program envelope: %w (body=%s)", err, string(body))
+		return nil, fmt.Errorf("decode get-program response: %w (body=%s)", err, string(body))
 	}
 	if env.Status != "success" {
 		return nil, classifyCtrlError(status, env, body)
 	}
-	var inner programEditInner
-	if err := DecodeData(env, &inner); err != nil {
+	var inner programEditRespInner
+	if err := env.DecodeData(&inner); err != nil {
 		return nil, fmt.Errorf("decode get-program data: %w (body=%s)", err, string(body))
 	}
 	if len(inner.Program) == 0 || string(inner.Program) == "false" || string(inner.Program) == "null" {
 		return nil, ErrNotFound
 	}
-	var wire programCtrlWire
-	if err := json.Unmarshal(inner.Program, &wire); err != nil {
+	var prog Program
+	if err := json.Unmarshal(inner.Program, &prog); err != nil {
 		return nil, fmt.Errorf("decode get-program wire: %w (body=%s)", err, string(body))
 	}
-	// Soft-deleted rows still come back from edit-GET (probe 2026-05-09:
-	// DELETE only flips zt_project.deleted=1, the row is not removed).
-	// Surface them as gone so Terraform Read clears state.
-	if wire.Deleted.String() == "1" {
-		return nil, ErrNotFound
-	}
-	out, err := wire.toProgram()
+	return &prog, nil
+}
+
+// GetProgram surfaces only alive rows. Soft-deleted rows still come
+// back from edit-GET (probe 2026-05-09: DELETE only flips
+// zt_project.deleted=1, the row is not removed) — they are mapped to
+// ErrNotFound so Terraform Read clears state.
+func (c *Client) GetProgram(ctx context.Context, id int64) (*Program, error) {
+	prog, err := c.getProgramRow(ctx, id)
 	if err != nil {
 		return nil, err
 	}
-	return out, nil
+	if prog.Deleted != nil && *prog.Deleted {
+		return nil, ErrNotFound
+	}
+	return prog, nil
 }
 
 func (c *Client) CreateProgram(ctx context.Context, p *Program) (*Program, error) {
 	if p == nil {
 		return nil, fmt.Errorf("CreateProgram: program is nil")
 	}
-	if p.Name == "" {
+	if p.Name == nil {
 		return nil, fmt.Errorf("CreateProgram: name required")
 	}
-	if p.Begin == "" {
+	if p.Begin == nil {
 		return nil, fmt.Errorf("CreateProgram: begin required")
 	}
-	if p.End == "" {
+	if p.End == nil {
 		return nil, fmt.Errorf("CreateProgram: end required")
 	}
-	body, status, err := c.doControllerForm(ctx, "program", "create", nil, nil, programToForm(p))
+	// Restore-on-soft-deleted: when the caller supplies an id (typical
+	// destroy → re-apply with stale Terraform state), replace the row
+	// with caller's input in a single edit POST — toForm always emits
+	// `deleted=0`, so a soft-deleted row flips back to alive in the same
+	// request. ErrNotFound (truly hard-gone) falls through to the
+	// fresh-create path.
+	if p.ID != nil && *p.ID != 0 {
+		// Use getProgramRow (not GetProgram) so a soft-deleted baseline
+		// still drives the M-Z merge — the form's deleted=0 will undelete
+		// the row in the same edit POST.
+		baseline, err := c.getProgramRow(ctx, *p.ID)
+		switch {
+		case err == nil:
+			merged := mergeProgramBaseline(p, baseline)
+			merged.Deleted = boolptr(false)  // Force set to false
+			body, status, err := c.doControllerForm(ctx, "program", "edit", []string{strconv.FormatInt(*p.ID, 10)}, nil, merged.toForm())
+			if err != nil {
+				return nil, err
+			}
+			if status >= 400 {
+				return nil, apiError(status, body)
+			}
+			var resp CtrlSimpleResponse
+			if err := json.Unmarshal(body, &resp); err != nil {
+				return nil, fmt.Errorf("decode program-edit response: %w (body=%s)", err, string(body))
+			}
+			if !resp.IsSuccess() {
+				return nil, classifyCtrlSimple(status, resp, body)
+			}
+			return c.GetProgram(ctx, *p.ID)
+		case errors.Is(err, ErrNotFound):
+			// fall through to fresh create
+		default:
+			return nil, fmt.Errorf("CreateProgram: pre-create lookup id=%d: %w", *p.ID, err)
+		}
+	}
+	body, status, err := c.doControllerForm(ctx, "program", "create", nil, nil, p.toForm())
 	if err != nil {
 		return nil, err
 	}
@@ -204,7 +270,7 @@ func (c *Client) CreateProgram(ctx context.Context, p *Program) (*Program, error
 		ID      json.Number     `json:"id"`
 	}
 	if err := json.Unmarshal(body, &resp); err != nil {
-		return nil, fmt.Errorf("decode create-program: %w (body=%s)", err, string(body))
+		return nil, fmt.Errorf("decode program-create response: %w (body=%s)", err, string(body))
 	}
 	if resp.Result != "success" {
 		var simple CtrlSimpleResponse
@@ -216,7 +282,7 @@ func (c *Client) CreateProgram(ctx context.Context, p *Program) (*Program, error
 		return nil, fmt.Errorf("create program: empty id in response (body=%s)", string(body))
 	}
 	out := *p
-	out.ID = id
+	out.ID = &id
 	return &out, nil
 }
 
@@ -224,15 +290,16 @@ func (c *Client) UpdateProgram(ctx context.Context, p *Program) (*Program, error
 	if p == nil {
 		return nil, fmt.Errorf("UpdateProgram: program is nil")
 	}
-	if p.ID == 0 {
+	if p.ID == nil || *p.ID == 0 {
 		return nil, fmt.Errorf("UpdateProgram: id required")
 	}
-	baseline, err := c.GetProgram(ctx, p.ID)
+	id := *p.ID
+	baseline, err := c.GetProgram(ctx, id)
 	if err != nil {
 		return nil, fmt.Errorf("UpdateProgram: fetch baseline for merge: %w", err)
 	}
 	merged := mergeProgramBaseline(p, baseline)
-	body, status, err := c.doControllerForm(ctx, "program", "edit", []string{strconv.FormatInt(p.ID, 10)}, nil, programToForm(merged))
+	body, status, err := c.doControllerForm(ctx, "program", "edit", []string{strconv.FormatInt(id, 10)}, nil, merged.toForm())
 	if err != nil {
 		return nil, err
 	}
@@ -244,12 +311,12 @@ func (c *Client) UpdateProgram(ctx context.Context, p *Program) (*Program, error
 	}
 	var resp CtrlSimpleResponse
 	if err := json.Unmarshal(body, &resp); err != nil {
-		return nil, fmt.Errorf("decode update-program envelope: %w (body=%s)", err, string(body))
+		return nil, fmt.Errorf("decode program-update response: %w (body=%s)", err, string(body))
 	}
 	if !resp.IsSuccess() {
 		return nil, classifyCtrlSimple(status, resp, body)
 	}
-	return c.GetProgram(ctx, p.ID)
+	return c.GetProgram(ctx, id)
 }
 
 // SetProgramParent attaches childID under parentID, or detaches childID
@@ -259,60 +326,60 @@ func (c *Client) UpdateProgram(ctx context.Context, p *Program) (*Program, error
 //
 // Implementation: fetch the child as baseline, override only the Parent
 // field (the rest of the program-edit form is preserved verbatim — see
-// the M-Z merge note on UpdateProgram), then submit. programToForm
-// always-sets parent so a parentID of 0 actually clears the column.
-func (c *Client) SetProgramParent(ctx context.Context, childID, parentID int64) error {
+// the M-Z merge note on UpdateProgram), then submit.
+func (c *Client) SetProgramParent(ctx context.Context, childID, parentID int64) (*Program, error) {
 	if childID <= 0 {
-		return fmt.Errorf("SetProgramParent: childID must be positive, got %d", childID)
+		return nil, fmt.Errorf("SetProgramParent: childID must be positive, got %d", childID)
 	}
 	if parentID < 0 {
-		return fmt.Errorf("SetProgramParent: parentID cannot be negative, got %d", parentID)
+		return nil, fmt.Errorf("SetProgramParent: parentID cannot be negative, got %d", parentID)
 	}
 	if parentID == childID {
-		return fmt.Errorf("SetProgramParent: %w (self-attach: child=parent=%d)", ErrCycleDetected, childID)
+		return nil, fmt.Errorf("SetProgramParent: %w (self-attach: child=parent=%d)", ErrCycleDetected, childID)
 	}
 	baseline, err := c.GetProgram(ctx, childID)
 	if err != nil {
-		return fmt.Errorf("SetProgramParent: fetch child baseline: %w", err)
+		return nil, fmt.Errorf("SetProgramParent: fetch child baseline: %w", err)
 	}
 	if parentID > 0 {
 		parentRow, err := c.GetProgram(ctx, parentID)
 		if err != nil {
-			return fmt.Errorf("SetProgramParent: fetch parent for cycle check: %w", err)
+			return nil, fmt.Errorf("SetProgramParent: fetch parent for cycle check: %w", err)
 		}
 		// zt_project.path is a comma-bracketed ancestry list, e.g. ",1,5,20,".
 		// If childID appears as a segment in parentRow.Path, the would-be parent
 		// is already a descendant of the child — attaching would form a cycle.
 		childToken := "," + strconv.FormatInt(childID, 10) + ","
-		if strings.Contains(parentRow.Path, childToken) {
-			return fmt.Errorf("SetProgramParent: %w (child=%d is ancestor of parent=%d, parent.path=%q)",
-				ErrCycleDetected, childID, parentID, parentRow.Path)
+		parentPath := derefString(parentRow.Path)
+		if strings.Contains(parentPath, childToken) {
+			return nil, fmt.Errorf("SetProgramParent: %w (child=%d is ancestor of parent=%d, parent.path=%q)",
+				ErrCycleDetected, childID, parentID, parentPath)
 		}
 	}
 	out := *baseline
-	out.Parent = parentID
-	body, status, err := c.doControllerForm(ctx, "program", "edit", []string{strconv.FormatInt(childID, 10)}, nil, programToForm(&out))
+	out.Parent = &parentID
+	body, status, err := c.doControllerForm(ctx, "program", "edit", []string{strconv.FormatInt(childID, 10)}, nil, out.toForm())
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if status == http.StatusNotFound {
-		return ErrNotFound
+		return nil, ErrNotFound
 	}
 	if status >= 400 {
-		return apiError(status, body)
+		return nil, apiError(status, body)
 	}
 	var resp CtrlSimpleResponse
 	if err := json.Unmarshal(body, &resp); err != nil {
-		return fmt.Errorf("decode set-program-parent envelope: %w (body=%s)", err, string(body))
+		return nil, fmt.Errorf("decode set-program-parent envelope: %w (body=%s)", err, string(body))
 	}
 	if !resp.IsSuccess() {
-		return classifyCtrlSimple(status, resp, body)
+		return nil, classifyCtrlSimple(status, resp, body)
 	}
-	return nil
+	return c.GetProgram(ctx, childID)
 }
 
-func (c *Client) DeleteProgram(ctx context.Context, id int) error {
-	body, status, err := c.doController(ctx, "program", "delete", []string{strconv.Itoa(id), "yes"}, nil, nil)
+func (c *Client) DeleteProgram(ctx context.Context, id int64) error {
+	body, status, err := c.doController(ctx, "program", "delete", []string{strconv.FormatInt(id, 10), "yes"}, nil, nil)
 	if err != nil {
 		return err
 	}
@@ -324,7 +391,7 @@ func (c *Client) DeleteProgram(ctx context.Context, id int) error {
 	}
 	var resp CtrlSimpleResponse
 	if err := json.Unmarshal(body, &resp); err != nil {
-		return fmt.Errorf("decode delete-program envelope: %w (body=%s)", err, string(body))
+		return fmt.Errorf("decode program-delete response: %w (body=%s)", err, string(body))
 	}
 	if resp.IsSuccess() {
 		return nil

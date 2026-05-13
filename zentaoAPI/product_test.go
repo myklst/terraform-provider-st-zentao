@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
@@ -591,5 +592,128 @@ func TestFlexibleStringList_Unmarshal(t *testing.T) {
 				t.Fatalf("got %v want %v", []string(got), tc.want)
 			}
 		})
+	}
+}
+
+// --- Restore-on-soft-deleted (CreateProduct with caller-supplied id) ---
+//
+// Simplified per SKILL.md §6a-bis: when p.ID != 0 the wrapper does a
+// single edit POST with merged input + deleted=0 (no separate undelete
+// call, no preflight name-compare). ErrNotFound on the baseline lookup
+// falls through to a fresh create.
+
+type productReplaceMock struct {
+	views, posts int
+	postBody     string
+	getResponse  string // returned from every product-view GET
+	t            *testing.T
+}
+
+func (m *productReplaceMock) handler(id int64) http.HandlerFunc {
+	viewPath := fmt.Sprintf("/product-view-%d.json", id)
+	editPath := fmt.Sprintf("/product-edit-%d.json", id)
+	return func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == viewPath:
+			m.views++
+			_, _ = w.Write([]byte(m.getResponse))
+		case r.Method == http.MethodPost && r.URL.Path == editPath:
+			m.posts++
+			buf := make([]byte, 4096)
+			n, _ := r.Body.Read(buf)
+			m.postBody = string(buf[:n])
+			_, _ = w.Write([]byte(`{"result":"success","message":"保存成功","locate":"/product-browse.json"}`))
+		default:
+			m.t.Errorf("unexpected request %s %s", r.Method, r.URL.Path)
+			w.WriteHeader(http.StatusInternalServerError)
+		}
+	}
+}
+
+func TestCreateProduct_RestoreOnSoftDeleted_HappyPath(t *testing.T) {
+	mock := &productReplaceMock{
+		t: t,
+		// Same response for both views (Any baseline + post-replace refetch);
+		// stub returns deleted=0 to simulate the post-restore state.
+		getResponse: `{"status":"success","data":"{\"product\":{\"id\":42,\"program\":7,\"name\":\"Alpha\",\"code\":\"alpha\",\"type\":\"normal\",\"status\":\"normal\",\"desc\":\"old\",\"acl\":\"private\",\"PO\":\"po\",\"QD\":\"qd\",\"RD\":\"rd\",\"reviewer\":\"r1,r2\",\"groups\":\"\",\"whitelist\":\"\",\"createdBy\":\"admin\",\"createdDate\":\"2026-05-03 10:00:00\",\"deleted\":0}}"}`,
+	}
+	srv := httptest.NewServer(mock.handler(42))
+	defer srv.Close()
+
+	c := newTestClient(t, "tok-1", srv.URL)
+	in := &Product{ID: 42, Name: "Alpha", Desc: "fresh"}
+	out, err := c.CreateProduct(context.Background(), in)
+	if err != nil {
+		t.Fatalf("CreateProduct: %v", err)
+	}
+	if out.ID != 42 {
+		t.Fatalf("returned id = %d, want 42 (id preserved across restore)", out.ID)
+	}
+	if mock.posts != 1 {
+		t.Fatalf("edit POSTs = %d, want 1", mock.posts)
+	}
+	if mock.views != 2 {
+		t.Fatalf("view GETs = %d, want 2 (Any-baseline + refetch)", mock.views)
+	}
+	for _, want := range []string{"name=Alpha", "desc=fresh", "PO=po", "acl=private", "deleted=0"} {
+		if !strings.Contains(mock.postBody, want) {
+			t.Errorf("POST body missing %q: %s", want, mock.postBody)
+		}
+	}
+}
+
+func TestCreateProduct_RestoreOnSoftDeleted_NotFound_FallsThroughToCreate(t *testing.T) {
+	var preflights, creates, refetches int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/product-view-42.json":
+			preflights++
+			_, _ = w.Write([]byte(`{"result":"success","load":{"alert":"对象不存在！","locate":"/zentao/product-all.json"}}`))
+		case r.Method == http.MethodPost && r.URL.Path == "/product-create.json":
+			creates++
+			_, _ = w.Write([]byte(`{"result":"success","message":"保存成功","id":99}`))
+		case r.Method == http.MethodGet && r.URL.Path == "/product-view-99.json":
+			refetches++
+			_, _ = w.Write([]byte(`{"status":"success","data":"{\"product\":{\"id\":99,\"name\":\"Alpha\",\"deleted\":0}}"}`))
+		default:
+			t.Errorf("unexpected request %s %s", r.Method, r.URL.Path)
+			w.WriteHeader(http.StatusInternalServerError)
+		}
+	}))
+	defer srv.Close()
+
+	c := newTestClient(t, "tok-1", srv.URL)
+	out, err := c.CreateProduct(context.Background(), &Product{ID: 42, Name: "Alpha"})
+	if err != nil {
+		t.Fatalf("CreateProduct: %v", err)
+	}
+	if preflights != 1 || creates != 1 || refetches != 1 {
+		t.Fatalf("preflights=%d creates=%d refetches=%d, want 1/1/1", preflights, creates, refetches)
+	}
+	if out.ID != 99 {
+		t.Fatalf("returned id = %d, want 99 (fresh server-assigned)", out.ID)
+	}
+}
+
+func TestCreateProduct_RestoreOnSoftDeleted_AliveRow_Replaces(t *testing.T) {
+	mock := &productReplaceMock{
+		t:           t,
+		getResponse: `{"status":"success","data":"{\"product\":{\"id\":42,\"name\":\"Alpha\",\"desc\":\"old\",\"deleted\":0}}"}`,
+	}
+	srv := httptest.NewServer(mock.handler(42))
+	defer srv.Close()
+
+	c := newTestClient(t, "tok-1", srv.URL)
+	out, err := c.CreateProduct(context.Background(), &Product{ID: 42, Name: "Alpha", Desc: "overwrite"})
+	if err != nil {
+		t.Fatalf("CreateProduct: %v", err)
+	}
+	if out.ID != 42 || mock.posts != 1 {
+		t.Fatalf("out.ID=%d posts=%d, want 42/1", out.ID, mock.posts)
+	}
+	if !strings.Contains(mock.postBody, "desc=overwrite") || !strings.Contains(mock.postBody, "deleted=0") {
+		t.Errorf("POST body missing override or deleted=0: %s", mock.postBody)
 	}
 }

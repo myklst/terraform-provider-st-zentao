@@ -135,7 +135,8 @@ func (r *programParentAttachmentResource) Create(ctx context.Context, req resour
 		resp.Diagnostics.AddError("Read child program failed", err.Error())
 		return
 	}
-	switch current.Parent {
+	currentParent := derefInt64(current.Parent)
+	switch currentParent {
 	case 0:
 		// first attachment — proceed
 	case parent:
@@ -147,11 +148,11 @@ func (r *programParentAttachmentResource) Create(ctx context.Context, req resour
 		resp.Diagnostics.AddError(
 			"Child program already has a different parent",
 			fmt.Sprintf("program %d is currently attached to %d, plan wants %d. Run `terraform import st-zentao_program_parent_attachment.<name> %d` to adopt the existing attachment, then re-plan.",
-				child, current.Parent, parent, child),
+				child, currentParent, parent, child),
 		)
 		return
 	}
-	if err := r.client.SetProgramParent(ctx, child, parent); err != nil {
+	if _, err := r.client.SetProgramParent(ctx, child, parent); err != nil {
 		resp.Diagnostics.AddError("Set program parent failed", err.Error())
 		return
 	}
@@ -179,7 +180,8 @@ func (r *programParentAttachmentResource) Read(ctx context.Context, req resource
 		resp.Diagnostics.AddError("Read child program failed", err.Error())
 		return
 	}
-	if fetched.Parent == 0 {
+	fetchedParent := derefInt64(fetched.Parent)
+	if fetchedParent == 0 {
 		// out-of-band detach — drop the attachment from state
 		resp.State.RemoveResource(ctx)
 		return
@@ -187,7 +189,7 @@ func (r *programParentAttachmentResource) Read(ctx context.Context, req resource
 	out := programParentAttachmentResourceModel{
 		ID:      types.StringValue(strconv.FormatInt(child, 10)),
 		Program: types.StringValue(strconv.FormatInt(child, 10)),
-		Parent:  types.StringValue(strconv.FormatInt(fetched.Parent, 10)),
+		Parent:  types.StringValue(strconv.FormatInt(fetchedParent, 10)),
 	}
 	resp.Diagnostics.Append(resp.State.Set(ctx, out)...)
 }
@@ -202,7 +204,7 @@ func (r *programParentAttachmentResource) Update(ctx context.Context, req resour
 	if !ok {
 		return
 	}
-	if err := r.client.SetProgramParent(ctx, child, parent); err != nil {
+	if _, err := r.client.SetProgramParent(ctx, child, parent); err != nil {
 		resp.Diagnostics.AddError("Set program parent failed", err.Error())
 		return
 	}
@@ -221,7 +223,7 @@ func (r *programParentAttachmentResource) Delete(ctx context.Context, req resour
 		resp.Diagnostics.AddError("Invalid program id in state", prior.Program.ValueString())
 		return
 	}
-	if err := r.client.SetProgramParent(ctx, child, 0); err != nil {
+	if _, err := r.client.SetProgramParent(ctx, child, 0); err != nil {
 		if errors.Is(err, zentaoapi.ErrNotFound) {
 			return
 		}

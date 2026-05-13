@@ -3,6 +3,7 @@ package zentaoapi
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -128,17 +129,6 @@ func (w productCtrlWire) toProduct() (*Product, error) {
 	}, nil
 }
 
-func jsonNumberToInt64(n json.Number, field string) (int64, error) {
-	if n == "" {
-		return 0, nil
-	}
-	v, err := n.Int64()
-	if err != nil {
-		return 0, fmt.Errorf("decode %s %q: %w", field, n.String(), err)
-	}
-	return v, nil
-}
-
 // productViewInner mirrors the inner JSON-encoded payload of
 // product-view-{id}.json. The view route returns ~12 sibling sections
 // (title, products, workflowGroups, actions, dynamics, users, groups,
@@ -155,6 +145,11 @@ type productViewInner struct {
 //
 // Multi-value fields use `name[]=v1&name[]=v2` so PHP parses them as an
 // array; the server's filter:join then stores them comma-joined.
+//
+// `deleted=0` is emitted unconditionally so a single edit POST drives
+// the restore-on-soft-deleted path (CreateProduct with caller-supplied
+// id): if the row was deleted=1, this flips it back; if alive, it's a
+// no-op. Form.php acceptance of `deleted` is integration-test-verified.
 func productToForm(p *Product) url.Values {
 	form := url.Values{}
 	form.Set("name", p.Name)
@@ -167,6 +162,7 @@ func productToForm(p *Product) url.Values {
 	form.Set("status", p.Status)
 	form.Set("desc", p.Desc)
 	form.Set("acl", p.ACL)
+	form.Set("deleted", "0")
 	addMulti(form, "reviewer", p.Reviewer)
 	addMulti(form, "groups", p.Groups)
 	addMulti(form, "whitelist", p.Whitelist)
@@ -242,32 +238,27 @@ func productDeletePath(id int64) string {
 	return controllerPath("product", "delete", []string{strconv.FormatInt(id, 10)})
 }
 
-// GetProduct reads via product-view-{id}.json. The view route returns
-// two envelope shapes:
-//
-//  1. Existing id → CtrlEnvelope with `status:success` and a JSON-encoded
-//     `data` string carrying the product row.
-//  2. Missing id → CtrlSimpleResponse-like reply with `result:success`
-//     and `load.alert` containing "对象不存在！" (no `data` field).
-//
-// We sniff the discriminator on `status` vs `result` and dispatch.
-// Soft-deleted rows (`deleted=1`) come back from view in shape #1 and
-// must be surfaced as ErrNotFound so Terraform Read clears state.
+// getProductRow is the shared decode pipeline for product-view-{id} GET.
+// It handles both response shapes (status/data for hits, result/load.alert
+// for misses) and returns the row plus the wire `deleted` flag so
+// callers can decide policy: GetProduct collapses deleted=1 into
+// ErrNotFound for Terraform-Read; the Create restore path keeps the row
+// to drive its M-Z merge baseline.
 //
 // product-view returns 10 derived fields (programName, progress, bugs,
 // stories, etc.) on top of the form.php-writable set; productCtrlWire
-// intentionally ignores them — the wrapper exposes only fields that are
-// either user-set or write-relevant for the M-Z merge.
-func (c *Client) GetProduct(ctx context.Context, id int64) (*Product, error) {
+// intentionally ignores them — only user-set or write-relevant columns
+// surface.
+func (c *Client) getProductRow(ctx context.Context, id int64) (*Product, bool, error) {
 	body, status, err := c.doController(ctx, "product", "view", []string{strconv.FormatInt(id, 10)}, nil, nil)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	if status == http.StatusNotFound {
-		return nil, ErrNotFound
+		return nil, false, ErrNotFound
 	}
 	if status >= 400 {
-		return nil, apiError(status, body)
+		return nil, false, apiError(status, body)
 	}
 	var probe struct {
 		Status string          `json:"status"`
@@ -275,35 +266,51 @@ func (c *Client) GetProduct(ctx context.Context, id int64) (*Product, error) {
 		Result string          `json:"result"`
 	}
 	if err := json.Unmarshal(body, &probe); err != nil {
-		return nil, fmt.Errorf("decode get-product probe: %w (body=%s)", err, string(body))
+		return nil, false, fmt.Errorf("decode get-product probe: %w (body=%s)", err, string(body))
 	}
 	// Missing-id shape: {"result":"success","load":{"alert":"...对象不存在...","locate":"..."}}.
 	// status absent + no data string → not-found.
 	if probe.Status == "" && len(probe.Data) == 0 {
-		return nil, ErrNotFound
+		return nil, false, ErrNotFound
 	}
-	var env CtrlEnvelope
+	var env CtrlResp
 	if err := json.Unmarshal(body, &env); err != nil {
-		return nil, fmt.Errorf("decode get-product envelope: %w (body=%s)", err, string(body))
+		return nil, false, fmt.Errorf("decode get-product envelope: %w (body=%s)", err, string(body))
 	}
 	if env.Status != "success" {
-		return nil, classifyCtrlError(status, env, body)
+		return nil, false, classifyCtrlError(status, env, body)
 	}
 	var inner productViewInner
-	if err := DecodeData(env, &inner); err != nil {
-		return nil, fmt.Errorf("decode get-product data: %w (body=%s)", err, string(body))
+	if err := env.DecodeData(&inner); err != nil {
+		return nil, false, fmt.Errorf("decode get-product data: %w (body=%s)", err, string(body))
 	}
 	if len(inner.Product) == 0 || string(inner.Product) == "null" || string(inner.Product) == "false" {
-		return nil, ErrNotFound
+		return nil, false, ErrNotFound
 	}
 	var wire productCtrlWire
 	if err := json.Unmarshal(inner.Product, &wire); err != nil {
-		return nil, fmt.Errorf("decode get-product wire: %w (body=%s)", err, string(body))
+		return nil, false, fmt.Errorf("decode get-product wire: %w (body=%s)", err, string(body))
 	}
-	if wire.Deleted.String() == "1" {
+	prod, err := wire.toProduct()
+	if err != nil {
+		return nil, false, err
+	}
+	return prod, wire.Deleted.String() == "1", nil
+}
+
+// GetProduct reads via product-view-{id}.json and surfaces only alive
+// rows. Soft-deleted rows (`deleted=1`) come back from view verbatim
+// (probe 2026-05-10) and are mapped to ErrNotFound so Terraform Read
+// clears state.
+func (c *Client) GetProduct(ctx context.Context, id int64) (*Product, error) {
+	prod, deleted, err := c.getProductRow(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if deleted {
 		return nil, ErrNotFound
 	}
-	return wire.toProduct()
+	return prod, nil
 }
 
 // CreateProduct posts a form to product-create.json. The response echoes
@@ -316,6 +323,36 @@ func (c *Client) CreateProduct(ctx context.Context, p *Product) (*Product, error
 	}
 	if p.Name == "" {
 		return nil, fmt.Errorf("CreateProduct: name required")
+	}
+	// Restore-on-soft-deleted: see CreateProgram + SKILL.md §6a-bis.
+	if p.ID != 0 {
+		// Use getProductRow (not GetProduct) so a soft-deleted baseline
+		// still drives the M-Z merge — the form's deleted=0 will undelete
+		// the row in the same edit POST.
+		baseline, _, err := c.getProductRow(ctx, p.ID)
+		switch {
+		case err == nil:
+			merged := mergeProductBaseline(p, baseline)
+			body, status, err := c.doControllerForm(ctx, "product", "edit", []string{strconv.FormatInt(p.ID, 10)}, nil, productToForm(merged))
+			if err != nil {
+				return nil, err
+			}
+			if status >= 400 {
+				return nil, apiError(status, body)
+			}
+			var resp CtrlSimpleResponse
+			if err := json.Unmarshal(body, &resp); err != nil {
+				return nil, fmt.Errorf("decode replace-product envelope: %w (body=%s)", err, string(body))
+			}
+			if !resp.IsSuccess() {
+				return nil, classifyCtrlSimple(status, resp, body)
+			}
+			return c.GetProduct(ctx, p.ID)
+		case errors.Is(err, ErrNotFound):
+			// fall through to fresh create
+		default:
+			return nil, fmt.Errorf("CreateProduct: pre-create lookup id=%d: %w", p.ID, err)
+		}
 	}
 	body, status, err := c.doControllerForm(ctx, "product", "create", nil, nil, productToForm(p))
 	if err != nil {

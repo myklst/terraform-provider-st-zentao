@@ -93,7 +93,7 @@ func (c *Client) GetGroup(ctx context.Context, id int64) (*Group, error) {
 	if status >= 400 {
 		return nil, apiError(status, body)
 	}
-	var env CtrlEnvelope
+	var env CtrlResp
 	if err := json.Unmarshal(body, &env); err != nil {
 		return nil, fmt.Errorf("decode get-group envelope: %w (body=%s)", err, string(body))
 	}
@@ -101,7 +101,7 @@ func (c *Client) GetGroup(ctx context.Context, id int64) (*Group, error) {
 		return nil, classifyCtrlError(status, env, body)
 	}
 	var inner groupEditInner
-	if err := DecodeData(env, &inner); err != nil {
+	if err := env.DecodeData(&inner); err != nil {
 		return nil, fmt.Errorf("decode get-group data: %w (body=%s)", err, string(body))
 	}
 	if len(inner.Group) == 0 || string(inner.Group) == "null" || string(inner.Group) == "false" {
@@ -190,7 +190,7 @@ func (c *Client) findGroupIDByName(ctx context.Context, projectID int64, name st
 	if status >= 400 {
 		return 0, apiError(status, body)
 	}
-	var env CtrlEnvelope
+	var env CtrlResp
 	if err := json.Unmarshal(body, &env); err != nil {
 		return 0, fmt.Errorf("decode list-group envelope: %w (body=%s)", err, string(body))
 	}
@@ -198,7 +198,7 @@ func (c *Client) findGroupIDByName(ctx context.Context, projectID int64, name st
 		return 0, classifyCtrlError(status, env, body)
 	}
 	var inner groupListInner
-	if err := DecodeData(env, &inner); err != nil {
+	if err := env.DecodeData(&inner); err != nil {
 		return 0, fmt.Errorf("decode list-group data: %w (body=%s)", err, string(body))
 	}
 	for _, w := range inner.Groups {

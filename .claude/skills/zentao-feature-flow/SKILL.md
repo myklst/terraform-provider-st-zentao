@@ -10,12 +10,12 @@ Add a new ZenTao entity (resource + data source) end-to-end. Skipping any phase 
 ## Hard rules (non-negotiable)
 
 - **Never commit on `main`.** Cut `feat/<topic>` first, before any working-tree change.
-- **Probe before assuming.** ZenTao V2 docs routinely omit server-required fields and lie about envelope shapes.
+- **Probe before assuming.** ZenTao V2 docs routinely omit server-required fields and lie about response shapes.
 - **Spec is the source of truth.** Code contradicting the spec is wrong. Update spec **first**, then code.
 - **No premature design.** No `force_destroy`, no fallback transports, no abstractions "for later."
 - **TF attribute names mirror ZenTao wire names.** `desc` stays `desc` (not `description`); same for `PM`/`PO`/`QD`/`RD`/`acl`/`multiple`. Only acceptable rename: when ZenTao uses two names for the same field (e.g. wire `parent` / docs `program`); pick the user-facing concept and document the wire mapping in the schema description.
-- **Read `module/<entity>/config/form.php` upstream before any controller-transport wrapper.** Authoritative field list + `required` flags for PATH_INFO routes — much more reliable than V2 docs or controller PHP body. Reference: `https://github.com/easysoft/zentaopms/blob/main/module/<entity>/config/form.php`. Probe still wins; form.php is the cheapest first-pass.
-- **User-facing text is minimal; technical detail lives only in this SKILL.** Schema `Description`, README, `examples/*.tf` comments, `make generate-docs` output describe **what + how to use** — not implementation. Banned from user-facing surfaces: probe dates/filenames, upstream PHP refs, wire-shape language ("V2 echoes ~24 fields"), transport-name jargon ("Controller transport"), "server-managed" footnotes (just mark Computed), and rationale. All of that lives only here + `docs/superpowers/specs/probe-*.md`. Go comments same diet — at most one line of *why-this-is-non-obvious* per declaration; cut multi-paragraph doc-comments. README "Resources" stays "example + brief attribute summary."
+- **Transport-specific rules live in companion files.** This SKILL.md covers the phases and the transport-orthogonal patterns. For the API-client template, see one of: [apiv1-transport.md](apiv1-transport.md), [apiv2-transport.md](apiv2-transport.md), [controller-transport.md](controller-transport.md). The `form.php` upstream-read rule, the pointer-field model, and the M-Z merge sit in controller-transport.md because they're forced by controller's form-edit semantics.
+- **User-facing text is minimal; technical detail lives only in this SKILL.** Schema `Description`, README, `examples/*.tf` comments, `make generate-docs` output describe **what + how to use** — not implementation. Banned from user-facing surfaces: probe dates/filenames, upstream PHP refs, wire-shape language ("V2 echoes ~24 fields"), transport-name jargon ("Controller transport"), "server-managed" footnotes (just mark Computed), and rationale. All of that lives only here + the transport files + `docs/superpowers/specs/probe-*.md`. Go comments same diet — at most one line of *why-this-is-non-obvious* per declaration; cut multi-paragraph doc-comments. README "Resources" stays "example + brief attribute summary."
 
 ## The 7 phases
 
@@ -74,34 +74,27 @@ Highest-leverage phase. **Skipping ships bugs.**
 
 ### Probe execution
 
-```bash
-direnv exec . bash -c '
-SID=$(curl -sS -X POST "$ZENTAO_URL/api.php/v1/tokens" \
-  -H "Content-Type: application/json" \
-  -d "{\"account\":\"$ZENTAO_ACCOUNT\",\"password\":\"$ZENTAO_PASSWORD\"}" | jq -r .token)
+Probe URL forms and per-transport checklists live in the transport docs:
+- V1 - [apiv1-transport.md](apiv1-transport.md)
+- V2 — [apiv2-transport.md § Probe execution](apiv2-transport.md#probe-execution).
+- Controller — [controller-transport.md § Probe execution](controller-transport.md#probe-execution); also reads `module/<entity>/config/form.php` upstream **first** (hard rule lives there).
 
-curl -sS "$ZENTAO_URL/api.php/v2/<endpoint>" -H "Token: $SID" | jq .
-'
-```
-
-**Before any controller probe**, fetch upstream `module/<entity>/config/form.php` to enumerate accepted keys + required flags. Cross-check `module/<entity>/model.php` for extra required-field validators that contradict the form (model layer sometimes adds/drops requireds — e.g. `products` on project create is optional in form.php).
-
-Standard probe checklist:
-1. Single GET exists? (`GET /api.php/v2/<entity>/{id}` — often undocumented but works)
+Transport-agnostic probe heuristics:
+1. Single GET exists? (Often undocumented but works.)
 2. POST without optional fields — server defaults?
 3. Each enum value — which pass server validation?
-4. PUT mutability of Required fields — actually mutates, or silently ignored?
-5. DELETE existing → DELETE again — missing-row response?
-6. GET on missing/deleted — HTTP 404 or HTTP 200 + envelope-fail?
-7. Required-but-undocumented fields — POST minimum, capture errors.
-8. Wire field names — TF `program` may be wire `parent`. Document mapping.
+4. Mutation verb (V2 PUT / controller edit-POST) mutability of Required fields.
+5. DELETE existing → DELETE again — missing-row response shape?
+6. GET on missing/deleted — HTTP 404, HTTP 200 + envelope-fail, or `false` payload?
+7. Required-but-undocumented fields — POST a minimum body, capture errors.
+8. Wire field names vs TF-facing names. Document mapping.
 
 ### Spec format
 
 Output: `docs/superpowers/specs/probe-<entity>-v2.md`. Sections:
 - Endpoint summary (which work, which don't, gotchas).
 - Required vs Optional fields on POST and PUT separately (PUT often more permissive).
-- Response envelope shapes for success / fail / missing on each verb (verbatim JSON).
+- Response response shapes for success / fail / missing on each verb (verbatim JSON).
 - Full GET-shape field set (truncate internals you don't surface; keep every exposed field).
 - Reconciliation table mapping plan decisions to probe verdicts.
 - Implementation notes for code (decoder peculiarities, defensive checks).
@@ -134,34 +127,49 @@ Probes commonly surface:
 
 ### 6a. zentaoAPI client (TDD, sequential)
 
-Files: `zentaoAPI/<entity>.go` + `_test.go`. Mirror [zentaoAPI/product.go](../../../zentaoAPI/product.go):
-- Public struct with `json:` tags split writeable (no `-`) vs server-managed (`json:"-"`).
-- Wire struct (`<entity>V2Wire`) using `json.Number` for every numeric/FK column.
-- `<entity>sPath` const = `apiV2PathPrefix + "<entity>s"`.
-- `<entity>Path(id int)` builder.
-- `Get/Create/Update/Delete<Entity>` mirroring product.
+Files: `zentaoAPI/<entity>.go` + `_test.go`. Pick the template by transport — the transport choice falls out of the Phase 4 probe (does V2 cover the entity? does its GET echo every column you need?).
 
-Probe-surfaced deltas in this layer:
-- Force-set `type:"<entity>"` on shared tables (`zt_project`).
-- Return `ErrNotFound` on type-mismatch (defensive).
-- Decode `result`-keyed validation envelopes.
-- Splice non-echoed fields from caller input (e.g. `products` not in V2 GET).
+| Transport | When | Template |
+|---|---|---|
+| **V2 RESTful** | V2 covers GET/POST/PUT/DELETE and the GET echoes the full row | [apiv2-transport.md](apiv2-transport.md) — reference `zentaoAPI/product.go` |
+| **Controller (PATH_INFO)** | V2 missing, truncated, or the entity needs PATH_INFO-only verbs (`undelete`, role binding) | [controller-transport.md](controller-transport.md) — reference `zentaoAPI/program.go` |
+| **V1** | Endpoint genuinely lives only at `/api.php/v1/...` (rare on Max 8.x) | [apiv1-transport.md](apiv1-transport.md) |
 
-Minimum tests:
-- `Get_FullFieldSet` — every surfaced field decoded from probe-shaped response.
-- `Get_NotFound_HTTP404` AND `Get_NotFound_DoesNotExistMessage`.
-- `Get_TypeMismatchIsErrNotFound` — when applicable.
-- `Create_BodyShape` — required present, server-managed stripped, `type` force-set.
-- `Create_FailEnvelope_StatusKey` AND `Create_FailEnvelope_ResultKey`.
-- `Update_PutPathAndRefetch`.
-- `Update_NotFound_HTTP404` AND `Update_NotFound_FailEnvelope`.
-- `Delete_Success`, `_HTTP404IsIdempotent`, `_NotExistMessageIsIdempotent`, `_OtherFailure`.
+The transport doc covers struct shape, path constants (or lack thereof), envelope decoding, minimum-test grid, and probe checklist. Run `go test -race` + `golangci-lint` after each test, regardless of transport.
 
-After each test:
-```bash
-go test -race ./zentaoAPI/...
-golangci-lint run ./zentaoAPI/...
-```
+### 6a-bis. Create with restore-on-soft-deleted
+
+**Pattern.** ZenTao soft-deletes (sets `zt_project.deleted=1` / `zt_product.deleted=1`) instead of removing rows. When a `terraform destroy` → `terraform apply` cycle re-uses the same name and the user's stale state still carries the original id, a fresh `Create` POST collides on the unique key — or worse, succeeds with a different id while the original row stays as orphan trash.
+
+**Resolution rule (project SOP, simplified form).** Every Create wrapper in `zentaoAPI/` MUST:
+
+1. Accept caller-supplied `p.ID`. Zero means "no prior state, fresh create".
+2. When `p.ID != 0`:
+   - Fetch baseline via the **private unfiltered-lookup** variant (the one that does NOT collapse `deleted=1` into `ErrNotFound`; public `Get<Entity>` keeps that contract for Terraform-Read consumers). For controller-backed entities the convention is `get<Entity>Row` — see [controller-transport.md § Soft-delete baseline lookup](controller-transport.md#soft-delete-baseline-lookup).
+   - On `ErrNotFound` → row is hard-gone; fall through to the fresh-create POST. Caller's id is ignored.
+   - Otherwise → run the M-Z merge against baseline and issue **one** edit POST. The form **always carries `deleted=0`** (set unconditionally inside `<entity>ToForm`), so the edit POST is restorative on soft-deleted rows and a no-op on the deleted column for alive rows. Refetch via `Get<Entity>` and return.
+3. When `p.ID == 0`, skip the lookup and run the create POST.
+
+**Deliberate non-features.**
+
+- **No name comparison.** The wrapper trusts that an id supplied in stale TF state belongs to the user — Terraform owns the state, not us. Adding a `name` cross-check is a layer-violation fix for a layer-3 (state-corruption) problem.
+- **No alive-collision rejection.** A `p.ID != 0` create against an alive row is treated as a replace (M-Z merge applied verbatim). The user's prior message established this contract: "直接基于 Input replace + Set deleted = 0 即可."
+- **No separate undelete route.** The restore is folded into the same edit POST via the `deleted=0` form key — one round trip, no `<entity>-undelete-{id}.json` call.
+
+**Why ID-only and not name-based lookup.** Finding by name across both alive + soft-deleted rows needs a list endpoint that doesn't filter on deleted (the standard `<entity>-browse` does). That requires a separate probe + admin permission. The id-based path is sufficient for the common destroy/re-apply cycle and avoids cross-environment data-takeover hazards.
+
+**Form acceptance assumption.** Whether ZenTao's `module/<entity>/config/form.php` actually accepts `deleted` as a writable column is **not yet probe-verified for `program` / `product`**. If the form silently ignores it, soft-deleted rows will go through the merge POST without flipping `deleted=0`, and the post-replace `Get<Entity>` refetch will return `ErrNotFound`. Integration tests (`TF_ACC=1`) are the verification gate; on failure, switch the implementation to the explicit two-step path (`<entity>-undelete-{id}.json` + `<entity>-edit-{id}` POST) and update this SOP.
+
+**Test grid (mandatory).** Each Create wrapper test file MUST cover:
+
+| `p.ID` | Baseline lookup | Expected outcome |
+|---|---|---|
+| `0` | not issued | normal create POST → returned id from envelope (covered by existing `BodyShape` test) |
+| `!=0` | `ErrNotFound` | fresh create POST issued, caller's id ignored |
+| `!=0` | row returned (`deleted=1` baseline stub) | one edit POST with merged input + `deleted=0`, then refetch; returned id preserved |
+| `!=0` | row returned (`deleted=0` baseline stub) | same path; verifies the alive-row case is treated as replace, not error |
+
+**Signature note.** Internally surfacing the deleted state via the unfiltered-lookup variant does NOT change the public `Get<Entity>` contract — keep it returning `ErrNotFound` on `deleted=1` so Terraform-Read still clears state cleanly. The unfiltered variant is private and used only by the Create restore path's baseline fetch. Concrete naming + signature for controller-backed entities: [controller-transport.md § Soft-delete baseline lookup](controller-transport.md#soft-delete-baseline-lookup).
 
 ### 6b. Terraform layer (parallel, post 6a)
 
@@ -284,10 +292,11 @@ Use `gh` if available. PR body must include: 3-bullet summary; spec + plan point
 - "Docs say X, so X." → Probe first.
 - "Handle missing-products in resource layer." → Probe surfaces required fields → Required TF attrs. Don't paper over server invariants.
 - "Reuse `doRequest` for V1+V2+Controller." → Per CLAUDE.md, transports are split intentionally.
-- "Probe controller directly to figure out fields." → Read `form.php` first. Probe second.
+- "Probe controller directly to figure out fields." → Read `form.php` first ([controller-transport.md § Hard rule](controller-transport.md#hard-rule)). Probe second.
 - "TF attribute `description` for clarity." → No. Wire `desc` → TF `desc`.
 - "Commit while agents finish." → All green first.
 - "Skip acc test, units are enough." → Acc proves wire shape matches reality.
+- "Use product.go's wire struct shape for program / user / group." → No. Pick the template by transport — see §6a dispatcher.
 
 ## Quick reference
 

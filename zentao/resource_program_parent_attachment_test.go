@@ -237,7 +237,8 @@ resource "st-zentao_program_parent_attachment" "att" {
 					if err != nil {
 						return err
 					}
-					return c.SetProgramParent(context.Background(), child, 0)
+					_, err = c.SetProgramParent(context.Background(), child, 0)
+					return err
 				},
 				ExpectNonEmptyPlan: true,
 			},

@@ -157,7 +157,11 @@ func (r *programResource) Create(ctx context.Context, req resource.CreateRequest
 		resp.Diagnostics.AddError("Create program failed", err.Error())
 		return
 	}
-	fetched, err := r.client.GetProgram(ctx, created.ID)
+	if created.ID == nil {
+		resp.Diagnostics.AddError("Create program failed", "server returned no id")
+		return
+	}
+	fetched, err := r.client.GetProgram(ctx, *created.ID)
 	if err != nil {
 		resp.Diagnostics.AddError("Re-fetch after create failed", err.Error())
 		return
@@ -201,7 +205,7 @@ func (r *programResource) Update(ctx context.Context, req resource.UpdateRequest
 		return
 	}
 	apiInput := plan.toAPI()
-	apiInput.ID = id
+	apiInput.ID = &id
 	updated, err := r.client.UpdateProgram(ctx, apiInput)
 	if err != nil {
 		resp.Diagnostics.AddError("Update program failed", err.Error())
@@ -216,7 +220,7 @@ func (r *programResource) Delete(ctx context.Context, req resource.DeleteRequest
 	if resp.Diagnostics.HasError() {
 		return
 	}
-	id, err := strconv.Atoi(prior.ID.ValueString())
+	id, err := strconv.ParseInt(prior.ID.ValueString(), 10, 64)
 	if err != nil {
 		resp.Diagnostics.AddError("Invalid id in state", err.Error())
 		return
@@ -225,6 +229,13 @@ func (r *programResource) Delete(ctx context.Context, req resource.DeleteRequest
 		resp.Diagnostics.AddError("Delete program failed", err.Error())
 		return
 	}
+	// Update state
+	fetched, err := r.client.GetProgram(ctx, id)
+	if err != nil {
+		resp.Diagnostics.AddError("Re-fetch after delete failed "+strconv.FormatInt(id, 10), err.Error())
+		return
+	}
+	resp.Diagnostics.Append(resp.State.Set(ctx, programFromAPI(fetched))...)
 }
 
 func (r *programResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
@@ -233,35 +244,34 @@ func (r *programResource) ImportState(ctx context.Context, req resource.ImportSt
 
 func (m *programResourceModel) toAPI() *zentaoapi.Program {
 	// Parent is intentionally omitted — the attachment resource owns it.
-	// UpdateProgram's M-Z merge preserves the column when input.Parent == 0.
+	// UpdateProgram's M-Z merge preserves the column when input.Parent is nil.
 	return &zentaoapi.Program{
-		Parent:     m.Parent.ValueInt64(),
-		Name:       m.Name.ValueString(),
-		PM:         m.PM.ValueString(),
-		Budget:     m.Budget.ValueString(),
-		BudgetUnit: m.BudgetUnit.ValueString(),
-		Begin:      m.Begin.ValueString(),
-		End:        m.End.ValueString(),
-		Desc:       m.Desc.ValueString(),
-		Status:     m.Status.ValueString(),
-		ACL:        m.ACL.ValueString(),
-		Whitelist:  m.Whitelist.ValueString(),
+		Name:       optString(m.Name),
+		PM:         optString(m.PM),
+		Budget:     optString(m.Budget),
+		BudgetUnit: optString(m.BudgetUnit),
+		Begin:      optString(m.Begin),
+		End:        optString(m.End),
+		Desc:       optString(m.Desc),
+		Status:     optString(m.Status),
+		ACL:        optString(m.ACL),
+		Whitelist:  optString(m.Whitelist),
 	}
 }
 
 func programFromAPI(p *zentaoapi.Program) programResourceModel {
 	return programResourceModel{
-		ID:         types.StringValue(strconv.FormatInt(p.ID, 10)),
-		Parent:     types.Int64Value(p.Parent),
-		Name:       types.StringValue(p.Name),
-		PM:         types.StringValue(p.PM),
-		Budget:     types.StringValue(p.Budget),
-		BudgetUnit: types.StringValue(p.BudgetUnit),
-		Begin:      types.StringValue(p.Begin),
-		End:        types.StringValue(p.End),
-		Desc:       types.StringValue(p.Desc),
-		Status:     types.StringValue(p.Status),
-		ACL:        types.StringValue(p.ACL),
-		Whitelist:  types.StringValue(p.Whitelist),
+		ID:         types.StringValue(strconv.FormatInt(derefInt64(p.ID), 10)),
+		Parent:     types.Int64Value(derefInt64(p.Parent)),
+		Name:       types.StringValue(derefString(p.Name)),
+		PM:         types.StringValue(derefString(p.PM)),
+		Budget:     types.StringValue(derefString(p.Budget)),
+		BudgetUnit: types.StringValue(derefString(p.BudgetUnit)),
+		Begin:      types.StringValue(derefString(p.Begin)),
+		End:        types.StringValue(derefString(p.End)),
+		Desc:       types.StringValue(derefString(p.Desc)),
+		Status:     types.StringValue(derefString(p.Status)),
+		ACL:        types.StringValue(derefString(p.ACL)),
+		Whitelist:  types.StringValue(derefString(p.Whitelist)),
 	}
 }

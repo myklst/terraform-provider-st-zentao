@@ -135,7 +135,7 @@ func (c *Client) GetUser(ctx context.Context, id int64) (*User, error) {
 	if status >= 400 {
 		return nil, apiError(status, body)
 	}
-	var env CtrlEnvelope
+	var env CtrlResp
 	if err := json.Unmarshal(body, &env); err != nil {
 		return nil, fmt.Errorf("decode get-user envelope: %w (body=%s)", err, string(body))
 	}
@@ -143,7 +143,7 @@ func (c *Client) GetUser(ctx context.Context, id int64) (*User, error) {
 		return nil, classifyCtrlError(status, env, body)
 	}
 	var inner userEditInner
-	if err := DecodeData(env, &inner); err != nil {
+	if err := env.DecodeData(&inner); err != nil {
 		return nil, fmt.Errorf("decode get-user data: %w (body=%s)", err, string(body))
 	}
 	if len(inner.User) == 0 || string(inner.User) == "false" || string(inner.User) == "null" {
@@ -293,7 +293,7 @@ func (c *Client) DeleteUser(ctx context.Context, id int) error {
 	}
 
 	// Try CtrlEnvelope first, then fall back to CtrlSimpleResponse.
-	var env CtrlEnvelope
+	var env CtrlResp
 	if err := json.Unmarshal(body, &env); err == nil && env.Status != "" {
 		if env.Status == "success" {
 			return nil

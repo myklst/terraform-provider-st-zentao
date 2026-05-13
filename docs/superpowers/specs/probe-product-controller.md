@@ -20,7 +20,7 @@ Controller auth contract (see `probe-controller-auth.md`).
 
 ## 2. Read — `product-view-{id}.json` GET
 
-The view route returns **two distinct envelope shapes** — one for
+The view route returns **two distinct response shapes** — one for
 existing ids, one for missing ids. The wrapper sniffs the discriminator
 on `status` (present on shape #1) vs `result` + no `data` (shape #2).
 
@@ -62,19 +62,20 @@ After `data` is decoded as a string and re-parsed, the inner object has
 
 #### 2a.2 The `data.product` object — field-by-field
 
-The `product` object surfaces the full row from the `zt_project` table.
-ZenTao stores programs, products, projects, and executions in the same
-table, distinguished by the `type` column (`program | product | project
-| sprint | stage | kanban` etc.). On `product-view`, the row carries
-**66 fields**. All numerics may
-arrive as native int OR as JSON-quoted strings (a ZenTao quirk) — the
+The `product` object surfaces the full row from the `zt_product` table.
+Unlike programs / projects / executions / sprints / stages / kanbans
+(which all share the polymorphic `zt_project` table discriminated by
+`type`), ZenTao stores products in their own dedicated `zt_product`
+table. On
+`product-view`, the row carries **66 fields**. All numerics may arrive
+as native int OR as JSON-quoted strings (a ZenTao quirk) — the
 wrapper's `productCtrlWire` uses `json.Number` to tolerate both.
 
 ##### Identity & lifecycle (15 fields)
 
 | Field | Wire type | Meaning | Wrapper exposes? |
 |---|---|---|---|
-| `id` | int / string-int | Primary key in `zt_project` | ✅ `Product.ID int64` |
+| `id` | int / string-int | Primary key in `zt_product` | ✅ `Product.ID int64` |
 | `program` | int / string-int | Parent program id (foreign key into `zt_project` row of `type=program`) | ✅ `Product.Program int64` |
 | `line` | int / string-int | Product-line id, or `0` | ✅ `Product.Line int64` |
 | `name` | string | Display name | ✅ `Product.Name string` |

@@ -52,17 +52,50 @@ func (d *programDataSource) Schema(_ context.Context, _ datasource.SchemaRequest
 				Description: "Numeric ZenTao program ID.",
 				Required:    true,
 			},
-			"parent":      schema.Int64Attribute{Description: "Parent program id (0 = top-level).", Computed: true},
-			"name":        schema.StringAttribute{Description: "Program display name.", Computed: true},
-			"pm":          schema.StringAttribute{Description: "Project Manager username.", Computed: true},
-			"budget":      schema.StringAttribute{Description: "Program budget amount.", Computed: true},
-			"budget_unit": schema.StringAttribute{Description: "Currency unit of the budget.", Computed: true},
-			"begin":       schema.StringAttribute{Description: "Planned start date (YYYY-MM-DD).", Computed: true},
-			"end":         schema.StringAttribute{Description: "Planned end date (YYYY-MM-DD).", Computed: true},
-			"desc":        schema.StringAttribute{Description: "Description.", Computed: true},
-			"status":      schema.StringAttribute{Description: "Program status.", Computed: true},
-			"acl":         schema.StringAttribute{Description: "Access control (`open` / `private` / `custom`).", Computed: true},
-			"whitelist":   schema.StringAttribute{Description: "Comma-joined account list when `acl = \"custom\"`.", Computed: true},
+			"parent": schema.Int64Attribute{
+				Description: "Parent program id (0 = top-level).",
+				Computed:    true,
+			},
+			"name": schema.StringAttribute{
+				Description: "Program display name.",
+				Computed:    true,
+			},
+			"pm": schema.StringAttribute{
+				Description: "Project Manager username.",
+				Computed:    true,
+			},
+			"budget": schema.StringAttribute{
+				Description: "Program budget amount.",
+				Computed:    true,
+			},
+			"budget_unit": schema.StringAttribute{
+				Description: "Currency unit of the budget.",
+				Computed:    true,
+			},
+			"begin": schema.StringAttribute{
+				Description: "Planned start date (YYYY-MM-DD).",
+				Computed:    true,
+			},
+			"end": schema.StringAttribute{
+				Description: "Planned end date (YYYY-MM-DD).",
+				Computed:    true,
+			},
+			"desc": schema.StringAttribute{
+				Description: "Description.",
+				Computed:    true,
+			},
+			"status": schema.StringAttribute{
+				Description: "Program status.",
+				Computed:    true,
+			},
+			"acl": schema.StringAttribute{
+				Description: "Access control (`open` / `private` / `custom`).",
+				Computed:    true,
+			},
+			"whitelist": schema.StringAttribute{
+				Description: "Comma-joined account list when `acl = \"custom\"`.",
+				Computed:    true,
+			},
 		},
 	}
 }
@@ -110,17 +143,17 @@ func (d *programDataSource) Read(ctx context.Context, req datasource.ReadRequest
 		return
 	}
 	resp.Diagnostics.Append(resp.State.Set(ctx, programDataSourceModel{
-		ID:         types.StringValue(strconv.FormatInt(fetched.ID, 10)),
-		Parent:     types.Int64Value(int64(fetched.Parent)),
-		Name:       types.StringValue(fetched.Name),
-		PM:         types.StringValue(fetched.PM),
-		Budget:     types.StringValue(fetched.Budget),
-		BudgetUnit: types.StringValue(fetched.BudgetUnit),
-		Begin:      types.StringValue(fetched.Begin),
-		End:        types.StringValue(fetched.End),
-		Desc:       types.StringValue(fetched.Desc),
-		Status:     types.StringValue(fetched.Status),
-		ACL:        types.StringValue(fetched.ACL),
-		Whitelist:  types.StringValue(fetched.Whitelist),
+		ID:         types.StringValue(strconv.FormatInt(derefInt64(fetched.ID), 10)),
+		Parent:     types.Int64Value(derefInt64(fetched.Parent)),
+		Name:       types.StringValue(derefString(fetched.Name)),
+		PM:         types.StringValue(derefString(fetched.PM)),
+		Budget:     types.StringValue(derefString(fetched.Budget)),
+		BudgetUnit: types.StringValue(derefString(fetched.BudgetUnit)),
+		Begin:      types.StringValue(derefString(fetched.Begin)),
+		End:        types.StringValue(derefString(fetched.End)),
+		Desc:       types.StringValue(derefString(fetched.Desc)),
+		Status:     types.StringValue(derefString(fetched.Status)),
+		ACL:        types.StringValue(derefString(fetched.ACL)),
+		Whitelist:  types.StringValue(derefString(fetched.Whitelist)),
 	})...)
 }
