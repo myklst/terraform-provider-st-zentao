@@ -481,14 +481,14 @@ func TestCallController_EnvelopeFailureFlowsThrough(t *testing.T) {
 func TestCtrlEnvelope_FailReason(t *testing.T) {
 	cases := []struct {
 		name string
-		env  CtrlEnvelope
+		env  CtrlResp
 		want string
 	}{
-		{"error field", CtrlEnvelope{Error: "duplicate"}, "duplicate"},
-		{"message field", CtrlEnvelope{Message: "user not exist"}, "user not exist"},
-		{"reason field", CtrlEnvelope{Reason: "please login"}, "please login"},
-		{"error wins", CtrlEnvelope{Error: "e", Message: "m", Reason: "r"}, "e"},
-		{"empty", CtrlEnvelope{}, ""},
+		{"error field", CtrlResp{Error: "duplicate"}, "duplicate"},
+		{"message field", CtrlResp{Message: "user not exist"}, "user not exist"},
+		{"reason field", CtrlResp{Reason: "please login"}, "please login"},
+		{"error wins", CtrlResp{Error: "e", Message: "m", Reason: "r"}, "e"},
+		{"empty", CtrlResp{}, ""},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -579,9 +579,9 @@ func TestDecodeData(t *testing.T) {
 
 	t.Run("V1 string-encoded JSON object", func(t *testing.T) {
 		raw := `"{\"title\":\"产品\",\"products\":{\"218\":\"ds_x\"}}"`
-		env := CtrlEnvelope{Status: "success", Data: json.RawMessage(raw)}
+		env := CtrlResp{Status: "success", Data: json.RawMessage(raw)}
 		var got sample
-		if err := DecodeData(env, &got); err != nil {
+		if err := env.DecodeData(&got); err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
 		if got.Title != "产品" || got.Products["218"] != "ds_x" {
@@ -591,9 +591,9 @@ func TestDecodeData(t *testing.T) {
 
 	t.Run("V2 direct object", func(t *testing.T) {
 		raw := `{"title":"x","products":{"1":"a"}}`
-		env := CtrlEnvelope{Status: "success", Data: json.RawMessage(raw)}
+		env := CtrlResp{Status: "success", Data: json.RawMessage(raw)}
 		var got sample
-		if err := DecodeData(env, &got); err != nil {
+		if err := env.DecodeData(&got); err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
 		if got.Title != "x" {
@@ -603,9 +603,9 @@ func TestDecodeData(t *testing.T) {
 
 	t.Run("direct array", func(t *testing.T) {
 		raw := `[1,2,3]`
-		env := CtrlEnvelope{Status: "success", Data: json.RawMessage(raw)}
+		env := CtrlResp{Status: "success", Data: json.RawMessage(raw)}
 		var got []int
-		if err := DecodeData(env, &got); err != nil {
+		if err := env.DecodeData(&got); err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
 		if len(got) != 3 || got[0] != 1 {
@@ -614,9 +614,9 @@ func TestDecodeData(t *testing.T) {
 	})
 
 	t.Run("null data", func(t *testing.T) {
-		env := CtrlEnvelope{Status: "success", Data: json.RawMessage(`null`)}
+		env := CtrlResp{Status: "success", Data: json.RawMessage(`null`)}
 		var got sample
-		if err := DecodeData(env, &got); err != nil {
+		if err := env.DecodeData(&got); err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
 		if got.Title != "" {
@@ -625,43 +625,43 @@ func TestDecodeData(t *testing.T) {
 	})
 
 	t.Run("absent data", func(t *testing.T) {
-		env := CtrlEnvelope{Status: "success"}
+		env := CtrlResp{Status: "success"}
 		var got sample
-		if err := DecodeData(env, &got); err != nil {
+		if err := env.DecodeData(&got); err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
 	})
 
 	t.Run("empty string data", func(t *testing.T) {
-		env := CtrlEnvelope{Status: "success", Data: json.RawMessage(`""`)}
+		env := CtrlResp{Status: "success", Data: json.RawMessage(`""`)}
 		var got sample
-		if err := DecodeData(env, &got); err != nil {
+		if err := env.DecodeData(&got); err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
 	})
 
 	t.Run("non-JSON data is error", func(t *testing.T) {
-		env := CtrlEnvelope{Status: "success", Data: json.RawMessage(`garbage`)}
+		env := CtrlResp{Status: "success", Data: json.RawMessage(`garbage`)}
 		var got sample
-		if err := DecodeData(env, &got); err == nil {
+		if err := env.DecodeData(&got); err == nil {
 			t.Fatalf("expected error, got nil with %+v", got)
 		}
 	})
 
 	t.Run("string-encoded with malformed inner JSON", func(t *testing.T) {
 		// Outer is a valid quoted string, but inner content isn't JSON.
-		env := CtrlEnvelope{Status: "success", Data: json.RawMessage(`"not json"`)}
+		env := CtrlResp{Status: "success", Data: json.RawMessage(`"not json"`)}
 		var got sample
-		if err := DecodeData(env, &got); err == nil {
+		if err := env.DecodeData(&got); err == nil {
 			t.Fatalf("expected inner-decode error")
 		}
 	})
 
 	t.Run("direct object with type mismatch", func(t *testing.T) {
 		// target expects object, data is array — should error from unmarshal.
-		env := CtrlEnvelope{Status: "success", Data: json.RawMessage(`[1,2,3]`)}
+		env := CtrlResp{Status: "success", Data: json.RawMessage(`[1,2,3]`)}
 		var got sample
-		if err := DecodeData(env, &got); err == nil {
+		if err := env.DecodeData(&got); err == nil {
 			t.Fatalf("expected unmarshal type error")
 		}
 	})
@@ -669,7 +669,7 @@ func TestDecodeData(t *testing.T) {
 
 func TestClassifyCtrlError(t *testing.T) {
 	t.Run("not found via message", func(t *testing.T) {
-		env := CtrlEnvelope{Status: "fail", Message: "User does not exist"}
+		env := CtrlResp{Status: "fail", Message: "User does not exist"}
 		err := classifyCtrlError(200, env, []byte(`{}`))
 		if !errors.Is(err, ErrNotFound) {
 			t.Fatalf("expected ErrNotFound, got %v", err)
@@ -677,7 +677,7 @@ func TestClassifyCtrlError(t *testing.T) {
 	})
 
 	t.Run("unauthorized via reason", func(t *testing.T) {
-		env := CtrlEnvelope{Status: "fail", Reason: "wrong password"}
+		env := CtrlResp{Status: "fail", Reason: "wrong password"}
 		err := classifyCtrlError(200, env, []byte(`{}`))
 		if !errors.Is(err, ErrUnauthorized) {
 			t.Fatalf("expected ErrUnauthorized, got %v", err)
@@ -685,7 +685,7 @@ func TestClassifyCtrlError(t *testing.T) {
 	})
 
 	t.Run("unauthorized chinese 密码错误", func(t *testing.T) {
-		env := CtrlEnvelope{Status: "fail", Reason: "用户名或密码错误"}
+		env := CtrlResp{Status: "fail", Reason: "用户名或密码错误"}
 		err := classifyCtrlError(200, env, []byte(`{}`))
 		if !errors.Is(err, ErrUnauthorized) {
 			t.Fatalf("expected ErrUnauthorized, got %v", err)
@@ -694,7 +694,7 @@ func TestClassifyCtrlError(t *testing.T) {
 
 	t.Run("generic fail → APIError", func(t *testing.T) {
 		raw := []byte(`{"status":"fail","message":"validation failed"}`)
-		env := CtrlEnvelope{Status: "fail", Message: "validation failed"}
+		env := CtrlResp{Status: "fail", Message: "validation failed"}
 		err := classifyCtrlError(200, env, raw)
 		var apiErr *APIError
 		if !errors.As(err, &apiErr) {
@@ -706,7 +706,7 @@ func TestClassifyCtrlError(t *testing.T) {
 	})
 
 	t.Run("login redirect ≠ unauthorized", func(t *testing.T) {
-		env := CtrlEnvelope{Status: "fail", Reason: "please login"}
+		env := CtrlResp{Status: "fail", Reason: "please login"}
 		err := classifyCtrlError(200, env, []byte(`{}`))
 		// session-expired reason should NOT collapse into ErrUnauthorized;
 		// it's a transport-layer concern handled before classifyCtrlError.

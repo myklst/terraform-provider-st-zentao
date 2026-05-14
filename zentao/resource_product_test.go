@@ -134,7 +134,7 @@ func TestAccProductResource_disappears(t *testing.T) {
 						if !ok {
 							return errors.New("resource missing from state")
 						}
-						id, err := strconv.Atoi(rs.Primary.ID)
+						id, err := strconv.ParseInt(rs.Primary.ID, 10, 64)
 						if err != nil {
 							return err
 						}

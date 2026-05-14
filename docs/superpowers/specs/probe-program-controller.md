@@ -79,7 +79,7 @@ Numeric columns mix native ints (`id`, `multiple`, `deleted`, …) and stringifi
 
 The wrapper does NOT surface every field. The omitted ones are: `project`, `isTpl`, `charter`, `milestone`, `output`, `auth`, `planDuration`, `realDuration`, `market`, `openedVersion`, `tplAcl`, `tplWhiteList`, `stageBy`, `displayCards`, `fluidBoard`, `enabled`, `frozen`, `linkType`, `taskDateLimit`, `colWidth`, `minColWidth`, `maxColWidth`, `coverExecutionPriv`, `pri`, `version`, `parentVersion`, `subStatus`, `order`, `deleted`. Reasoning: most are presentation/template internals (`stageBy`, `displayCards`, …) or admin metadata Terraform shouldn't synchronise (`pri`, `version`). `deleted` is consumed internally — the wrapper turns `deleted=1` into `ErrNotFound`.
 
-## 4. Response envelope shapes
+## 4. Response response shapes
 
 ### GET success
 

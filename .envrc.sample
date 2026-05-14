@@ -4,3 +4,9 @@ export TF_ACC=1
 export ZENTAO_URL="http://zentao.example.com/zentao"
 export ZENTAO_ACCOUNT="admin"
 export ZENTAO_PASSWORD="123456"
+
+# Export session for local cURL operations
+ZENTAO_SESSION=$(curl -s -X POST -d "{\"account\": \"$ZENTAO_ACCOUNT\", \"password\": \"$ZENTAO_PASSWORD\"}" "$ZENTAO_URL/api.php/v1/tokens" | jq -r '.token')
+export ZENTAO_SESSION
+# FOR EXAMPLE:
+# curl -s -H "Content-Type: application/json" -X GET "$ZENTAO_URL/program-edit-70.json?zentaosid=$ZENTAO_SESSION"

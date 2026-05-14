@@ -65,7 +65,7 @@ func TestIntegration_V1Login_AndCallController(t *testing.T) {
 	// assert on exact contents (instance-specific) but we do require
 	// DecodeData succeeds on the shape ZenTao actually returns.
 	var generic map[string]any
-	if err := DecodeData(env, &generic); err != nil {
+	if err := env.DecodeData(&generic); err != nil {
 		t.Fatalf("DecodeData: %v (data=%s)", err, env.Data)
 	}
 	if len(generic) == 0 {

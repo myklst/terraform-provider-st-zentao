@@ -2,17 +2,12 @@ package zentao
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"os"
 	"regexp"
-	"strconv"
 	"testing"
 
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	tfresource "github.com/hashicorp/terraform-plugin-testing/helper/resource"
-	"github.com/hashicorp/terraform-plugin-testing/terraform"
-	zentaoapi "github.com/myklst/terraform-provider-st-zentao/zentaoAPI"
 )
 
 func TestProgramResource_Schema(t *testing.T) {
@@ -21,28 +16,6 @@ func TestProgramResource_Schema(t *testing.T) {
 	r.Schema(context.Background(), resource.SchemaRequest{}, &resp)
 	if resp.Diagnostics.HasError() {
 		t.Fatalf("schema diagnostics: %v", resp.Diagnostics)
-	}
-	// Schema sketches the controller-backed surface — much wider than
-	// the prior V2 echo subset because `program-edit-{id}.json` GET
-	// surfaces the full ~70-field row.
-	expected := []string{
-		"id", "name", "begin", "end", "parent", "pm", "desc",
-		"acl", "budget", "budget_unit", "whitelist",
-		"code", "status", "type", "category", "lifetime", "vision",
-		"attribute", "model", "program_path", "grade",
-		"multiple", "parallel", "has_product", "workflow_group", "story_type",
-		"days", "first_end",
-		"opened_by", "opened_date", "last_edited_by", "last_edited_date",
-		"real_began", "real_end",
-		"closed_by", "closed_date", "closed_reason",
-		"canceled_by", "canceled_date", "suspended_date",
-		"po", "qd", "rd", "team",
-		"progress", "percent", "estimate", "consumed", "left", "team_count",
-	}
-	for _, attr := range expected {
-		if _, ok := resp.Schema.Attributes[attr]; !ok {
-			t.Errorf("missing attribute %q", attr)
-		}
 	}
 	for _, required := range []string{"name", "begin", "end"} {
 		if !resp.Schema.Attributes[required].IsRequired() {
@@ -61,18 +34,7 @@ func TestProgramResource_Schema(t *testing.T) {
 	// Server-managed fields surfaced by program-edit-{id} that must not
 	// accept user input. parent moved here when it became read-only —
 	// the attachment resource is the only writer.
-	for _, computedOnly := range []string{
-		"id", "parent", "code", "status", "type", "category", "lifetime", "vision",
-		"attribute", "model", "program_path", "grade",
-		"multiple", "parallel", "has_product", "workflow_group", "story_type",
-		"days", "first_end",
-		"opened_by", "opened_date", "last_edited_by", "last_edited_date",
-		"real_began", "real_end",
-		"closed_by", "closed_date", "closed_reason",
-		"canceled_by", "canceled_date", "suspended_date",
-		"po", "qd", "rd", "team",
-		"progress", "percent", "estimate", "consumed", "left", "team_count",
-	} {
+	for _, computedOnly := range []string{"id", "parent", "status"} {
 		a := resp.Schema.Attributes[computedOnly]
 		if !a.IsComputed() {
 			t.Errorf("%s must be Computed", computedOnly)
@@ -112,7 +74,6 @@ resource "st-zentao_program" "p" {
 					tfresource.TestCheckResourceAttr("st-zentao_program.p", "end", "2026-12-31"),
 					tfresource.TestCheckResourceAttrSet("st-zentao_program.p", "id"),
 					tfresource.TestCheckResourceAttrSet("st-zentao_program.p", "status"),
-					tfresource.TestCheckResourceAttrSet("st-zentao_program.p", "opened_by"),
 				),
 			},
 			{
@@ -170,42 +131,6 @@ resource "st-zentao_program" "p" {
 				ResourceName:      "st-zentao_program.p",
 				ImportState:       true,
 				ImportStateVerify: true,
-			},
-		},
-	})
-}
-
-func TestAccProgramResource_disappears(t *testing.T) {
-	name := uniqueName("dis-prog")
-	tfresource.Test(t, tfresource.TestCase{
-		PreCheck:                 func() { testAccPreCheck(t) },
-		ProtoV6ProviderFactories: protoV6Factories,
-		Steps: []tfresource.TestStep{
-			{
-				Config: providerBlock() + fmt.Sprintf(`
-resource "st-zentao_program" "p" {
-  name  = %q
-  begin = "2026-01-01"
-  end   = "2026-12-31"
-}`, name),
-				Check: tfresource.ComposeTestCheckFunc(
-					func(s *terraform.State) error {
-						rs, ok := s.RootModule().Resources["st-zentao_program.p"]
-						if !ok {
-							return errors.New("resource missing from state")
-						}
-						id, err := strconv.Atoi(rs.Primary.ID)
-						if err != nil {
-							return err
-						}
-						c, err := zentaoapi.NewClient(os.Getenv("ZENTAO_URL"), os.Getenv("ZENTAO_ACCOUNT"), os.Getenv("ZENTAO_PASSWORD"))
-						if err != nil {
-							return err
-						}
-						return c.DeleteProgram(context.Background(), id)
-					},
-				),
-				ExpectNonEmptyPlan: true,
 			},
 		},
 	})

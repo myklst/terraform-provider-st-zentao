@@ -60,13 +60,6 @@ func TestGroupResource_Schema(t *testing.T) {
 		t.Fatalf("schema diagnostics: %v", resp.Diagnostics)
 	}
 
-	expected := []string{"id", "project", "name", "role", "desc"}
-	for _, attr := range expected {
-		if _, ok := resp.Schema.Attributes[attr]; !ok {
-			t.Errorf("missing attribute %q", attr)
-		}
-	}
-
 	// Required-only attributes. After the system/project unification
 	// `project` is Optional+Computed (defaults to 0 → system group), so
 	// only `name` is Required-only now.

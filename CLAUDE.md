@@ -102,7 +102,7 @@ Tests assert on the exact wire path also via the constants (e.g. `gotPath != api
 When unsure how ZenTao behaves on a real server, write a curl probe and record findings in `docs/superpowers/specs/`. The current probe documents are the source of truth for "why the code is shaped this way":
 
 - `probe-controller-auth.md` — auth flow + cross-transport sessionID compatibility (2026-05-06 + 2026-05-08 addendum)
-- `probe-user-controller.md` — User controller envelope shapes + verifyPassword sudo gate
+- `probe-user-controller.md` — User controller response shapes + verifyPassword sudo gate
 - `2026-05-06-controller-extension-stage1.md` — design contract feeding the original Controller transport
 - `2026-05-03-zentao-provider-design.md` — initial provider design
 

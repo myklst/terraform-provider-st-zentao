@@ -63,7 +63,7 @@ Therefore the client should:
    - HTTP 200 + `{"status":"failed","reason":"please login"}` (legacy v1 envelope).
    - HTTP 401 (V2 envelope, unchanged).
 
-## Observed envelope shapes (for response-parsing design)
+## Observed response shapes (for response-parsing design)
 
 - **V2 endpoints** (existing): flat JSON, fields at top level. `{"status":"success", ...resource...}` or `{"status":"fail","message":"..."}`.
 - **Controller endpoints (PATH_INFO `.json`)**: nested. `{"status":"success","data":"<JSON-encoded string>","md5":"..."}` — the `data` value is a **string** that needs a second `json.Unmarshal` to obtain the resource shape. Sometimes also returned as a direct object, per ZenTao module.

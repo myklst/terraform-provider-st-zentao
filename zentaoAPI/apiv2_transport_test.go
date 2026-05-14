@@ -12,6 +12,12 @@ import (
 	"time"
 )
 
+// productsPath is a convenience path used by these V2 transport tests
+// only — the production product wrapper now lives on the Controller
+// transport (see product.go), but the V2 transport still needs an
+// arbitrary V2 path to exercise its routing/auth/refresh logic.
+const productsPath = apiV2PathPrefix + "products"
+
 // --- doV2Request happy paths ---
 
 func TestDoV2Request_HappyPath_TokenHeader(t *testing.T) {

@@ -47,44 +47,6 @@ resource "st-zentao_program" "example" {
 
 ### Read-Only
 
-- `attribute` (String) Attribute.
-- `canceled_by` (String) User who canceled the program.
-- `canceled_date` (String) When the program was canceled.
-- `category` (String) Program category.
-- `closed_by` (String) User who closed the program.
-- `closed_date` (String) When the program was closed.
-- `closed_reason` (String) Reason recorded at close time.
-- `code` (String) Program short code.
-- `consumed` (String) Consumed effort.
-- `days` (Number) Working-day count.
-- `estimate` (String) Estimated effort.
-- `first_end` (String) First planned end date.
-- `grade` (Number) Depth in program hierarchy.
-- `has_product` (Boolean) Whether the program has any associated products.
 - `id` (String) Numeric ZenTao program ID.
-- `last_edited_by` (String) Last-editor username.
-- `last_edited_date` (String) Timestamp of the last edit.
-- `left` (String) Remaining effort.
-- `lifetime` (String) Program lifetime classification.
-- `model` (String) Methodology marker.
-- `multiple` (Boolean) Whether iterations / sub-projects are enabled.
-- `opened_by` (String) Creator username.
-- `opened_date` (String) Creation timestamp.
-- `parallel` (Boolean) Parallel execution flag.
 - `parent` (Number) Parent program id (0 = top-level). Read-only; set via `st-zentao_program_parent_attachment`.
-- `percent` (String) Auxiliary completion percent.
-- `po` (String) Product Owner username.
-- `program_path` (String) Hierarchy path.
-- `progress` (String) Completion progress percentage.
-- `qd` (String) QA Lead username.
-- `rd` (String) Release Lead username.
-- `real_began` (String) Actual start date.
-- `real_end` (String) Actual end date.
-- `status` (String) Program status.
-- `story_type` (String) Story type marker.
-- `suspended_date` (String) When the program was suspended.
-- `team` (String) Team designator.
-- `team_count` (Number) Total team members.
-- `type` (String) Program type.
-- `vision` (String) Vision (`rnd` / `lite`).
-- `workflow_group` (Number) Workflow scheme id.
+- `status` (String) Status.

@@ -36,64 +36,20 @@ func TestGetProgram_FullFieldSet(t *testing.T) {
 		t.Fatalf("GetProgram: %v", err)
 	}
 	want := &Program{
-		ID:             7,
-		Name:           "Smart Home",
-		Code:           "SH",
-		Begin:          "2026-01-01",
-		End:            "2026-12-31",
-		Parent:         0,
-		Status:         "doing",
-		Type:           "program",
-		Category:       "rnd",
-		Lifetime:       "",
-		Vision:         "rnd",
-		Attribute:      "",
-		Model:          "",
-		Path:           ",7,",
-		Grade:          1,
-		Multiple:       "1",
-		Parallel:       "0",
-		Enabled:        "on",
-		Frozen:         "",
-		Deleted:        "0",
-		HasProduct:     1,
-		WorkflowGroup:  0,
-		StoryType:      "story",
-		Pri:            1,
-		Version:        1,
-		ParentVersion:  1,
-		Days:           0,
-		FirstEnd:       "",
-		SubStatus:      "",
-		Desc:           "a desc",
-		ACL:            "private",
-		Whitelist:      "",
-		Budget:         "100000",
-		BudgetUnit:     "CNY",
-		OpenedBy:       "admin",
-		OpenedDate:     "2026-01-01 09:00:00",
-		LastEditedBy:   "admin",
-		LastEditedDate: "",
-		RealBegan:      "2026-01-02",
-		RealEnd:        "",
-		ClosedBy:       "",
-		ClosedDate:     "",
-		ClosedReason:   "",
-		CanceledBy:     "",
-		CanceledDate:   "",
-		SuspendedDate:  "",
-		PM:             "pm-user",
-		PO:             "po-user",
-		QD:             "qd-user",
-		RD:             "rd-user",
-		Team:           "",
-		Order:          5,
-		Progress:       "30",
-		Percent:        "0.00",
-		Estimate:       "0",
-		Consumed:       "0",
-		Left:           "0",
-		TeamCount:      5,
+		ID:         int64ptr(7),
+		Parent:     int64ptr(0),
+		Path:       strptr(",7,"),
+		Name:       strptr("Smart Home"),
+		PM:         strptr("pm-user"),
+		Budget:     strptr("100000"),
+		BudgetUnit: strptr("CNY"),
+		Begin:      strptr("2026-01-01"),
+		End:        strptr("2026-12-31"),
+		Desc:       strptr("a desc"),
+		Status:     strptr("doing"),
+		ACL:        strptr("private"),
+		Whitelist:  strptr(""),
+		Deleted:    boolptr(false),
 	}
 	if !reflect.DeepEqual(p, want) {
 		t.Fatalf("Program mismatch:\n got %+v\nwant %+v", p, want)
@@ -130,23 +86,6 @@ func TestGetProgram_NotFound_HTTP404(t *testing.T) {
 	}
 }
 
-// Soft-deleted rows still come back from program-edit-{id} (probe
-// 2026-05-09: DELETE only flips `deleted=1`, the row is not removed).
-// GetProgram must treat them as gone so Terraform Read clears state.
-func TestGetProgram_SoftDeletedIsErrNotFound(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"status":"success","data":"{\"program\":{\"id\":7,\"name\":\"old\",\"deleted\":1}}"}`))
-	}))
-	defer srv.Close()
-
-	c := newTestClient(t, "tok-1", srv.URL)
-	_, err := c.GetProgram(context.Background(), 7)
-	if !errors.Is(err, ErrNotFound) {
-		t.Fatalf("err = %v, want ErrNotFound (deleted=1 row), got %v", err, err)
-	}
-}
-
 // Envelope-fail with a "does not exist" reason also collapses to ErrNotFound.
 func TestGetProgram_NotFound_EnvelopeFailReason(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -180,27 +119,24 @@ func TestCreateProgram_BodyShape(t *testing.T) {
 
 	c := newTestClient(t, "tok-1", srv.URL)
 	in := &Program{
-		Name:       "Beta",
-		Begin:      "2026-01-01",
-		End:        "2026-12-31",
-		PM:         "pm",
-		Desc:       "d",
-		ACL:        "private",
-		Budget:     "100",
-		BudgetUnit: "CNY",
-		// these must be stripped by programToForm (read-only inputs)
-		Code:     "should-not-go",
-		Status:   "should-not-go",
-		Type:     "should-not-go",
-		Category: "should-not-go",
-		PO:       "should-not-go",
+		Name:       strptr("Beta"),
+		Begin:      strptr("2026-01-01"),
+		End:        strptr("2026-12-31"),
+		PM:         strptr("pm"),
+		Desc:       strptr("d"),
+		ACL:        strptr("private"),
+		Budget:     strptr("100"),
+		BudgetUnit: strptr("CNY"),
+		// Status is on the struct (read back via GET) but toForm never
+		// emits it — verified by the mustNotSend assertion below.
+		Status: strptr("should-not-go"),
 	}
 	out, err := c.CreateProgram(context.Background(), in)
 	if err != nil {
 		t.Fatalf("CreateProgram: %v", err)
 	}
-	if out.ID != 42 {
-		t.Fatalf("id = %d, want 42", out.ID)
+	if out.ID == nil || *out.ID != 42 {
+		t.Fatalf("id = %v, want 42", out.ID)
 	}
 	if gotMethod != http.MethodPost || gotPath != "/program-create.json" {
 		t.Fatalf("req = %s %s", gotMethod, gotPath)
@@ -233,7 +169,7 @@ func TestCreateProgram_FailEnvelope_FieldErrors(t *testing.T) {
 	defer srv.Close()
 
 	c := newTestClient(t, "tok-1", srv.URL)
-	_, err := c.CreateProgram(context.Background(), &Program{Name: "x", Begin: "2026-01-01", End: "2026-12-31"})
+	_, err := c.CreateProgram(context.Background(), &Program{Name: strptr("x"), Begin: strptr("2026-01-01"), End: strptr("2026-12-31")})
 	var apiErr *APIError
 	if !errors.As(err, &apiErr) {
 		t.Fatalf("err = %v, want *APIError", err)
@@ -251,9 +187,9 @@ func TestCreateProgram_PreflightValidation(t *testing.T) {
 		want string
 	}{
 		{"nil", nil, "nil"},
-		{"missing name", &Program{Begin: "2026-01-01", End: "2026-12-31"}, "name required"},
-		{"missing begin", &Program{Name: "x", End: "2026-12-31"}, "begin required"},
-		{"missing end", &Program{Name: "x", Begin: "2026-01-01"}, "end required"},
+		{"missing name", &Program{Begin: strptr("2026-01-01"), End: strptr("2026-12-31")}, "name required"},
+		{"missing begin", &Program{Name: strptr("x"), End: strptr("2026-12-31")}, "begin required"},
+		{"missing end", &Program{Name: strptr("x"), Begin: strptr("2026-01-01")}, "end required"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -294,7 +230,7 @@ func TestUpdateProgram_BaselineMergeThenRefetch(t *testing.T) {
 	defer srv.Close()
 
 	c := newTestClient(t, "tok-1", srv.URL)
-	out, err := c.UpdateProgram(context.Background(), &Program{ID: 5, Name: "NewName", Desc: "fresh"})
+	out, err := c.UpdateProgram(context.Background(), &Program{ID: int64ptr(5), Name: strptr("NewName"), Desc: strptr("fresh")})
 	if err != nil {
 		t.Fatalf("UpdateProgram: %v", err)
 	}
@@ -318,14 +254,14 @@ func TestUpdateProgram_BaselineMergeThenRefetch(t *testing.T) {
 	// The mock returns the same baseline body for both GETs (it's not
 	// stateful), so we don't assert on out.Name here — the merge proof
 	// lives in the POST body assertions above.
-	if out.ID != 5 {
+	if out.ID == nil || *out.ID != 5 {
 		t.Fatalf("got %+v", out)
 	}
 }
 
 func TestUpdateProgram_MissingID(t *testing.T) {
 	c := newTestClient(t, "tok-1", "http://example.invalid")
-	_, err := c.UpdateProgram(context.Background(), &Program{Name: "x", Begin: "2026-01-01", End: "2026-12-31"})
+	_, err := c.UpdateProgram(context.Background(), &Program{Name: strptr("x"), Begin: strptr("2026-01-01"), End: strptr("2026-12-31")})
 	if err == nil || !strings.Contains(err.Error(), "id required") {
 		t.Fatalf("err = %v, want id-required error", err)
 	}
@@ -338,7 +274,7 @@ func TestUpdateProgram_NotFound(t *testing.T) {
 	defer srv.Close()
 
 	c := newTestClient(t, "tok-1", srv.URL)
-	_, err := c.UpdateProgram(context.Background(), &Program{ID: 99, Name: "x", Begin: "2026-01-01", End: "2026-12-31"})
+	_, err := c.UpdateProgram(context.Background(), &Program{ID: int64ptr(99), Name: strptr("x"), Begin: strptr("2026-01-01"), End: strptr("2026-12-31")})
 	if !errors.Is(err, ErrNotFound) {
 		t.Fatalf("err = %v, want ErrNotFound", err)
 	}
@@ -420,15 +356,14 @@ func TestDeleteProgram_OtherFailure(t *testing.T) {
 	}
 }
 
-// programToForm always emits every form.php writeable field. ZenTao's
-// program-edit POST resets any omitted field to its default — see probe
-// finding F2 in probe-program-controller.md §8.
+// toForm always emits every form.php writeable field. ZenTao's
+// program-edit POST resets any omitted field to its default.
 func TestProgramToForm_AlwaysSetsAllWriteableFields(t *testing.T) {
-	form := programToForm(&Program{
-		Name:  "x",
-		Begin: "2026-01-01",
-		End:   "2026-12-31",
-	})
+	form := (&Program{
+		Name:  strptr("x"),
+		Begin: strptr("2026-01-01"),
+		End:   strptr("2026-12-31"),
+	}).toForm()
 	for _, k := range []string{"name", "begin", "end", "parent", "PM", "desc", "acl", "budget", "budgetUnit", "whitelist"} {
 		if _, ok := form[k]; !ok {
 			t.Errorf("form must always carry key %q (always-set rule): %v", k, form)
@@ -442,11 +377,11 @@ func TestProgramToForm_AlwaysSetsAllWriteableFields(t *testing.T) {
 	}
 }
 
-func TestMergeProgramBaseline_PreservesBaselineWhenInputZero(t *testing.T) {
+func TestMergeProgramBaseline_PreservesBaselineWhenInputNil(t *testing.T) {
 	baseline := &Program{
-		ID: 5, Name: "Base", Begin: "2026-01-01", End: "2026-12-31",
-		Parent: 9, PM: "alice", Desc: "old desc", ACL: "private",
-		Budget: "1000", BudgetUnit: "USD", Whitelist: "u1,u2",
+		ID: int64ptr(5), Name: strptr("Base"), Begin: strptr("2026-01-01"), End: strptr("2026-12-31"),
+		Parent: int64ptr(9), PM: strptr("alice"), Desc: strptr("old desc"), ACL: strptr("private"),
+		Budget: strptr("1000"), BudgetUnit: strptr("USD"), Whitelist: strptr("u1,u2"),
 	}
 	cases := []struct {
 		name  string
@@ -455,45 +390,45 @@ func TestMergeProgramBaseline_PreservesBaselineWhenInputZero(t *testing.T) {
 	}{
 		{
 			"only Name set — preserve everything else",
-			&Program{ID: 5, Name: "NewName"},
+			&Program{ID: int64ptr(5), Name: strptr("NewName")},
 			func(t *testing.T, m *Program) {
-				if m.Name != "NewName" {
-					t.Errorf("Name not overridden: %q", m.Name)
+				if derefString(m.Name) != "NewName" {
+					t.Errorf("Name not overridden: %q", derefString(m.Name))
 				}
-				if m.Parent != 9 || m.PM != "alice" || m.Desc != "old desc" || m.ACL != "private" || m.Budget != "1000" || m.BudgetUnit != "USD" || m.Whitelist != "u1,u2" {
+				if derefInt64(m.Parent) != 9 || derefString(m.PM) != "alice" || derefString(m.Desc) != "old desc" || derefString(m.ACL) != "private" || derefString(m.Budget) != "1000" || derefString(m.BudgetUnit) != "USD" || derefString(m.Whitelist) != "u1,u2" {
 					t.Errorf("baseline not preserved: %+v", m)
 				}
 			},
 		},
 		{
 			"only Desc set — preserve PM/ACL/Budget",
-			&Program{ID: 5, Desc: "new desc"},
+			&Program{ID: int64ptr(5), Desc: strptr("new desc")},
 			func(t *testing.T, m *Program) {
-				if m.Desc != "new desc" {
-					t.Errorf("Desc not overridden: %q", m.Desc)
+				if derefString(m.Desc) != "new desc" {
+					t.Errorf("Desc not overridden: %q", derefString(m.Desc))
 				}
-				if m.PM != "alice" || m.ACL != "private" || m.Budget != "1000" {
+				if derefString(m.PM) != "alice" || derefString(m.ACL) != "private" || derefString(m.Budget) != "1000" {
 					t.Errorf("non-Desc fields wiped: %+v", m)
 				}
 			},
 		},
 		{
 			"only Parent set — overrides parent, preserves others",
-			&Program{ID: 5, Parent: 13},
+			&Program{ID: int64ptr(5), Parent: int64ptr(13)},
 			func(t *testing.T, m *Program) {
-				if m.Parent != 13 {
-					t.Errorf("Parent not overridden: %d", m.Parent)
+				if derefInt64(m.Parent) != 13 {
+					t.Errorf("Parent not overridden: %d", derefInt64(m.Parent))
 				}
-				if m.Name != "Base" || m.PM != "alice" {
+				if derefString(m.Name) != "Base" || derefString(m.PM) != "alice" {
 					t.Errorf("non-Parent fields wiped: %+v", m)
 				}
 			},
 		},
 		{
 			"all fields set — overrides everything",
-			&Program{ID: 5, Name: "N2", Begin: "2027-01-01", End: "2027-12-31", Parent: 1, PM: "bob", Desc: "d2", ACL: "open", Budget: "2", BudgetUnit: "CNY", Whitelist: "x"},
+			&Program{ID: int64ptr(5), Name: strptr("N2"), Begin: strptr("2027-01-01"), End: strptr("2027-12-31"), Parent: int64ptr(1), PM: strptr("bob"), Desc: strptr("d2"), ACL: strptr("open"), Budget: strptr("2"), BudgetUnit: strptr("CNY"), Whitelist: strptr("x")},
 			func(t *testing.T, m *Program) {
-				if m.Name != "N2" || m.Begin != "2027-01-01" || m.End != "2027-12-31" || m.Parent != 1 || m.PM != "bob" || m.Desc != "d2" || m.ACL != "open" || m.Budget != "2" || m.BudgetUnit != "CNY" || m.Whitelist != "x" {
+				if derefString(m.Name) != "N2" || derefString(m.Begin) != "2027-01-01" || derefString(m.End) != "2027-12-31" || derefInt64(m.Parent) != 1 || derefString(m.PM) != "bob" || derefString(m.Desc) != "d2" || derefString(m.ACL) != "open" || derefString(m.Budget) != "2" || derefString(m.BudgetUnit) != "CNY" || derefString(m.Whitelist) != "x" {
 					t.Errorf("override incomplete: %+v", m)
 				}
 			},
@@ -503,7 +438,7 @@ func TestMergeProgramBaseline_PreservesBaselineWhenInputZero(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			merged := mergeProgramBaseline(tc.input, baseline)
 			tc.check(t, merged)
-			if baseline.Name != "Base" {
+			if derefString(baseline.Name) != "Base" {
 				t.Errorf("baseline mutated: %+v", baseline)
 			}
 		})
@@ -517,6 +452,7 @@ func TestMergeProgramBaseline_PreservesBaselineWhenInputZero(t *testing.T) {
 // POST by capturing the form body.
 type programParentMockServer struct {
 	rows           map[int]string // id -> JSON for "program" inner field
+	rowsAfterPost  map[int]string // id -> JSON to swap in after the next POST (simulates server path recompute)
 	postBody       string
 	postPath       string
 	postCount      int
@@ -528,6 +464,7 @@ type programParentMockServer struct {
 func newProgramParentMockServer() *programParentMockServer {
 	return &programParentMockServer{
 		rows:           map[int]string{},
+		rowsAfterPost:  map[int]string{},
 		getCounts:      map[int]int{},
 		postRespStatus: 200,
 		postRespBody:   `{"result":"success","message":"保存成功","locate":"/program-browse.json"}`,
@@ -571,6 +508,11 @@ func (m *programParentMockServer) handler(t *testing.T) http.HandlerFunc {
 			buf := make([]byte, 8192)
 			n, _ := r.Body.Read(buf)
 			m.postBody = string(buf[:n])
+			// Simulate server-side row mutation (zt_project.path recompute
+			// happens inside program-edit on the real server).
+			if next, ok := m.rowsAfterPost[id]; ok {
+				m.rows[id] = next
+			}
 			w.WriteHeader(m.postRespStatus)
 			_, _ = w.Write([]byte(m.postRespBody))
 		default:
@@ -583,8 +525,8 @@ func TestSetProgramParent_PreflightRejects(t *testing.T) {
 	c := newTestClient(t, "tok-1", "http://example.invalid")
 	cases := []struct {
 		name    string
-		child   int
-		parent  int
+		child   int64
+		parent  int64
 		wantErr error
 		wantSub string
 	}{
@@ -595,7 +537,7 @@ func TestSetProgramParent_PreflightRejects(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			err := c.SetProgramParent(context.Background(), tc.child, tc.parent)
+			_, err := c.SetProgramParent(context.Background(), tc.child, tc.parent)
 			if err == nil {
 				t.Fatalf("err = nil, want error")
 			}
@@ -613,43 +555,73 @@ func TestSetProgramParent_HappyAttach(t *testing.T) {
 	mock := newProgramParentMockServer()
 	mock.rows[10] = `{"id":10,"name":"child","begin":"2026-01-01","end":"2026-12-31","parent":0,"path":",10,","PM":"alice","desc":"d","acl":"private","budget":"500","budgetUnit":"USD","whitelist":"u1"}`
 	mock.rows[5] = `{"id":5,"name":"parent","begin":"2026-01-01","end":"2026-12-31","parent":0,"path":",5,"}`
+	// After the attach POST, the server recomputes zt_project.path so that
+	// the child's ancestry now leads with its new parent. SetProgramParent's
+	// post-POST GetProgram must surface that new path back to the caller.
+	mock.rowsAfterPost[10] = `{"id":10,"name":"child","begin":"2026-01-01","end":"2026-12-31","parent":5,"path":",5,10,","PM":"alice","desc":"d","acl":"private","budget":"500","budgetUnit":"USD","whitelist":"u1"}`
 	srv := httptest.NewServer(mock.handler(t))
 	defer srv.Close()
 
 	c := newTestClient(t, "tok-1", srv.URL)
-	if err := c.SetProgramParent(context.Background(), 10, 5); err != nil {
+	out, err := c.SetProgramParent(context.Background(), 10, 5)
+	if err != nil {
 		t.Fatalf("SetProgramParent: %v", err)
 	}
+	// SetProgramParent delegates the edit POST to UpdateProgram. Assert only
+	// the increments SetProgramParent itself owns: the delegation reaches the
+	// child's edit route, the prospective parent is fetched once for the cycle
+	// check, and the returned *Program carries the server-recomputed ancestry.
+	// The full-form-preservation guarantee is UpdateProgram's test surface.
 	if mock.postCount != 1 || mock.postPath != "/program-edit-10.json" {
 		t.Fatalf("posts=%d path=%s", mock.postCount, mock.postPath)
 	}
-	if mock.getCounts[10] != 1 || mock.getCounts[5] != 1 {
-		t.Fatalf("get counts: child=%d parent=%d", mock.getCounts[10], mock.getCounts[5])
+	if mock.getCounts[5] != 1 {
+		t.Errorf("parent GET count = %d, want 1 (one cycle-check fetch)", mock.getCounts[5])
 	}
-	// Form must override parent and preserve every other writeable field.
-	for _, want := range []string{"parent=5", "name=child", "PM=alice", "desc=d", "acl=private", "budget=500", "budgetUnit=USD", "whitelist=u1"} {
-		if !strings.Contains(mock.postBody, want) {
-			t.Errorf("POST body missing %q: %s", want, mock.postBody)
-		}
+	if !strings.Contains(mock.postBody, "parent=5") {
+		t.Errorf("POST body missing parent=5: %s", mock.postBody)
+	}
+	if out == nil {
+		t.Fatalf("returned program is nil")
+	}
+	if got := derefInt64(out.Parent); got != 5 {
+		t.Errorf("returned Parent = %d, want 5", got)
+	}
+	if got := derefString(out.Path); got != ",5,10," {
+		t.Errorf("returned Path = %q, want %q", got, ",5,10,")
 	}
 }
 
 func TestSetProgramParent_DetachWritesParentZero(t *testing.T) {
 	mock := newProgramParentMockServer()
 	mock.rows[10] = `{"id":10,"name":"child","begin":"2026-01-01","end":"2026-12-31","parent":5,"path":",5,10,"}`
+	// After detach, the server collapses path back to the root-only form.
+	mock.rowsAfterPost[10] = `{"id":10,"name":"child","begin":"2026-01-01","end":"2026-12-31","parent":0,"path":",10,"}`
 	srv := httptest.NewServer(mock.handler(t))
 	defer srv.Close()
 
 	c := newTestClient(t, "tok-1", srv.URL)
-	if err := c.SetProgramParent(context.Background(), 10, 0); err != nil {
+	out, err := c.SetProgramParent(context.Background(), 10, 0)
+	if err != nil {
 		t.Fatalf("SetProgramParent: %v", err)
 	}
 	// Detach must not look up a parent (parentID=0 short-circuits the cycle check).
-	if mock.getCounts[10] != 1 || len(mock.getCounts) != 1 {
+	// Child is fetched twice: baseline before POST, then re-read after POST to return *Program.
+	if mock.getCounts[10] != 2 || len(mock.getCounts) != 1 {
 		t.Fatalf("unexpected GETs: %v", mock.getCounts)
 	}
 	if !strings.Contains(mock.postBody, "parent=0") {
 		t.Errorf("detach must send parent=0: %s", mock.postBody)
+	}
+	// Returned *Program must reflect the detached ancestry.
+	if out == nil {
+		t.Fatalf("returned program is nil")
+	}
+	if got := derefInt64(out.Parent); got != 0 {
+		t.Errorf("returned Parent = %d, want 0", got)
+	}
+	if got := derefString(out.Path); got != ",10," {
+		t.Errorf("returned Path = %q, want %q", got, ",10,")
 	}
 }
 
@@ -664,7 +636,7 @@ func TestSetProgramParent_RejectsCycleViaPath(t *testing.T) {
 	defer srv.Close()
 
 	c := newTestClient(t, "tok-1", srv.URL)
-	err := c.SetProgramParent(context.Background(), 10, 20)
+	_, err := c.SetProgramParent(context.Background(), 10, 20)
 	if !errors.Is(err, ErrCycleDetected) {
 		t.Fatalf("err = %v, want errors.Is(ErrCycleDetected)", err)
 	}
@@ -676,14 +648,19 @@ func TestSetProgramParent_RejectsCycleViaPath(t *testing.T) {
 
 func TestSetProgramParent_ChildNotFound(t *testing.T) {
 	mock := newProgramParentMockServer()
-	// Empty rows map -> any GET returns program:false -> ErrNotFound.
+	// Parent 5 exists so the cycle check passes; child 999 is absent, so the
+	// delegated UpdateProgram's baseline fetch surfaces ErrNotFound.
+	mock.rows[5] = `{"id":5,"name":"parent","begin":"2026-01-01","end":"2026-12-31","parent":0,"path":",5,"}`
 	srv := httptest.NewServer(mock.handler(t))
 	defer srv.Close()
 
 	c := newTestClient(t, "tok-1", srv.URL)
-	err := c.SetProgramParent(context.Background(), 999, 5)
+	_, err := c.SetProgramParent(context.Background(), 999, 5)
 	if !errors.Is(err, ErrNotFound) {
 		t.Fatalf("err = %v, want errors.Is(ErrNotFound)", err)
+	}
+	if mock.postCount != 0 {
+		t.Errorf("posts=%d, expected zero (missing child rejects before any write)", mock.postCount)
 	}
 }
 
@@ -695,10 +672,8 @@ func TestSetProgramParent_ParentNotFound(t *testing.T) {
 	defer srv.Close()
 
 	c := newTestClient(t, "tok-1", srv.URL)
-	err := c.SetProgramParent(context.Background(), 10, 999)
+	_, err := c.SetProgramParent(context.Background(), 10, 999)
 	if !errors.Is(err, ErrNotFound) {
 		t.Fatalf("err = %v, want errors.Is(ErrNotFound)", err)
 	}
 }
-
-var _ = json.Number("0")

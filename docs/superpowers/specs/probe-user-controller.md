@@ -73,7 +73,7 @@ user-delete-99999.json?confirm=yes       → 200 with "user: false" (controller 
 
 The verifyPassword gate is **specific to the user controller**: probing `project-create.json` / `program-edit-1.json` GET on the same session works without any sudo gate.
 
-## Three envelope shapes observed
+## Three response shapes observed
 
 The Stage 1 design knew about two (`ZentaoResponse` for V2, `CtrlEnvelope` for Controller). The user controller surfaced a third:
 

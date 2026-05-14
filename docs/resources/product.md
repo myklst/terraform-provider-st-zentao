@@ -39,13 +39,15 @@ resource "st-zentao_product" "example" {
 
 - `acl` (String) Access control. One of: "open", "private".
 - `desc` (String) Description.
+- `groups` (List of String) Permission group ids granted access to this product.
 - `line` (Number) Associated product line id.
-- `po` (String) Product Owner username.
+- `po` (String) Product Owner username. Defaults to the requesting account if omitted.
 - `program` (Number) Associated program id.
 - `qd` (String) QA Lead username.
 - `rd` (String) Release Lead username.
 - `reviewer` (List of String) Reviewer usernames.
 - `type` (String) Product type. One of: "normal", "branch", "platform".
+- `whitelist` (List of String) Whitelisted usernames granted access to this product.
 
 ### Read-Only
 
@@ -53,5 +55,4 @@ resource "st-zentao_product" "example" {
 - `created_by` (String) Creator username.
 - `created_date` (String) Creation timestamp.
 - `id` (String) Numeric ZenTao product ID.
-- `program_name` (String) Associated program name.
 - `status` (String) Product status.

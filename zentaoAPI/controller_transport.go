@@ -116,7 +116,7 @@ func isControllerSessionExpired(httpStatus int, body []byte, location string) bo
 		return false
 	}
 	if httpStatus == http.StatusOK && len(body) > 0 {
-		var env CtrlEnvelope
+		var env CtrlResp
 		if err := json.Unmarshal(body, &env); err == nil {
 			if env.Status != "" && env.Status != "success" && isLoginRedirectReason(env.ZentaoFailReason()) {
 				return true
@@ -130,11 +130,11 @@ func isControllerSessionExpired(httpStatus int, body []byte, location string) bo
 // Controller wire envelopes + their helpers
 // ============================================================================
 
-// CtrlEnvelope is the envelope returned by ZenTao Controller endpoints
+// CtrlResp is the envelope returned by ZenTao Controller endpoints
 // (PATH_INFO `.json`). The resource payload sits inside Data, sometimes
 // as a JSON-encoded string, sometimes as a direct object/array. Use
 // DecodeData to unwrap it.
-type CtrlEnvelope struct {
+type CtrlResp struct {
 	Status  string          `json:"status"`
 	Error   string          `json:"error,omitempty"`
 	Message string          `json:"message,omitempty"`
@@ -146,7 +146,7 @@ type CtrlEnvelope struct {
 // ZentaoFailReason mirrors ZentaoResponse.ZentaoFailReason for the
 // Controller envelope shape. Both delegate to zentaoFailReason in
 // errors.go.
-func (e CtrlEnvelope) ZentaoFailReason() string {
+func (e CtrlResp) ZentaoFailReason() string {
 	return zentaoFailReason(e.Error, e.Message, e.Reason)
 }
 
@@ -197,12 +197,12 @@ func (r CtrlSimpleResponse) FieldErrors() (string, map[string][]string) {
 	return "", nil
 }
 
-// DecodeData unwraps env.Data into target. ZenTao Controllers return
+// DecodeData unwraps e.Data into target. ZenTao Controllers return
 // Data either as a JSON-encoded string (legacy v1 form: data is a
 // quoted string whose contents are themselves JSON), or as a direct
 // object/array (newer endpoints). Empty/null Data is a no-op success.
-func DecodeData(env CtrlEnvelope, target any) error {
-	data := env.Data
+func (e CtrlResp) DecodeData(target any) error {
+	data := e.Data
 	if len(data) == 0 || string(data) == "null" {
 		return nil
 	}
@@ -234,7 +234,7 @@ func DecodeData(env CtrlEnvelope, target any) error {
 // after confirming env.Status != "success"; session-expired cases
 // (please login / 302→login) must be handled by the transport layer
 // before this point.
-func classifyCtrlError(httpStatus int, env CtrlEnvelope, rawBody []byte) error {
+func classifyCtrlError(httpStatus int, env CtrlResp, rawBody []byte) error {
 	reason := env.ZentaoFailReason()
 	switch {
 	case isNotFoundReason(reason):

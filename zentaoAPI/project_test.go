@@ -181,7 +181,7 @@ func TestCreateProject_BodyShape(t *testing.T) {
 		Begin:         "2026-05-09",
 		End:           "2026-12-31",
 		Parent:        3,
-		Products:      []int{1, 2},
+		Products:      []int64{1, 2},
 		WorkflowGroup: 2,
 		ACL:           "private",
 		PM:            "pm",

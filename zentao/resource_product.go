@@ -40,23 +40,24 @@ type productResource struct {
 
 type productResourceModel struct {
 	ID   types.String `tfsdk:"id"`
-	Code types.String `tfsdk:"code"`
+	Name types.String `tfsdk:"name"`
 
-	Name     types.String `tfsdk:"name"`
-	Program  types.Int64  `tfsdk:"program"`
-	Line     types.Int64  `tfsdk:"line"`
-	Type     types.String `tfsdk:"type"`
-	Desc     types.String `tfsdk:"desc"`
-	ACL      types.String `tfsdk:"acl"`
-	PO       types.String `tfsdk:"po"`
-	QD       types.String `tfsdk:"qd"`
-	RD       types.String `tfsdk:"rd"`
-	Reviewer types.List   `tfsdk:"reviewer"`
+	Program   types.Int64  `tfsdk:"program"`
+	Line      types.Int64  `tfsdk:"line"`
+	Code      types.String `tfsdk:"code"`
+	PO        types.String `tfsdk:"po"`
+	QD        types.String `tfsdk:"qd"`
+	RD        types.String `tfsdk:"rd"`
+	Reviewer  types.List   `tfsdk:"reviewer"`
+	Type      types.String `tfsdk:"type"`
+	Status    types.String `tfsdk:"status"`
+	Desc      types.String `tfsdk:"desc"`
+	ACL       types.String `tfsdk:"acl"`
+	Groups    types.List   `tfsdk:"groups"`
+	Whitelist types.List   `tfsdk:"whitelist"`
 
-	Status      types.String `tfsdk:"status"`
 	CreatedBy   types.String `tfsdk:"created_by"`
 	CreatedDate types.String `tfsdk:"created_date"`
-	ProgramName types.String `tfsdk:"program_name"`
 }
 
 func NewProductResource() resource.Resource { return &productResource{} }
@@ -78,11 +79,6 @@ func (r *productResource) Schema(_ context.Context, _ resource.SchemaRequest, re
 				Computed:      true,
 				PlanModifiers: useStateForString,
 			},
-			"code": schema.StringAttribute{
-				Description:   "Product short code.",
-				Computed:      true,
-				PlanModifiers: useStateForString,
-			},
 			"name": schema.StringAttribute{
 				Description: "Product display name.",
 				Required:    true,
@@ -99,37 +95,16 @@ func (r *productResource) Schema(_ context.Context, _ resource.SchemaRequest, re
 				Computed:      true,
 				PlanModifiers: useStateForInt,
 			},
-			"type": schema.StringAttribute{
-				Description:   "Product type. One of: " + commaJoin(productTypeEnum) + ".",
-				Optional:      true,
+			"code": schema.StringAttribute{
+				Description:   "Product short code.",
 				Computed:      true,
 				PlanModifiers: useStateForString,
-				Validators:    []validator.String{stringvalidator.OneOf(productTypeEnum...)},
 			},
-			"desc": schema.StringAttribute{
-				Description:   "Description.",
-				Optional:      true,
-				Computed:      true,
-				Default:       stringdefault.StaticString(""),
-				PlanModifiers: useStateForString,
-			},
-			"acl": schema.StringAttribute{
-				Description:   "Access control. One of: " + commaJoin(productACLEnum) + ".",
-				Optional:      true,
-				Computed:      true,
-				PlanModifiers: useStateForString,
-				Validators:    []validator.String{stringvalidator.OneOf(productACLEnum...)},
-			},
-			// po/qd/rd are role-username Optional+Computed fields. ZenTao
-			// backfills them with the requesting account when the request body
-			// omits the field, so an empty value from prior state must NOT be
-			// pinned into the plan — that would mismatch the server-assigned
-			// default and raise "Provider produced inconsistent result after apply".
 			"po": schema.StringAttribute{
 				Description:   "Product Owner username. Defaults to the requesting account if omitted.",
 				Optional:      true,
 				Computed:      true,
-				PlanModifiers: []planmodifier.String{useStateUnlessEmpty()},
+				PlanModifiers: useStateForString,
 			},
 			"qd": schema.StringAttribute{
 				Description:   "QA Lead username.",
@@ -150,14 +125,47 @@ func (r *productResource) Schema(_ context.Context, _ resource.SchemaRequest, re
 				ElementType:   types.StringType,
 				PlanModifiers: useStateForList,
 			},
-			"status":       schema.StringAttribute{Description: "Product status.", Computed: true, PlanModifiers: useStateForString},
+			"groups": schema.ListAttribute{
+				Description:   "Permission group ids granted access to this product.",
+				Optional:      true,
+				Computed:      true,
+				ElementType:   types.StringType,
+				PlanModifiers: useStateForList,
+			},
+			"whitelist": schema.ListAttribute{
+				Description:   "Whitelisted usernames granted access to this product.",
+				Optional:      true,
+				Computed:      true,
+				ElementType:   types.StringType,
+				PlanModifiers: useStateForList,
+			},
+			"type": schema.StringAttribute{
+				Description:   "Product type. One of: " + commaJoin(productTypeEnum) + ".",
+				Optional:      true,
+				Computed:      true,
+				PlanModifiers: useStateForString,
+				Validators:    []validator.String{stringvalidator.OneOf(productTypeEnum...)},
+			},
+			"status": schema.StringAttribute{
+				Description: "Product status.",
+				Computed:    true,
+			},
+			"desc": schema.StringAttribute{
+				Description:   "Description.",
+				Optional:      true,
+				Computed:      true,
+				Default:       stringdefault.StaticString(""),
+				PlanModifiers: useStateForString,
+			},
+			"acl": schema.StringAttribute{
+				Description:   "Access control. One of: " + commaJoin(productACLEnum) + ".",
+				Optional:      true,
+				Computed:      true,
+				PlanModifiers: useStateForString,
+				Validators:    []validator.String{stringvalidator.OneOf(productACLEnum...)},
+			},
 			"created_by":   schema.StringAttribute{Description: "Creator username.", Computed: true, PlanModifiers: useStateForString},
 			"created_date": schema.StringAttribute{Description: "Creation timestamp.", Computed: true, PlanModifiers: useStateForString},
-			// program_name is derived from `program` on the server side — it must NOT
-			// use UseStateForUnknown, otherwise changing `program` keeps the stale
-			// program_name in the plan, then Update returns the new name and Terraform
-			// raises "Provider produced inconsistent result after apply".
-			"program_name": schema.StringAttribute{Description: "Associated program name.", Computed: true},
 		},
 	}
 }
@@ -212,7 +220,7 @@ func (r *productResource) Read(ctx context.Context, req resource.ReadRequest, re
 	if resp.Diagnostics.HasError() {
 		return
 	}
-	id, err := strconv.Atoi(prior.ID.ValueString())
+	id, err := strconv.ParseInt(prior.ID.ValueString(), 10, 64)
 	if err != nil {
 		resp.Diagnostics.AddError("Invalid id in state", err.Error())
 		return
@@ -241,7 +249,7 @@ func (r *productResource) Update(ctx context.Context, req resource.UpdateRequest
 	if resp.Diagnostics.HasError() {
 		return
 	}
-	id, err := strconv.Atoi(prior.ID.ValueString())
+	id, err := strconv.ParseInt(prior.ID.ValueString(), 10, 64)
 	if err != nil {
 		resp.Diagnostics.AddError("Invalid id in state", err.Error())
 		return
@@ -271,7 +279,7 @@ func (r *productResource) Delete(ctx context.Context, req resource.DeleteRequest
 	if resp.Diagnostics.HasError() {
 		return
 	}
-	id, err := strconv.Atoi(prior.ID.ValueString())
+	id, err := strconv.ParseInt(prior.ID.ValueString(), 10, 64)
 	if err != nil {
 		resp.Diagnostics.AddError("Invalid id in state", err.Error())
 		return
@@ -287,30 +295,34 @@ func (r *productResource) ImportState(ctx context.Context, req resource.ImportSt
 }
 
 func (m *productResourceModel) toAPI(ctx context.Context) (*zentaoapi.Product, diag.Diagnostics) {
-	var reviewers []string
+	var reviewers, groups, whitelist []string
 	diags := m.Reviewer.ElementsAs(ctx, &reviewers, true)
+	diags.Append(m.Groups.ElementsAs(ctx, &groups, true)...)
+	diags.Append(m.Whitelist.ElementsAs(ctx, &whitelist, true)...)
 	return &zentaoapi.Product{
-		Name:     m.Name.ValueString(),
-		Program:  int(m.Program.ValueInt64()),
-		Line:     int(m.Line.ValueInt64()),
-		Type:     m.Type.ValueString(),
-		Desc:     m.Desc.ValueString(),
-		ACL:      m.ACL.ValueString(),
-		PO:       m.PO.ValueString(),
-		QD:       m.QD.ValueString(),
-		RD:       m.RD.ValueString(),
-		Reviewer: reviewers,
+		Name:      m.Name.ValueString(),
+		Program:   m.Program.ValueInt64(),
+		Line:      m.Line.ValueInt64(),
+		Type:      m.Type.ValueString(),
+		Desc:      m.Desc.ValueString(),
+		ACL:       m.ACL.ValueString(),
+		PO:        m.PO.ValueString(),
+		QD:        m.QD.ValueString(),
+		RD:        m.RD.ValueString(),
+		Reviewer:  reviewers,
+		Groups:    groups,
+		Whitelist: whitelist,
 	}, diags
 }
 
 func fromAPI(ctx context.Context, p *zentaoapi.Product) (productResourceModel, diag.Diagnostics) {
-	reviewerSrc := p.Reviewer
-	if reviewerSrc == nil {
-		reviewerSrc = []string{}
-	}
-	reviewers, diags := types.ListValueFrom(ctx, types.StringType, reviewerSrc)
+	reviewers, diags := stringListFromSlice(ctx, p.Reviewer)
+	groups, d := stringListFromSlice(ctx, p.Groups)
+	diags.Append(d...)
+	whitelist, d := stringListFromSlice(ctx, p.Whitelist)
+	diags.Append(d...)
 	return productResourceModel{
-		ID:          types.StringValue(strconv.Itoa(p.ID)),
+		ID:          types.StringValue(strconv.FormatInt(p.ID, 10)),
 		Code:        types.StringValue(p.Code),
 		Name:        types.StringValue(p.Name),
 		Program:     types.Int64Value(int64(p.Program)),
@@ -322,20 +334,21 @@ func fromAPI(ctx context.Context, p *zentaoapi.Product) (productResourceModel, d
 		QD:          types.StringValue(p.QD),
 		RD:          types.StringValue(p.RD),
 		Reviewer:    reviewers,
+		Groups:      groups,
+		Whitelist:   whitelist,
 		Status:      types.StringValue(p.Status),
 		CreatedBy:   types.StringValue(p.CreatedBy),
 		CreatedDate: types.StringValue(p.CreatedDate),
-		ProgramName: types.StringValue(p.ProgramName),
 	}, diags
 }
 
-func commaJoin(in []string) string {
-	out := ""
-	for i, s := range in {
-		if i > 0 {
-			out += ", "
-		}
-		out += `"` + s + `"`
+// stringListFromSlice normalises a nil slice into an empty list value
+// (Terraform distinguishes null-list from empty-list and the latter is
+// what `flexibleStringList` decodes to when the wire returns an empty
+// string).
+func stringListFromSlice(ctx context.Context, src []string) (types.List, diag.Diagnostics) {
+	if src == nil {
+		src = []string{}
 	}
-	return out
+	return types.ListValueFrom(ctx, types.StringType, src)
 }

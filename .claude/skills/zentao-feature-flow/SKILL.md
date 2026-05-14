@@ -10,12 +10,12 @@ Add a new ZenTao entity (resource + data source) end-to-end. Skipping any phase 
 ## Hard rules (non-negotiable)
 
 - **Never commit on `main`.** Cut `feat/<topic>` first, before any working-tree change.
-- **Probe before assuming.** ZenTao V2 docs routinely omit server-required fields and lie about envelope shapes.
+- **Probe before assuming.** ZenTao V2 docs routinely omit server-required fields and lie about response shapes.
 - **Spec is the source of truth.** Code contradicting the spec is wrong. Update spec **first**, then code.
 - **No premature design.** No `force_destroy`, no fallback transports, no abstractions "for later."
 - **TF attribute names mirror ZenTao wire names.** `desc` stays `desc` (not `description`); same for `PM`/`PO`/`QD`/`RD`/`acl`/`multiple`. Only acceptable rename: when ZenTao uses two names for the same field (e.g. wire `parent` / docs `program`); pick the user-facing concept and document the wire mapping in the schema description.
-- **Read `module/<entity>/config/form.php` upstream before any controller-transport wrapper.** Authoritative field list + `required` flags for PATH_INFO routes — much more reliable than V2 docs or controller PHP body. Reference: `https://github.com/easysoft/zentaopms/blob/main/module/<entity>/config/form.php`. Probe still wins; form.php is the cheapest first-pass.
-- **User-facing text is minimal; technical detail lives only in this SKILL.** Schema `Description`, README, `examples/*.tf` comments, `make generate-docs` output describe **what + how to use** — not implementation. Banned from user-facing surfaces: probe dates/filenames, upstream PHP refs, wire-shape language ("V2 echoes ~24 fields"), transport-name jargon ("Controller transport"), "server-managed" footnotes (just mark Computed), and rationale. All of that lives only here + `docs/superpowers/specs/probe-*.md`. Go comments same diet — at most one line of *why-this-is-non-obvious* per declaration; cut multi-paragraph doc-comments. README "Resources" stays "example + brief attribute summary."
+- **Transport-specific rules live in companion files.** This SKILL.md covers the phases and the transport-orthogonal patterns. For the API-client template, see one of: [apiv1-transport.md](apiv1-transport.md), [apiv2-transport.md](apiv2-transport.md), [controller-transport.md](controller-transport.md). The `form.php` upstream-read rule, the pointer-field model, and the M-Z merge sit in controller-transport.md because they're forced by controller's form-edit semantics.
+- **User-facing text is minimal; technical detail lives only in this SKILL.** Schema `Description`, README, `examples/*.tf` comments, `make generate-docs` output describe **what + how to use** — not implementation. Banned from user-facing surfaces: probe dates/filenames, upstream PHP refs, wire-shape language ("V2 echoes ~24 fields"), transport-name jargon ("Controller transport"), "server-managed" footnotes (just mark Computed), and rationale. All of that lives only here + the transport files + `docs/superpowers/specs/probe-*.md`. Go comments same diet — at most one line of *why-this-is-non-obvious* per declaration; cut multi-paragraph doc-comments. README "Resources" stays "example + brief attribute summary."
 
 ## The 7 phases
 
@@ -74,34 +74,27 @@ Highest-leverage phase. **Skipping ships bugs.**
 
 ### Probe execution
 
-```bash
-direnv exec . bash -c '
-SID=$(curl -sS -X POST "$ZENTAO_URL/api.php/v1/tokens" \
-  -H "Content-Type: application/json" \
-  -d "{\"account\":\"$ZENTAO_ACCOUNT\",\"password\":\"$ZENTAO_PASSWORD\"}" | jq -r .token)
+Probe URL forms and per-transport checklists live in the transport docs:
+- V1 - [apiv1-transport.md](apiv1-transport.md)
+- V2 — [apiv2-transport.md § Probe execution](apiv2-transport.md#probe-execution).
+- Controller — [controller-transport.md § Probe execution](controller-transport.md#probe-execution); also reads `module/<entity>/config/form.php` upstream **first** (hard rule lives there).
 
-curl -sS "$ZENTAO_URL/api.php/v2/<endpoint>" -H "Token: $SID" | jq .
-'
-```
-
-**Before any controller probe**, fetch upstream `module/<entity>/config/form.php` to enumerate accepted keys + required flags. Cross-check `module/<entity>/model.php` for extra required-field validators that contradict the form (model layer sometimes adds/drops requireds — e.g. `products` on project create is optional in form.php).
-
-Standard probe checklist:
-1. Single GET exists? (`GET /api.php/v2/<entity>/{id}` — often undocumented but works)
+Transport-agnostic probe heuristics:
+1. Single GET exists? (Often undocumented but works.)
 2. POST without optional fields — server defaults?
 3. Each enum value — which pass server validation?
-4. PUT mutability of Required fields — actually mutates, or silently ignored?
-5. DELETE existing → DELETE again — missing-row response?
-6. GET on missing/deleted — HTTP 404 or HTTP 200 + envelope-fail?
-7. Required-but-undocumented fields — POST minimum, capture errors.
-8. Wire field names — TF `program` may be wire `parent`. Document mapping.
+4. Mutation verb (V2 PUT / controller edit-POST) mutability of Required fields.
+5. DELETE existing → DELETE again — missing-row response shape?
+6. GET on missing/deleted — HTTP 404, HTTP 200 + envelope-fail, or `false` payload?
+7. Required-but-undocumented fields — POST a minimum body, capture errors.
+8. Wire field names vs TF-facing names. Document mapping.
 
 ### Spec format
 
 Output: `docs/superpowers/specs/probe-<entity>-v2.md`. Sections:
 - Endpoint summary (which work, which don't, gotchas).
 - Required vs Optional fields on POST and PUT separately (PUT often more permissive).
-- Response envelope shapes for success / fail / missing on each verb (verbatim JSON).
+- Response response shapes for success / fail / missing on each verb (verbatim JSON).
 - Full GET-shape field set (truncate internals you don't surface; keep every exposed field).
 - Reconciliation table mapping plan decisions to probe verdicts.
 - Implementation notes for code (decoder peculiarities, defensive checks).
@@ -134,34 +127,15 @@ Probes commonly surface:
 
 ### 6a. zentaoAPI client (TDD, sequential)
 
-Files: `zentaoAPI/<entity>.go` + `_test.go`. Mirror [zentaoAPI/product.go](../../../zentaoAPI/product.go):
-- Public struct with `json:` tags split writeable (no `-`) vs server-managed (`json:"-"`).
-- Wire struct (`<entity>V2Wire`) using `json.Number` for every numeric/FK column.
-- `<entity>sPath` const = `apiV2PathPrefix + "<entity>s"`.
-- `<entity>Path(id int)` builder.
-- `Get/Create/Update/Delete<Entity>` mirroring product.
+Files: `zentaoAPI/<entity>.go` + `_test.go`. Pick the template by transport — the transport choice falls out of the Phase 4 probe (does V2 cover the entity? does its GET echo every column you need?).
 
-Probe-surfaced deltas in this layer:
-- Force-set `type:"<entity>"` on shared tables (`zt_project`).
-- Return `ErrNotFound` on type-mismatch (defensive).
-- Decode `result`-keyed validation envelopes.
-- Splice non-echoed fields from caller input (e.g. `products` not in V2 GET).
+| Transport | When | Template |
+|---|---|---|
+| **V2 RESTful** | V2 covers GET/POST/PUT/DELETE and the GET echoes the full row | [apiv2-transport.md](apiv2-transport.md) — reference `zentaoAPI/product.go` |
+| **Controller (PATH_INFO)** | V2 missing, truncated, or the entity needs PATH_INFO-only verbs (role binding, sibling-relation mutators) | [controller-transport.md](controller-transport.md) — reference `zentaoAPI/program.go` |
+| **V1** | Endpoint genuinely lives only at `/api.php/v1/...` (rare on Max 8.x) | [apiv1-transport.md](apiv1-transport.md) |
 
-Minimum tests:
-- `Get_FullFieldSet` — every surfaced field decoded from probe-shaped response.
-- `Get_NotFound_HTTP404` AND `Get_NotFound_DoesNotExistMessage`.
-- `Get_TypeMismatchIsErrNotFound` — when applicable.
-- `Create_BodyShape` — required present, server-managed stripped, `type` force-set.
-- `Create_FailEnvelope_StatusKey` AND `Create_FailEnvelope_ResultKey`.
-- `Update_PutPathAndRefetch`.
-- `Update_NotFound_HTTP404` AND `Update_NotFound_FailEnvelope`.
-- `Delete_Success`, `_HTTP404IsIdempotent`, `_NotExistMessageIsIdempotent`, `_OtherFailure`.
-
-After each test:
-```bash
-go test -race ./zentaoAPI/...
-golangci-lint run ./zentaoAPI/...
-```
+The transport doc covers struct shape, path constants (or lack thereof), envelope decoding, minimum-test grid, and probe checklist. Run `go test -race` + `golangci-lint` after each test, regardless of transport.
 
 ### 6b. Terraform layer (parallel, post 6a)
 
@@ -226,6 +200,45 @@ func TestXxxResource_DerivedField_NoUseStateForUnknown(t *testing.T) {
 
 If "Source" references another input attribute on the same resource → flip to **no**.
 
+### 6b-ter. Attachment resources
+
+Some FKs don't belong on the entity resource itself — they get their own thin Terraform resource. Reference: [zentao/resource_program_parent_attachment.go](../../../zentao/resource_program_parent_attachment.go).
+
+**When to extract an FK into its own attachment resource.** When **either** holds:
+
+1. The FK points at **another instance of the same type**, and users will cross-reference instances inside one `for_each` block → Terraform's self-reference cycle makes an inline attribute impossible.
+2. The FK has a **lifecycle independent of the entity** — it can be attached / detached on its own, and out-of-band changes to it need reconciling.
+
+If neither holds, the FK is a plain Optional attribute on the entity resource. Don't reach for an attachment resource by reflex — its CRUD semantics are alien (below) and the indirection only pays off for those two cases.
+
+**Schema invariants.**
+
+- `id` — Computed, mirrors the child id, `UseStateForUnknown`.
+- The child-id field (the "owning" side, e.g. `program`) — Required, `RequiresReplace`. Re-pointing the child is destroy+create, not update.
+- The target field (e.g. `parent`) — Required, **no** `RequiresReplace`, so `Update` is a real code path.
+- Ids are string-typed with a positive-integer regex validator.
+
+**CRUD semantics are not an entity resource's.** An attachment resource creates/deletes a *relationship*, not an object:
+
+- **Create — P3 collision guard (mandatory for field-style FKs).** The relationship lives on a **shared column of the pointed-at row** (`child.parent`); the attachment resource is only one of its possible writers. Create MUST NOT blindly call the sibling mutator — it GETs the child first and switches on the current FK value:
+  - `0` (unset) → proceed with the attach.
+  - `== plan` → already attached as planned; idempotent no-op (recovers interrupted applies).
+  - anything else → **refuse**, with an error that hands the user a `terraform import` command to adopt the existing attachment.
+
+  All three branches are load-bearing: drop the idempotent branch and re-runs fail; drop the refuse branch and you silently steal another config's attachment. This is the **opposite** of an id-owned entity's "no alive-collision rejection" stance — here the relationship column is *not* owned by this resource.
+
+  *Applicability boundary:* this guard is for **field-style FKs** (relationship stored on a shared column of the pointed-at row). A **join-table-style FK** (relationship is its own row) has no shared-column contention and doesn't need it.
+- **Read — detect out-of-band detach.** Re-GET the child; if the FK is back to `0` (or the child is `ErrNotFound`), the relationship was severed outside Terraform → `RemoveResource`.
+- **Update — thin re-call.** Call the sibling mutator with the new target; the child-id field is `RequiresReplace` so only the target can have changed.
+- **Delete — detach, not delete.** Call the sibling mutator with target `0`. `ErrNotFound` is idempotent success — the child is already gone.
+
+**`ValidateConfig` checklist.** Reject before plan:
+
+- self-attach (`child == target`).
+- target `= "0"` — that's "no attachment"; tell the user to remove the block, not write `0`.
+
+**Test grid.** Cover each CRUD branch above — especially the three Create branches (fresh / idempotent / refuse) and Read's out-of-band-detach path.
+
 ### 6c. Examples + README + docs
 
 1. Add `examples/resources/st-zentao_<entity>/resource.tf` and `examples/data-sources/st-zentao_<entity>/data-source.tf`. Mirror existing; **call out non-obvious server-required fields** in comments.
@@ -284,10 +297,13 @@ Use `gh` if available. PR body must include: 3-bullet summary; spec + plan point
 - "Docs say X, so X." → Probe first.
 - "Handle missing-products in resource layer." → Probe surfaces required fields → Required TF attrs. Don't paper over server invariants.
 - "Reuse `doRequest` for V1+V2+Controller." → Per CLAUDE.md, transports are split intentionally.
-- "Probe controller directly to figure out fields." → Read `form.php` first. Probe second.
+- "Probe controller directly to figure out fields." → Read `form.php` first ([controller-transport.md § Hard rule](controller-transport.md#hard-rule)). Probe second.
 - "TF attribute `description` for clarity." → No. Wire `desc` → TF `desc`.
 - "Commit while agents finish." → All green first.
 - "Skip acc test, units are enough." → Acc proves wire shape matches reality.
+- "Copy another entity's struct verbatim." → No. Follow the slim + pointer + `UnmarshalJSON` rule and pick the template by transport — see §6a dispatcher and [controller-transport.md § Struct shape](controller-transport.md#struct-shape-slim--pointer--unmarshaljson).
+- "An attachment resource for every FK." → Only the two triggers in §6b-ter (self-reference cycle, independent FK lifecycle). A plain Optional attribute otherwise.
+- "Sibling mutator open-codes its own edit POST." → No. Delegate to `Update<Entity>` — see [controller-transport.md § Sibling-relation mutators](controller-transport.md#sibling-relation-mutators).
 
 ## Quick reference
 

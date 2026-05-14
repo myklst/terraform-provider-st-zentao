@@ -118,7 +118,7 @@ func (d *projectDataSource) Read(ctx context.Context, req datasource.ReadRequest
 	if resp.Diagnostics.HasError() {
 		return
 	}
-	id, err := strconv.Atoi(cfg.ID.ValueString())
+	id, err := strconv.ParseInt(cfg.ID.ValueString(), 10, 64)
 	if err != nil {
 		resp.Diagnostics.AddAttributeError(
 			path.Root("id"),
@@ -141,7 +141,7 @@ func (d *projectDataSource) Read(ctx context.Context, req datasource.ReadRequest
 	}
 	productsSrc := fetched.Products
 	if productsSrc == nil {
-		productsSrc = []int{}
+		productsSrc = []int64{}
 	}
 	products, diags := types.ListValueFrom(ctx, types.Int64Type, productsSrc)
 	resp.Diagnostics.Append(diags...)
@@ -149,7 +149,7 @@ func (d *projectDataSource) Read(ctx context.Context, req datasource.ReadRequest
 		return
 	}
 	resp.Diagnostics.Append(resp.State.Set(ctx, projectDataSourceModel{
-		ID:            types.StringValue(strconv.Itoa(fetched.ID)),
+		ID:            types.StringValue(strconv.FormatInt(fetched.ID, 10)),
 		Name:          types.StringValue(fetched.Name),
 		Model:         types.StringValue(fetched.Model),
 		Begin:         types.StringValue(fetched.Begin),

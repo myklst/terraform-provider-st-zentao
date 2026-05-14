@@ -22,11 +22,6 @@ func TestProgramParentAttachmentResource_Schema(t *testing.T) {
 	if resp.Diagnostics.HasError() {
 		t.Fatalf("schema diagnostics: %v", resp.Diagnostics)
 	}
-	for _, attr := range []string{"id", "program", "parent"} {
-		if _, ok := resp.Schema.Attributes[attr]; !ok {
-			t.Errorf("missing attribute %q", attr)
-		}
-	}
 	for _, required := range []string{"program", "parent"} {
 		if !resp.Schema.Attributes[required].IsRequired() {
 			t.Errorf("%s must be Required", required)
@@ -234,7 +229,7 @@ resource "st-zentao_program_parent_attachment" "att" {
 					if !ok {
 						return errors.New("attachment missing from state")
 					}
-					child, err := strconv.Atoi(rs.Primary.ID)
+					child, err := strconv.ParseInt(rs.Primary.ID, 10, 64)
 					if err != nil {
 						return err
 					}
@@ -242,7 +237,8 @@ resource "st-zentao_program_parent_attachment" "att" {
 					if err != nil {
 						return err
 					}
-					return c.SetProgramParent(context.Background(), child, 0)
+					_, err = c.SetProgramParent(context.Background(), child, 0)
+					return err
 				},
 				ExpectNonEmptyPlan: true,
 			},

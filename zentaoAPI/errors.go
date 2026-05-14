@@ -18,7 +18,10 @@ import (
 var (
 	ErrNotFound      = errors.New("zentao: resource not found")
 	ErrUnauthorized  = errors.New("zentao: invalid credentials")
-	ErrCycleDetected = errors.New("zentao: program parent cycle detected")
+	// ErrCycleDetected is the shared sentinel for any sibling-relation
+	// mutator that rejects a parent assignment forming a cycle (self-attach
+	// or multi-level ancestry loop). Not program-specific.
+	ErrCycleDetected = errors.New("zentao: parent cycle detected")
 )
 
 // APIError is the structured failure surfaced when a response neither

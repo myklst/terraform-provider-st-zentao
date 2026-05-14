@@ -16,23 +16,14 @@ func TestProductDataSource_Schema(t *testing.T) {
 	if resp.Diagnostics.HasError() {
 		t.Fatalf("schema diagnostics: %v", resp.Diagnostics)
 	}
-	expected := []string{
-		"id", "code", "name", "program", "line", "type", "desc",
-		"acl", "po", "qd", "rd", "reviewer",
-		"status", "created_by", "created_date", "program_name",
-	}
-	for _, attr := range expected {
-		if _, ok := resp.Schema.Attributes[attr]; !ok {
-			t.Errorf("missing attribute %q", attr)
-		}
-	}
 	if !resp.Schema.Attributes["id"].IsRequired() {
 		t.Error("id must be Required")
 	}
-	for _, attr := range expected {
-		if attr == "id" {
-			continue
-		}
+	for _, attr := range []string{
+		"code", "name", "program", "line", "type", "desc",
+		"acl", "po", "qd", "rd", "reviewer", "groups", "whitelist",
+		"status", "created_by", "created_date",
+	} {
 		a := resp.Schema.Attributes[attr]
 		if !a.IsComputed() {
 			t.Errorf("%s must be Computed", attr)
