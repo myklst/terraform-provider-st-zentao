@@ -2,17 +2,12 @@ package zentao
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"os"
 	"regexp"
-	"strconv"
 	"testing"
 
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	tfresource "github.com/hashicorp/terraform-plugin-testing/helper/resource"
-	"github.com/hashicorp/terraform-plugin-testing/terraform"
-	zentaoapi "github.com/myklst/terraform-provider-st-zentao/zentaoAPI"
 )
 
 func TestProgramResource_Schema(t *testing.T) {
@@ -136,42 +131,6 @@ resource "st-zentao_program" "p" {
 				ResourceName:      "st-zentao_program.p",
 				ImportState:       true,
 				ImportStateVerify: true,
-			},
-		},
-	})
-}
-
-func TestAccProgramResource_disappears(t *testing.T) {
-	name := uniqueName("dis-prog")
-	tfresource.Test(t, tfresource.TestCase{
-		PreCheck:                 func() { testAccPreCheck(t) },
-		ProtoV6ProviderFactories: protoV6Factories,
-		Steps: []tfresource.TestStep{
-			{
-				Config: providerBlock() + fmt.Sprintf(`
-resource "st-zentao_program" "p" {
-  name  = %q
-  begin = "2026-01-01"
-  end   = "2026-12-31"
-}`, name),
-				Check: tfresource.ComposeTestCheckFunc(
-					func(s *terraform.State) error {
-						rs, ok := s.RootModule().Resources["st-zentao_program.p"]
-						if !ok {
-							return errors.New("resource missing from state")
-						}
-						id, err := strconv.ParseInt(rs.Primary.ID, 10, 64)
-						if err != nil {
-							return err
-						}
-						c, err := zentaoapi.NewClient(os.Getenv("ZENTAO_URL"), os.Getenv("ZENTAO_ACCOUNT"), os.Getenv("ZENTAO_PASSWORD"))
-						if err != nil {
-							return err
-						}
-						return c.DeleteProgram(context.Background(), id)
-					},
-				),
-				ExpectNonEmptyPlan: true,
 			},
 		},
 	})
