@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
@@ -84,23 +83,6 @@ func TestGetProgram_NotFound_HTTP404(t *testing.T) {
 	_, err := c.GetProgram(context.Background(), 999)
 	if !errors.Is(err, ErrNotFound) {
 		t.Fatalf("err = %v, want ErrNotFound", err)
-	}
-}
-
-// Soft-deleted rows still come back from program-edit-{id} (probe
-// 2026-05-09: DELETE only flips `deleted=1`, the row is not removed).
-// GetProgram must treat them as gone so Terraform Read clears state.
-func TestGetProgram_SoftDeletedIsErrNotFound(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"status":"success","data":"{\"program\":{\"id\":7,\"name\":\"old\",\"deleted\":1}}"}`))
-	}))
-	defer srv.Close()
-
-	c := newTestClient(t, "tok-1", srv.URL)
-	_, err := c.GetProgram(context.Background(), 7)
-	if !errors.Is(err, ErrNotFound) {
-		t.Fatalf("err = %v, want ErrNotFound (deleted=1 row), got %v", err, err)
 	}
 }
 
@@ -585,19 +567,20 @@ func TestSetProgramParent_HappyAttach(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SetProgramParent: %v", err)
 	}
+	// SetProgramParent delegates the edit POST to UpdateProgram. Assert only
+	// the increments SetProgramParent itself owns: the delegation reaches the
+	// child's edit route, the prospective parent is fetched once for the cycle
+	// check, and the returned *Program carries the server-recomputed ancestry.
+	// The full-form-preservation guarantee is UpdateProgram's test surface.
 	if mock.postCount != 1 || mock.postPath != "/program-edit-10.json" {
 		t.Fatalf("posts=%d path=%s", mock.postCount, mock.postPath)
 	}
-	if mock.getCounts[10] != 2 || mock.getCounts[5] != 1 {
-		t.Fatalf("get counts: child=%d parent=%d", mock.getCounts[10], mock.getCounts[5])
+	if mock.getCounts[5] != 1 {
+		t.Errorf("parent GET count = %d, want 1 (one cycle-check fetch)", mock.getCounts[5])
 	}
-	// Form must override parent and preserve every other writeable field.
-	for _, want := range []string{"parent=5", "name=child", "PM=alice", "desc=d", "acl=private", "budget=500", "budgetUnit=USD", "whitelist=u1"} {
-		if !strings.Contains(mock.postBody, want) {
-			t.Errorf("POST body missing %q: %s", want, mock.postBody)
-		}
+	if !strings.Contains(mock.postBody, "parent=5") {
+		t.Errorf("POST body missing parent=5: %s", mock.postBody)
 	}
-	// Returned *Program must reflect the post-attach ancestry.
 	if out == nil {
 		t.Fatalf("returned program is nil")
 	}
@@ -665,7 +648,9 @@ func TestSetProgramParent_RejectsCycleViaPath(t *testing.T) {
 
 func TestSetProgramParent_ChildNotFound(t *testing.T) {
 	mock := newProgramParentMockServer()
-	// Empty rows map -> any GET returns program:false -> ErrNotFound.
+	// Parent 5 exists so the cycle check passes; child 999 is absent, so the
+	// delegated UpdateProgram's baseline fetch surfaces ErrNotFound.
+	mock.rows[5] = `{"id":5,"name":"parent","begin":"2026-01-01","end":"2026-12-31","parent":0,"path":",5,"}`
 	srv := httptest.NewServer(mock.handler(t))
 	defer srv.Close()
 
@@ -673,6 +658,9 @@ func TestSetProgramParent_ChildNotFound(t *testing.T) {
 	_, err := c.SetProgramParent(context.Background(), 999, 5)
 	if !errors.Is(err, ErrNotFound) {
 		t.Fatalf("err = %v, want errors.Is(ErrNotFound)", err)
+	}
+	if mock.postCount != 0 {
+		t.Errorf("posts=%d, expected zero (missing child rejects before any write)", mock.postCount)
 	}
 }
 
@@ -687,151 +675,5 @@ func TestSetProgramParent_ParentNotFound(t *testing.T) {
 	_, err := c.SetProgramParent(context.Background(), 10, 999)
 	if !errors.Is(err, ErrNotFound) {
 		t.Fatalf("err = %v, want errors.Is(ErrNotFound)", err)
-	}
-}
-
-var _ = json.Number("0")
-
-// --- Restore-on-soft-deleted (CreateProgram with caller-supplied id) ---
-//
-// Matrix per SKILL.md §6a-bis (simplified):
-//   p.ID == 0                → fresh create POST (covered by TestCreateProgram_BodyShape)
-//   p.ID, lookup ErrNotFound → fresh create POST, caller's id ignored
-//   p.ID, baseline returned  → single edit POST with merged input + deleted=0;
-//                              row is undeleted in the same request when needed.
-//   No name-compare. No alive/deleted branching. The form's deleted=0 makes
-//   the operation idempotent on already-alive rows and restorative on soft-
-//   deleted ones.
-
-// Helper: build a stateful program-edit handler that:
-//   GET → returns the row carrying `deleted` per the test's stub
-//   POST → records the body and returns success
-type programReplaceMock struct {
-	gets, posts int
-	postBody    string
-	getResponse string // returned from every GET (lets the test seed deleted=0/1)
-	t           *testing.T
-}
-
-func (m *programReplaceMock) handler(id int64) http.HandlerFunc {
-	editPath := fmt.Sprintf("/program-edit-%d.json", id)
-	return func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		switch {
-		case r.Method == http.MethodGet && r.URL.Path == editPath:
-			m.gets++
-			_, _ = w.Write([]byte(m.getResponse))
-		case r.Method == http.MethodPost && r.URL.Path == editPath:
-			m.posts++
-			buf := make([]byte, 4096)
-			n, _ := r.Body.Read(buf)
-			m.postBody = string(buf[:n])
-			_, _ = w.Write([]byte(`{"result":"success","message":"保存成功","locate":"/program-browse.json"}`))
-		default:
-			m.t.Errorf("unexpected request %s %s", r.Method, r.URL.Path)
-			w.WriteHeader(http.StatusInternalServerError)
-		}
-	}
-}
-
-// Soft-deleted row + caller-supplied id → single edit POST that overwrites
-// the row with the merged input AND flips deleted back to 0 via form.
-func TestCreateProgram_RestoreOnSoftDeleted_HappyPath(t *testing.T) {
-	mock := &programReplaceMock{
-		t: t,
-		// Soft-deleted baseline. After restore, GetProgram (final refetch)
-		// would normally return ErrNotFound, but our stub returns deleted=0
-		// to simulate the post-restore state — same response for both GETs
-		// to keep the mock stateless.
-		getResponse: `{"status":"success","data":"{\"program\":{\"id\":42,\"name\":\"Beta\",\"begin\":\"2026-01-01\",\"end\":\"2026-12-31\",\"parent\":0,\"PM\":\"alice\",\"desc\":\"old\",\"acl\":\"private\",\"budget\":\"100\",\"budgetUnit\":\"CNY\",\"whitelist\":\"\",\"deleted\":0}}"}`,
-	}
-	srv := httptest.NewServer(mock.handler(42))
-	defer srv.Close()
-
-	c := newTestClient(t, "tok-1", srv.URL)
-	in := &Program{
-		ID:    int64ptr(42), // caller-supplied (residual TF state after destroy)
-		Name:  strptr("Beta"),
-		Begin: strptr("2026-01-01"),
-		End:   strptr("2026-12-31"),
-		Desc:  strptr("fresh"),
-	}
-	out, err := c.CreateProgram(context.Background(), in)
-	if err != nil {
-		t.Fatalf("CreateProgram: %v", err)
-	}
-	if out.ID == nil || *out.ID != 42 {
-		t.Fatalf("returned id = %v, want 42 (id preserved across restore)", out.ID)
-	}
-	// One pre-flight Any GET + one post-replace refetch GET. One edit POST.
-	if mock.posts != 1 {
-		t.Fatalf("edit POSTs = %d, want 1", mock.posts)
-	}
-	if mock.gets != 2 {
-		t.Fatalf("edit GETs = %d, want 2 (Any-baseline + refetch)", mock.gets)
-	}
-	// Caller override + baseline preservation + deleted=0 must all be in the form.
-	for _, want := range []string{"name=Beta", "desc=fresh", "PM=alice", "acl=private", "budget=100", "deleted=0"} {
-		if !strings.Contains(mock.postBody, want) {
-			t.Errorf("POST body missing %q: %s", want, mock.postBody)
-		}
-	}
-}
-
-// Hard-gone row (Max 8.1's `program:false` shape) → caller's id ignored,
-// fresh create POST issued.
-func TestCreateProgram_RestoreOnSoftDeleted_NotFound_FallsThroughToCreate(t *testing.T) {
-	var preflights, creates int
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		switch {
-		case r.Method == http.MethodGet && r.URL.Path == "/program-edit-42.json":
-			preflights++
-			_, _ = w.Write([]byte(`{"status":"success","data":"{\"program\":false}"}`))
-		case r.Method == http.MethodPost && r.URL.Path == "/program-create.json":
-			creates++
-			_, _ = w.Write([]byte(`{"result":"success","message":"保存成功","id":99,"load":"/program-browse.json"}`))
-		default:
-			t.Errorf("unexpected request %s %s", r.Method, r.URL.Path)
-			w.WriteHeader(http.StatusInternalServerError)
-		}
-	}))
-	defer srv.Close()
-
-	c := newTestClient(t, "tok-1", srv.URL)
-	out, err := c.CreateProgram(context.Background(), &Program{ID: int64ptr(42), Name: strptr("Beta"), Begin: strptr("2026-01-01"), End: strptr("2026-12-31")})
-	if err != nil {
-		t.Fatalf("CreateProgram: %v", err)
-	}
-	if preflights != 1 || creates != 1 {
-		t.Fatalf("preflights=%d creates=%d, want 1/1", preflights, creates)
-	}
-	if out.ID == nil || *out.ID != 99 {
-		t.Fatalf("returned id = %v, want 99 (fresh server-assigned)", out.ID)
-	}
-}
-
-// Alive row + caller-supplied id → still goes through the replace path
-// (no preflight rejection). Form carries deleted=0 (no-op on alive rows).
-func TestCreateProgram_RestoreOnSoftDeleted_AliveRow_Replaces(t *testing.T) {
-	mock := &programReplaceMock{
-		t:           t,
-		getResponse: `{"status":"success","data":"{\"program\":{\"id\":42,\"name\":\"Beta\",\"begin\":\"2026-01-01\",\"end\":\"2026-12-31\",\"parent\":0,\"PM\":\"alice\",\"desc\":\"old\",\"acl\":\"private\",\"budget\":\"100\",\"budgetUnit\":\"CNY\",\"whitelist\":\"\",\"deleted\":0}}"}`,
-	}
-	srv := httptest.NewServer(mock.handler(42))
-	defer srv.Close()
-
-	c := newTestClient(t, "tok-1", srv.URL)
-	out, err := c.CreateProgram(context.Background(), &Program{
-		ID: int64ptr(42), Name: strptr("Beta"), Begin: strptr("2026-01-01"), End: strptr("2026-12-31"), Desc: strptr("overwrite"),
-	})
-	if err != nil {
-		t.Fatalf("CreateProgram: %v", err)
-	}
-	if out.ID == nil || *out.ID != 42 || mock.posts != 1 {
-		t.Fatalf("out.ID=%v posts=%d, want 42/1", out.ID, mock.posts)
-	}
-	if !strings.Contains(mock.postBody, "desc=overwrite") || !strings.Contains(mock.postBody, "deleted=0") {
-		t.Errorf("POST body missing override or deleted=0: %s", mock.postBody)
 	}
 }

@@ -8,7 +8,7 @@ Reach for controller when **any** of these is true:
 
 - The entity isn't exposed on V2 (Max 8.x lacks V2 for `user`, `group`, and several `zt_project`-row sub-types).
 - V2 GET echoes only a subset of the columns and you need the full row — controller's `<module>-edit-{id}` GET returns the complete `zt_*` row.
-- Write semantics require an endpoint V2 doesn't surface (e.g. `<module>-undelete-{id}`, role binding routes).
+- Write semantics require an endpoint V2 doesn't surface (e.g. role binding routes).
 
 If V2 covers the entity cleanly, prefer [apiv2-transport.md](apiv2-transport.md).
 
@@ -28,46 +28,41 @@ If V2 covers the entity cleanly, prefer [apiv2-transport.md](apiv2-transport.md)
 
 ## Edit POST is not PATCH
 
-`<module>-edit-{id}` POST resets any **omitted** `form.php` column to its form-default. Two patterns flow from this:
+`<module>-edit-{id}` POST resets any **omitted** `form.php` column to its form-default. Two patterns flow from this, both baked into the default struct shape below:
 
-1. **M-Z merge** in `Update<Entity>` — fetch baseline, override only the fields the caller explicitly set, emit the full form. See [zentaoAPI/program.go](../../../zentaoAPI/program.go) `mergeProgramBaseline` and `programToForm`.
-2. **Pointer fields on the public struct** when the user has a legitimate intent to set a writeable field back to empty. See "Pointer fields" below.
+1. **M-Z merge** in `Update<Entity>` — fetch baseline, override only the fields the caller explicitly set (non-nil pointers), emit the full form. See [zentaoAPI/program.go](../../../zentaoAPI/program.go) `mergeProgramBaseline` and `programToForm`.
+2. **Pointer fields on the public struct** so `nil` ("preserve baseline") and `""` / `0` ("set this column empty") are distinct wire intents.
 
-## Soft-delete baseline lookup
+## Struct shape: slim + pointer + UnmarshalJSON
 
-The Create-restore SOP (SKILL.md §6a-bis) requires a `<entity>` lookup that does NOT collapse `deleted=1` into `ErrNotFound`. Convention for controller wrappers:
+This is the default for every controller wrapper. `program.go` is the canonical reference (since 2026-05-13).
 
-- **`get<Entity>Row(ctx, id) (*<Entity>, error)`** — the shared decode pipeline for `<module>-edit-{id}` GET. Returns the row as-is, including the `Deleted` field on the struct (or `(prog, deleted, error)` if the struct can't carry it). Used by both `Get<Entity>` and the Create restore baseline path.
-- **`Get<Entity>(ctx, id) (*<Entity>, error)`** — thin wrapper around `get<Entity>Row` that returns `ErrNotFound` when the row is soft-deleted. This is the Terraform-Read contract.
+### Slim struct — strict three classes
 
-Name the private one `get<Entity>Row` (the unfiltered shape IS the row), not `get<Entity>Any` — the latter suggests there's a `getAll` counterpart, which there isn't.
+A controller wrapper's `<Entity>` struct carries **only** columns in one of these three classes:
 
-## Pointer fields on the API struct
+1. Columns the Terraform resource / data source actually exposes.
+2. Columns the wrapper's own behaviour needs (e.g. `Path` for a sibling mutator's client-side cycle check).
+3. Columns `form.php` marks `required` but the wrapper doesn't expose — they must still ride the edit-POST form carrying their baseline value.
 
-Default: **value types** (`string` / `int64` / `bool`), as in the V2 reference [zentaoAPI/product.go](../../../zentaoAPI/product.go) — M-Z merge reads `""` / `0` as "preserve baseline". Cheap to write and test; all controller wrappers should start here.
+`zt_*` columns in none of those three classes **do not go in the struct**. Adding a field later is a deliberate act — the PR says which class it joins. The historical fat struct (every `zt_project` column with `json:"-"`) is an anti-pattern: it buries intent, bloats `UnmarshalJSON`, and makes "expose or internal?" a coin-flip for the next author.
 
-**Switch to pointers** (`*string` / `*int64` / `*bool`) when **both** are true:
+### Pointer fields + UnmarshalJSON
 
-1. The form-edit POST forces always-emit-every-writeable-field semantics (typical for controller — see "Edit POST is not PATCH" above), AND
-2. At least one writeable field has a legitimate user intent to set back to empty string (or 0) — e.g. `whitelist = ""` to clear the ACL list, which must reach the server instead of being read as "preserve".
+- **Pointer fields** (`*string` / `*int64` / `*bool`) are the default. Controller's edit-POST always emits every writeable field (see "Edit POST is not PATCH"), so `nil` = "preserve baseline" and non-nil = "override, even with empty string". Value types collapse those two states and the user can never clear a column.
+- **Decode via `UnmarshalJSON` on `*<Entity>`**, not a separate `<entity>CtrlWire` + `to<Entity>()`. `json.Number`-typed locals tolerate ZenTao's mixed number / quoted-number shapes, then take address into the pointer fields. Keep a wire struct only when it earns its place — field renames or transforms beyond `json.Number → int64 / bool`. Plain controller wrappers don't need one.
 
-When both apply, value-typed `""` collides with "preserve baseline" and the user can't clear the column. Pointers split the two states cleanly: `nil` = preserve, non-nil = override (even with empty string). Pointer-typed reference: [zentaoAPI/program.go](../../../zentaoAPI/program.go) (since 2026-05-13).
+### Every layer of the pointer model
 
-### When you pick pointers, every layer changes
-
-1. `<Entity>` struct fields → `*T`. **Two acceptable shapes:**
-   - **Wire struct + `to<Entity>()`** — keep a value-typed `<entity>CtrlWire` (`json.Number` for numerics) and convert via `func (w wire) to<Entity>() (*<Entity>, error)`.
-   - **Custom `UnmarshalJSON` on `*<Entity>`** — collapse the wire struct away. `json.Number`-typed locals decode then take address into the pointer fields. Program uses this shape since 2026-05-13.
-
-   Pick the second when the wire struct adds no value beyond decoding (no field renames, no transformations beyond `json.Number → int64 / bool`).
-2. `<entity>ToForm` derefs `nil` → `""` / `"0"` / `"false"`. Add file-local helpers:
+1. `<Entity>` struct fields → `*T`; `UnmarshalJSON` on `*<Entity>` decodes them.
+2. `<entity>ToForm` derefs `nil` → `""` / `"0"` / `"false"`. File-local helpers:
    ```go
    func derefString(p *string) string { if p == nil { return "" }; return *p }
    func derefInt64(p *int64) int64    { if p == nil { return 0 };  return *p }
    ```
-3. `merge<Entity>Baseline` switches predicates from `!= ""` / `!= 0` to `!= nil`. Test name: `Preserves...WhenInputNil` (not `...WhenInputZero`).
+3. `merge<Entity>Baseline` predicates are `!= nil`. Test name: `Preserves...WhenInputNil`.
 4. CRUD wrappers' id checks: `p.ID == nil || *p.ID == 0` for "missing"; `*p.ID` to use. Returned-id assignment: `out.ID = &id`.
-5. **Resource layer** (`zentao/resource_<entity>.go`) — `toAPI()` returns `&zentaoapi.<Entity>{ Name: optString(m.Name), ... }` via a helper that maps `types.String.IsNull() || IsUnknown()` → `nil`. Required schema fields always produce non-nil (the framework rejects null/unknown for Required); Optional+Computed fields the user didn't set produce nil, which the M-Z merge reads as "preserve baseline":
+5. **Resource layer** (`zentao/resource_<entity>.go`) — `toAPI()` maps `types.String.IsNull() || IsUnknown()` → `nil` via a helper. Required schema fields always produce non-nil (the framework rejects null/unknown for Required); Optional+Computed fields the user didn't set produce nil → the M-Z merge reads "preserve baseline":
    ```go
    func optString(v types.String) *string {
        if v.IsNull() || v.IsUnknown() {
@@ -77,10 +72,42 @@ When both apply, value-typed `""` collides with "preserve baseline" and the user
        return &s
    }
    ```
-   For pointer-typed FK fields the attachment resource owns (e.g. `program.Parent`), omit them from `toAPI` entirely so the M-Z merge always preserves the column.
+   For pointer-typed FK fields an attachment resource owns (e.g. `program.Parent`), omit them from `toAPI` entirely so the M-Z merge always preserves the column.
 6. **Data source layer** — `<entity>FromAPI` and the data-source `Read` deref every field through `derefString` / `derefInt64`. Nil-safe: missing wire fields surface as `""` / `0` to Terraform state.
-7. **Tests** — add `func sp(s string) *string { return &s }`, `func ip(i int64) *int64 { return &i }`, `func bp(b bool) *bool { return &b }` at the top of `<entity>_test.go`. Every `&<Entity>{Name: "x"}` literal becomes `&<Entity>{Name: sp("x")}`. Every `out.ID != 42` assertion becomes `out.ID == nil || *out.ID != 42`. `reflect.DeepEqual` `want` literals must include **every** field `UnmarshalJSON` (or `to<Entity>()`) populates from the test fixture — else nil-vs-non-nil-pointer mismatches fail the comparison.
-8. **JSON marshaling note** — `<Entity>` is never `json.Marshal`ed to the wire (writes go through `<entity>ToForm`), so omitting `MarshalJSON` is safe. If a future caller needs to marshal one, add an explicit `MarshalJSON` that strips server-managed fields rather than relying on `omitempty` semantics.
+7. **Tests** — add `func sp(s string) *string`, `func ip(i int64) *int64`, `func bp(b bool) *bool` at the top of `<entity>_test.go`. Every `&<Entity>{Name: "x"}` literal becomes `&<Entity>{Name: sp("x")}`. `reflect.DeepEqual` `want` literals must include **every** field `UnmarshalJSON` populates from the fixture — else nil-vs-non-nil-pointer mismatches fail the comparison.
+8. **JSON marshaling note** — `<Entity>` is never `json.Marshal`ed to the wire (writes go through `<entity>ToForm`), so omitting `MarshalJSON` is safe. If a future caller needs to marshal one, add an explicit `MarshalJSON` that strips server-managed fields rather than relying on `omitempty`.
+
+## Sibling-relation mutators
+
+A **sibling-relation mutator** points one entity's FK at another instance of the same (or a related) entity — `SetProgramParent` is the canonical case. ZenTao Max 8.x does **no** server-side validation here (probe finding F3, generalised): it silently accepts self-attach and multi-level ancestry cycles. The wrapper owns all guarding.
+
+### Signature + delegation
+
+- **Return `(*<Entity>, error)`.** The form-edit POST returns no row; the wrapper must refetch so the caller gets server-derived fields (`Path`, `Grade`, `LastEditedDate`). Matches `Create<Entity>` / `Update<Entity>`'s shape.
+- **Delegate the write to `Update<Entity>`.** A sibling mutator is `[client validation] + Update<Entity>(&<Entity>{ID: &id, <FK>: &target})` — nothing more. It must NOT open-code its own edit-POST / decode / refetch: that path lives once, in `Update<Entity>`, and the M-Z merge preserves every other column. `SetProgramParent` is the reference.
+
+### Validation order (cost-ordered)
+
+1. **Zero-cost checks first** — positive child id, non-negative target id, self-attach (`child == target`). No network round-trip.
+2. **Baseline-dependent checks second** — and only when reachable: skip the cycle check entirely when detaching (`target == 0`).
+
+### Path-based ancestor-membership check (reusable primitive)
+
+`zt_project.path` is a comma-bracketed ancestry list, e.g. `,1,5,20,`. To reject a cycle without recursive queries: fetch the prospective parent, and if `",<childID>,"` is a substring of `parent.Path`, the parent is already a descendant of the child — attaching forms a cycle. Reject with `ErrCycleDetected` (the shared, entity-agnostic sentinel in [errors.go](../../../zentaoAPI/errors.go)). Self-attach uses the same sentinel.
+
+### Test grid (mandatory)
+
+Because the write is delegated, **test only the increment the sibling mutator adds** — full-form preservation, POST encoding and refetch are `Update<Entity>`'s test surface.
+
+| Scenario | Server | Assertion |
+|---|---|---|
+| cheap preflight (`child ≤ 0` / `target < 0` / self-attach) | none | table-driven; self-attach must `errors.Is(ErrCycleDetected)` |
+| happy attach | mock | delegation reaches the child's edit route; returned `*<Entity>` carries the new `Path` |
+| detach (`target == 0`) | mock | **zero** parent GET (baseline-dependent check short-circuited); POST carries `<FK>=0` |
+| cycle via `Path` | mock | `errors.Is(ErrCycleDetected)` and **zero POST** (rejected before any mutation) |
+| child / parent not found | mock | `ErrNotFound` propagates |
+
+The negative assertions — zero POST, zero parent GET — are the easiest to omit and the most important to keep.
 
 ## Probe execution
 
@@ -96,7 +123,7 @@ curl -sS "$ZENTAO_URL/program-edit-7.json?zentaosid=$SID" | jq .
 # POST form-urlencoded — JSON body to controller silently re-renders the form
 curl -sS -X POST "$ZENTAO_URL/program-edit-7.json?zentaosid=$SID" \
   -H "Content-Type: application/x-www-form-urlencoded" \
-  -d "name=test&begin=2026-01-01&end=2026-12-31&deleted=0"
+  -d "name=test&begin=2026-01-01&end=2026-12-31"
 '
 ```
 
@@ -105,5 +132,4 @@ Controller-specific probe checklist (additions to V2's):
 9. `<module>-edit-{id}` GET — full row in `data` JSON-string? Does `data` need a second-pass JSON-unwrap?
 10. POST with JSON body — actually mutates, or silently re-renders the form? (User-edit POST silently re-renders — use form-urlencoded.)
 11. DELETE — 302 redirect, 200 + simple envelope, or HTTP 404? `CheckRedirect = http.ErrUseLastResponse` keeps the redirect visible to `isControllerSessionExpired`.
-12. Does `form.php` accept `deleted` as a writeable column? Required for the soft-delete restore SOP — see SKILL.md §6a-bis "Form acceptance assumption".
-13. Wire-only fields that V2 doesn't surface — `path`, `grade`, `parent` ancestry list on `zt_project`, etc. Document them as Computed read-only on the TF side.
+12. Wire-only fields that V2 doesn't surface — `path`, `grade`, `parent` ancestry list on `zt_project`, etc. Document them as Computed read-only on the TF side.

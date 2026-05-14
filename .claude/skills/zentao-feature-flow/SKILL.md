@@ -132,44 +132,10 @@ Files: `zentaoAPI/<entity>.go` + `_test.go`. Pick the template by transport — 
 | Transport | When | Template |
 |---|---|---|
 | **V2 RESTful** | V2 covers GET/POST/PUT/DELETE and the GET echoes the full row | [apiv2-transport.md](apiv2-transport.md) — reference `zentaoAPI/product.go` |
-| **Controller (PATH_INFO)** | V2 missing, truncated, or the entity needs PATH_INFO-only verbs (`undelete`, role binding) | [controller-transport.md](controller-transport.md) — reference `zentaoAPI/program.go` |
+| **Controller (PATH_INFO)** | V2 missing, truncated, or the entity needs PATH_INFO-only verbs (role binding, sibling-relation mutators) | [controller-transport.md](controller-transport.md) — reference `zentaoAPI/program.go` |
 | **V1** | Endpoint genuinely lives only at `/api.php/v1/...` (rare on Max 8.x) | [apiv1-transport.md](apiv1-transport.md) |
 
 The transport doc covers struct shape, path constants (or lack thereof), envelope decoding, minimum-test grid, and probe checklist. Run `go test -race` + `golangci-lint` after each test, regardless of transport.
-
-### 6a-bis. Create with restore-on-soft-deleted
-
-**Pattern.** ZenTao soft-deletes (sets `zt_project.deleted=1` / `zt_product.deleted=1`) instead of removing rows. When a `terraform destroy` → `terraform apply` cycle re-uses the same name and the user's stale state still carries the original id, a fresh `Create` POST collides on the unique key — or worse, succeeds with a different id while the original row stays as orphan trash.
-
-**Resolution rule (project SOP, simplified form).** Every Create wrapper in `zentaoAPI/` MUST:
-
-1. Accept caller-supplied `p.ID`. Zero means "no prior state, fresh create".
-2. When `p.ID != 0`:
-   - Fetch baseline via the **private unfiltered-lookup** variant (the one that does NOT collapse `deleted=1` into `ErrNotFound`; public `Get<Entity>` keeps that contract for Terraform-Read consumers). For controller-backed entities the convention is `get<Entity>Row` — see [controller-transport.md § Soft-delete baseline lookup](controller-transport.md#soft-delete-baseline-lookup).
-   - On `ErrNotFound` → row is hard-gone; fall through to the fresh-create POST. Caller's id is ignored.
-   - Otherwise → run the M-Z merge against baseline and issue **one** edit POST. The form **always carries `deleted=0`** (set unconditionally inside `<entity>ToForm`), so the edit POST is restorative on soft-deleted rows and a no-op on the deleted column for alive rows. Refetch via `Get<Entity>` and return.
-3. When `p.ID == 0`, skip the lookup and run the create POST.
-
-**Deliberate non-features.**
-
-- **No name comparison.** The wrapper trusts that an id supplied in stale TF state belongs to the user — Terraform owns the state, not us. Adding a `name` cross-check is a layer-violation fix for a layer-3 (state-corruption) problem.
-- **No alive-collision rejection.** A `p.ID != 0` create against an alive row is treated as a replace (M-Z merge applied verbatim). The user's prior message established this contract: "直接基于 Input replace + Set deleted = 0 即可."
-- **No separate undelete route.** The restore is folded into the same edit POST via the `deleted=0` form key — one round trip, no `<entity>-undelete-{id}.json` call.
-
-**Why ID-only and not name-based lookup.** Finding by name across both alive + soft-deleted rows needs a list endpoint that doesn't filter on deleted (the standard `<entity>-browse` does). That requires a separate probe + admin permission. The id-based path is sufficient for the common destroy/re-apply cycle and avoids cross-environment data-takeover hazards.
-
-**Form acceptance assumption.** Whether ZenTao's `module/<entity>/config/form.php` actually accepts `deleted` as a writable column is **not yet probe-verified for `program` / `product`**. If the form silently ignores it, soft-deleted rows will go through the merge POST without flipping `deleted=0`, and the post-replace `Get<Entity>` refetch will return `ErrNotFound`. Integration tests (`TF_ACC=1`) are the verification gate; on failure, switch the implementation to the explicit two-step path (`<entity>-undelete-{id}.json` + `<entity>-edit-{id}` POST) and update this SOP.
-
-**Test grid (mandatory).** Each Create wrapper test file MUST cover:
-
-| `p.ID` | Baseline lookup | Expected outcome |
-|---|---|---|
-| `0` | not issued | normal create POST → returned id from envelope (covered by existing `BodyShape` test) |
-| `!=0` | `ErrNotFound` | fresh create POST issued, caller's id ignored |
-| `!=0` | row returned (`deleted=1` baseline stub) | one edit POST with merged input + `deleted=0`, then refetch; returned id preserved |
-| `!=0` | row returned (`deleted=0` baseline stub) | same path; verifies the alive-row case is treated as replace, not error |
-
-**Signature note.** Internally surfacing the deleted state via the unfiltered-lookup variant does NOT change the public `Get<Entity>` contract — keep it returning `ErrNotFound` on `deleted=1` so Terraform-Read still clears state cleanly. The unfiltered variant is private and used only by the Create restore path's baseline fetch. Concrete naming + signature for controller-backed entities: [controller-transport.md § Soft-delete baseline lookup](controller-transport.md#soft-delete-baseline-lookup).
 
 ### 6b. Terraform layer (parallel, post 6a)
 
@@ -234,6 +200,45 @@ func TestXxxResource_DerivedField_NoUseStateForUnknown(t *testing.T) {
 
 If "Source" references another input attribute on the same resource → flip to **no**.
 
+### 6b-ter. Attachment resources
+
+Some FKs don't belong on the entity resource itself — they get their own thin Terraform resource. Reference: [zentao/resource_program_parent_attachment.go](../../../zentao/resource_program_parent_attachment.go).
+
+**When to extract an FK into its own attachment resource.** When **either** holds:
+
+1. The FK points at **another instance of the same type**, and users will cross-reference instances inside one `for_each` block → Terraform's self-reference cycle makes an inline attribute impossible.
+2. The FK has a **lifecycle independent of the entity** — it can be attached / detached on its own, and out-of-band changes to it need reconciling.
+
+If neither holds, the FK is a plain Optional attribute on the entity resource. Don't reach for an attachment resource by reflex — its CRUD semantics are alien (below) and the indirection only pays off for those two cases.
+
+**Schema invariants.**
+
+- `id` — Computed, mirrors the child id, `UseStateForUnknown`.
+- The child-id field (the "owning" side, e.g. `program`) — Required, `RequiresReplace`. Re-pointing the child is destroy+create, not update.
+- The target field (e.g. `parent`) — Required, **no** `RequiresReplace`, so `Update` is a real code path.
+- Ids are string-typed with a positive-integer regex validator.
+
+**CRUD semantics are not an entity resource's.** An attachment resource creates/deletes a *relationship*, not an object:
+
+- **Create — P3 collision guard (mandatory for field-style FKs).** The relationship lives on a **shared column of the pointed-at row** (`child.parent`); the attachment resource is only one of its possible writers. Create MUST NOT blindly call the sibling mutator — it GETs the child first and switches on the current FK value:
+  - `0` (unset) → proceed with the attach.
+  - `== plan` → already attached as planned; idempotent no-op (recovers interrupted applies).
+  - anything else → **refuse**, with an error that hands the user a `terraform import` command to adopt the existing attachment.
+
+  All three branches are load-bearing: drop the idempotent branch and re-runs fail; drop the refuse branch and you silently steal another config's attachment. This is the **opposite** of an id-owned entity's "no alive-collision rejection" stance — here the relationship column is *not* owned by this resource.
+
+  *Applicability boundary:* this guard is for **field-style FKs** (relationship stored on a shared column of the pointed-at row). A **join-table-style FK** (relationship is its own row) has no shared-column contention and doesn't need it.
+- **Read — detect out-of-band detach.** Re-GET the child; if the FK is back to `0` (or the child is `ErrNotFound`), the relationship was severed outside Terraform → `RemoveResource`.
+- **Update — thin re-call.** Call the sibling mutator with the new target; the child-id field is `RequiresReplace` so only the target can have changed.
+- **Delete — detach, not delete.** Call the sibling mutator with target `0`. `ErrNotFound` is idempotent success — the child is already gone.
+
+**`ValidateConfig` checklist.** Reject before plan:
+
+- self-attach (`child == target`).
+- target `= "0"` — that's "no attachment"; tell the user to remove the block, not write `0`.
+
+**Test grid.** Cover each CRUD branch above — especially the three Create branches (fresh / idempotent / refuse) and Read's out-of-band-detach path.
+
 ### 6c. Examples + README + docs
 
 1. Add `examples/resources/st-zentao_<entity>/resource.tf` and `examples/data-sources/st-zentao_<entity>/data-source.tf`. Mirror existing; **call out non-obvious server-required fields** in comments.
@@ -296,7 +301,9 @@ Use `gh` if available. PR body must include: 3-bullet summary; spec + plan point
 - "TF attribute `description` for clarity." → No. Wire `desc` → TF `desc`.
 - "Commit while agents finish." → All green first.
 - "Skip acc test, units are enough." → Acc proves wire shape matches reality.
-- "Use product.go's wire struct shape for program / user / group." → No. Pick the template by transport — see §6a dispatcher.
+- "Copy another entity's struct verbatim." → No. Follow the slim + pointer + `UnmarshalJSON` rule and pick the template by transport — see §6a dispatcher and [controller-transport.md § Struct shape](controller-transport.md#struct-shape-slim--pointer--unmarshaljson).
+- "An attachment resource for every FK." → Only the two triggers in §6b-ter (self-reference cycle, independent FK lifecycle). A plain Optional attribute otherwise.
+- "Sibling mutator open-codes its own edit POST." → No. Delegate to `Update<Entity>` — see [controller-transport.md § Sibling-relation mutators](controller-transport.md#sibling-relation-mutators).
 
 ## Quick reference
 

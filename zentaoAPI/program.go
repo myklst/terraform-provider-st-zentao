@@ -155,12 +155,10 @@ func mergeProgramBaseline(input, baseline *Program) *Program {
 	return &out
 }
 
-// getProgramRow use GET program-edit-{id} endpoint.
-// It returns the full row including the soft-delete flag on the struct so
-// callers can decide policy: GetProgram collapses *prog.Deleted=true into
-// ErrNotFound for Terraform-Read; the Create restore path keeps the row
-// to drive its M-Z merge baseline.
-func (c *Client) getProgramRow(ctx context.Context, id int64) (*Program, error) {
+// GetProgram fetches a program via the program-edit-{id} GET endpoint.
+// Missing rows — HTTP 404, an envelope-fail "does not exist" reason, or the
+// `program:false` payload Max 8.x returns — all collapse to ErrNotFound.
+func (c *Client) GetProgram(ctx context.Context, id int64) (*Program, error) {
 	body, status, err := c.doController(ctx, "program", "edit", []string{strconv.FormatInt(id, 10)}, nil, nil)
 	if err != nil {
 		return nil, err
@@ -190,18 +188,6 @@ func (c *Client) getProgramRow(ctx context.Context, id int64) (*Program, error) 
 		return nil, fmt.Errorf("decode get-program wire: %w (body=%s)", err, string(body))
 	}
 	return &prog, nil
-}
-
-// GetProgram surfaces only alive rows. Soft-deleted rows still come
-// back from edit-GET (probe 2026-05-09: DELETE only flips
-// zt_project.deleted=1, the row is not removed) — they are mapped to
-// ErrNotFound so Terraform Read clears state.
-func (c *Client) GetProgram(ctx context.Context, id int64) (*Program, error) {
-	prog, err := c.getProgramRow(ctx, id)
-	if err != nil {
-		return nil, err
-	}
-	return prog, nil
 }
 
 func (c *Client) CreateProgram(ctx context.Context, p *Program) (*Program, error) {
@@ -282,11 +268,13 @@ func (c *Client) UpdateProgram(ctx context.Context, p *Program) (*Program, error
 // SetProgramParent attaches childID under parentID, or detaches childID
 // when parentID is 0. ZenTao silently accepts self-attach and multi-level
 // cycles (probe finding F3) — this wrapper rejects both client-side
-// before issuing the form POST.
+// before issuing any write.
 //
-// Implementation: fetch the child as baseline, override only the Parent
-// field (the rest of the program-edit form is preserved verbatim — see
-// the M-Z merge note on UpdateProgram), then submit.
+// Validation order is cost-ordered: the zero-cost checks (positive childID,
+// non-negative parentID, self-attach) run first; the baseline-dependent
+// ancestry-cycle check fetches the prospective parent only when parentID > 0.
+// The form-edit POST itself is delegated to UpdateProgram — passing an input
+// with only ID and Parent set lets the M-Z merge preserve every other column.
 func (c *Client) SetProgramParent(ctx context.Context, childID, parentID int64) (*Program, error) {
 	if childID <= 0 {
 		return nil, fmt.Errorf("SetProgramParent: childID must be positive, got %d", childID)
@@ -296,10 +284,6 @@ func (c *Client) SetProgramParent(ctx context.Context, childID, parentID int64) 
 	}
 	if parentID == childID {
 		return nil, fmt.Errorf("SetProgramParent: %w (self-attach: child=parent=%d)", ErrCycleDetected, childID)
-	}
-	baseline, err := c.GetProgram(ctx, childID)
-	if err != nil {
-		return nil, fmt.Errorf("SetProgramParent: fetch child baseline: %w", err)
 	}
 	if parentID > 0 {
 		parentRow, err := c.GetProgram(ctx, parentID)
@@ -316,26 +300,11 @@ func (c *Client) SetProgramParent(ctx context.Context, childID, parentID int64) 
 				ErrCycleDetected, childID, parentID, parentPath)
 		}
 	}
-	out := *baseline
-	out.Parent = &parentID
-	body, status, err := c.doControllerForm(ctx, "program", "edit", []string{strconv.FormatInt(childID, 10)}, nil, out.toForm())
+	updated, err := c.UpdateProgram(ctx, &Program{ID: &childID, Parent: &parentID})
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("SetProgramParent: %w", err)
 	}
-	if status == http.StatusNotFound {
-		return nil, ErrNotFound
-	}
-	if status >= 400 {
-		return nil, apiError(status, body)
-	}
-	var resp CtrlSimpleResponse
-	if err := json.Unmarshal(body, &resp); err != nil {
-		return nil, fmt.Errorf("decode set-program-parent envelope: %w (body=%s)", err, string(body))
-	}
-	if !resp.IsSuccess() {
-		return nil, classifyCtrlSimple(status, resp, body)
-	}
-	return c.GetProgram(ctx, childID)
+	return updated, nil
 }
 
 func (c *Client) DeleteProgram(ctx context.Context, id int64) error {
