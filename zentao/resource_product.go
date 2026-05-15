@@ -11,6 +11,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/boolplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/int64planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/listplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
@@ -39,25 +40,23 @@ type productResource struct {
 }
 
 type productResourceModel struct {
-	ID   types.String `tfsdk:"id"`
-	Name types.String `tfsdk:"name"`
-
+	ID        types.String `tfsdk:"id"`
 	Program   types.Int64  `tfsdk:"program"`
-	Line      types.Int64  `tfsdk:"line"`
+	Name      types.String `tfsdk:"name"`
 	Code      types.String `tfsdk:"code"`
+	Shadow    types.Bool   `tfsdk:"shadow"`
+	Line      types.Int64  `tfsdk:"line"`
+	Type      types.String `tfsdk:"type"`
+	Status    types.String `tfsdk:"status"`
+	Desc      types.String `tfsdk:"desc"`
 	PO        types.String `tfsdk:"po"`
 	QD        types.String `tfsdk:"qd"`
 	RD        types.String `tfsdk:"rd"`
 	Reviewer  types.List   `tfsdk:"reviewer"`
-	Type      types.String `tfsdk:"type"`
-	Status    types.String `tfsdk:"status"`
-	Desc      types.String `tfsdk:"desc"`
 	ACL       types.String `tfsdk:"acl"`
 	Groups    types.List   `tfsdk:"groups"`
 	Whitelist types.List   `tfsdk:"whitelist"`
-
-	CreatedBy   types.String `tfsdk:"created_by"`
-	CreatedDate types.String `tfsdk:"created_date"`
+	Deleted   types.Bool   `tfsdk:"deleted"`
 }
 
 func NewProductResource() resource.Resource { return &productResource{} }
@@ -67,9 +66,10 @@ func (r *productResource) Metadata(_ context.Context, req resource.MetadataReque
 }
 
 func (r *productResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
-	useStateForString := []planmodifier.String{stringplanmodifier.UseStateForUnknown()}
 	useStateForInt := []planmodifier.Int64{int64planmodifier.UseStateForUnknown()}
+	useStateForBool := []planmodifier.Bool{boolplanmodifier.UseStateForUnknown()}
 	useStateForList := []planmodifier.List{listplanmodifier.UseStateForUnknown()}
+	useStateForString := []planmodifier.String{stringplanmodifier.UseStateForUnknown()}
 
 	resp.Schema = schema.Schema{
 		Description: "Manages a ZenTao product.",
@@ -79,15 +79,25 @@ func (r *productResource) Schema(_ context.Context, _ resource.SchemaRequest, re
 				Computed:      true,
 				PlanModifiers: useStateForString,
 			},
-			"name": schema.StringAttribute{
-				Description: "Product display name.",
-				Required:    true,
-			},
 			"program": schema.Int64Attribute{
 				Description:   "Associated program id.",
 				Optional:      true,
 				Computed:      true,
 				PlanModifiers: useStateForInt,
+			},
+			"name": schema.StringAttribute{
+				Description: "Product display name.",
+				Required:    true,
+			},
+			"code": schema.StringAttribute{
+				Description:   "Product short code.",
+				Computed:      true,
+				PlanModifiers: useStateForString,
+			},
+			"shadow": schema.BoolAttribute{
+				Description:   "Whether a shadow product.",
+				Computed:      true,
+				PlanModifiers: useStateForBool,
 			},
 			"line": schema.Int64Attribute{
 				Description:   "Associated product line id.",
@@ -95,9 +105,22 @@ func (r *productResource) Schema(_ context.Context, _ resource.SchemaRequest, re
 				Computed:      true,
 				PlanModifiers: useStateForInt,
 			},
-			"code": schema.StringAttribute{
-				Description:   "Product short code.",
+			"type": schema.StringAttribute{
+				Description:   "Product type. One of: " + commaJoin(productTypeEnum) + ".",
+				Optional:      true,
 				Computed:      true,
+				PlanModifiers: useStateForString,
+				Validators:    []validator.String{stringvalidator.OneOf(productTypeEnum...)},
+			},
+			"status": schema.StringAttribute{
+				Description: "Product status.",
+				Computed:    true,
+			},
+			"desc": schema.StringAttribute{
+				Description:   "Description.",
+				Optional:      true,
+				Computed:      true,
+				Default:       stringdefault.StaticString(""),
 				PlanModifiers: useStateForString,
 			},
 			"po": schema.StringAttribute{
@@ -125,6 +148,13 @@ func (r *productResource) Schema(_ context.Context, _ resource.SchemaRequest, re
 				ElementType:   types.StringType,
 				PlanModifiers: useStateForList,
 			},
+			"acl": schema.StringAttribute{
+				Description:   "Access control. One of: " + commaJoin(productACLEnum) + ".",
+				Optional:      true,
+				Computed:      true,
+				PlanModifiers: useStateForString,
+				Validators:    []validator.String{stringvalidator.OneOf(productACLEnum...)},
+			},
 			"groups": schema.ListAttribute{
 				Description:   "Permission group ids granted access to this product.",
 				Optional:      true,
@@ -139,33 +169,11 @@ func (r *productResource) Schema(_ context.Context, _ resource.SchemaRequest, re
 				ElementType:   types.StringType,
 				PlanModifiers: useStateForList,
 			},
-			"type": schema.StringAttribute{
-				Description:   "Product type. One of: " + commaJoin(productTypeEnum) + ".",
-				Optional:      true,
+			"deleted": schema.BoolAttribute{
+				Description:   "Whether deleted.",
 				Computed:      true,
-				PlanModifiers: useStateForString,
-				Validators:    []validator.String{stringvalidator.OneOf(productTypeEnum...)},
+				PlanModifiers: useStateForBool,
 			},
-			"status": schema.StringAttribute{
-				Description: "Product status.",
-				Computed:    true,
-			},
-			"desc": schema.StringAttribute{
-				Description:   "Description.",
-				Optional:      true,
-				Computed:      true,
-				Default:       stringdefault.StaticString(""),
-				PlanModifiers: useStateForString,
-			},
-			"acl": schema.StringAttribute{
-				Description:   "Access control. One of: " + commaJoin(productACLEnum) + ".",
-				Optional:      true,
-				Computed:      true,
-				PlanModifiers: useStateForString,
-				Validators:    []validator.String{stringvalidator.OneOf(productACLEnum...)},
-			},
-			"created_by":   schema.StringAttribute{Description: "Creator username.", Computed: true, PlanModifiers: useStateForString},
-			"created_date": schema.StringAttribute{Description: "Creation timestamp.", Computed: true, PlanModifiers: useStateForString},
 		},
 	}
 }
@@ -201,12 +209,11 @@ func (r *productResource) Create(ctx context.Context, req resource.CreateRequest
 		resp.Diagnostics.AddError("Create product failed", err.Error())
 		return
 	}
-	fetched, err := r.client.GetProduct(ctx, created.ID)
-	if err != nil {
-		resp.Diagnostics.AddError("Re-fetch after create failed", err.Error())
+	if created.ID == nil {
+		resp.Diagnostics.AddError("Create product failed", "server returned no id")
 		return
 	}
-	state, diags := fromAPI(ctx, fetched)
+	state, diags := productFromAPI(ctx, created)
 	resp.Diagnostics.Append(diags...)
 	if resp.Diagnostics.HasError() {
 		return
@@ -234,7 +241,7 @@ func (r *productResource) Read(ctx context.Context, req resource.ReadRequest, re
 		resp.Diagnostics.AddError("Read product failed", err.Error())
 		return
 	}
-	state, diags := fromAPI(ctx, fetched)
+	state, diags := productFromAPI(ctx, fetched)
 	resp.Diagnostics.Append(diags...)
 	if resp.Diagnostics.HasError() {
 		return
@@ -259,13 +266,13 @@ func (r *productResource) Update(ctx context.Context, req resource.UpdateRequest
 	if resp.Diagnostics.HasError() {
 		return
 	}
-	apiInput.ID = id
+	apiInput.ID = &id
 	updated, err := r.client.UpdateProduct(ctx, apiInput)
 	if err != nil {
 		resp.Diagnostics.AddError("Update product failed", err.Error())
 		return
 	}
-	state, diags := fromAPI(ctx, updated)
+	state, diags := productFromAPI(ctx, updated)
 	resp.Diagnostics.Append(diags...)
 	if resp.Diagnostics.HasError() {
 		return
@@ -295,60 +302,50 @@ func (r *productResource) ImportState(ctx context.Context, req resource.ImportSt
 }
 
 func (m *productResourceModel) toAPI(ctx context.Context) (*zentaoapi.Product, diag.Diagnostics) {
-	var reviewers, groups, whitelist []string
-	diags := m.Reviewer.ElementsAs(ctx, &reviewers, true)
-	diags.Append(m.Groups.ElementsAs(ctx, &groups, true)...)
-	diags.Append(m.Whitelist.ElementsAs(ctx, &whitelist, true)...)
+	reviewers, diags := optStrList(ctx, m.Reviewer)
+	groups, d := optStrList(ctx, m.Groups)
+	diags.Append(d...)
+	whitelist, d := optStrList(ctx, m.Whitelist)
+	diags.Append(d...)
 	return &zentaoapi.Product{
-		Name:      m.Name.ValueString(),
-		Program:   m.Program.ValueInt64(),
-		Line:      m.Line.ValueInt64(),
-		Type:      m.Type.ValueString(),
-		Desc:      m.Desc.ValueString(),
-		ACL:       m.ACL.ValueString(),
-		PO:        m.PO.ValueString(),
-		QD:        m.QD.ValueString(),
-		RD:        m.RD.ValueString(),
+		Name:      optString(m.Name),
+		Program:   optInt64(m.Program),
+		Line:      optInt64(m.Line),
+		Type:      optString(m.Type),
+		Desc:      optString(m.Desc),
+		ACL:       optString(m.ACL),
+		PO:        optString(m.PO),
+		QD:        optString(m.QD),
+		RD:        optString(m.RD),
 		Reviewer:  reviewers,
 		Groups:    groups,
 		Whitelist: whitelist,
 	}, diags
 }
 
-func fromAPI(ctx context.Context, p *zentaoapi.Product) (productResourceModel, diag.Diagnostics) {
-	reviewers, diags := stringListFromSlice(ctx, p.Reviewer)
-	groups, d := stringListFromSlice(ctx, p.Groups)
+func productFromAPI(ctx context.Context, p *zentaoapi.Product) (productResourceModel, diag.Diagnostics) {
+	reviewers, diags := stringListFromSlice(ctx, deref(p.Reviewer))
+	groups, d := stringListFromSlice(ctx, deref(p.Groups))
 	diags.Append(d...)
-	whitelist, d := stringListFromSlice(ctx, p.Whitelist)
+	whitelist, d := stringListFromSlice(ctx, deref(p.Whitelist))
 	diags.Append(d...)
 	return productResourceModel{
-		ID:          types.StringValue(strconv.FormatInt(p.ID, 10)),
-		Code:        types.StringValue(p.Code),
-		Name:        types.StringValue(p.Name),
-		Program:     types.Int64Value(int64(p.Program)),
-		Line:        types.Int64Value(int64(p.Line)),
-		Type:        types.StringValue(p.Type),
-		Desc:        types.StringValue(p.Desc),
-		ACL:         types.StringValue(p.ACL),
-		PO:          types.StringValue(p.PO),
-		QD:          types.StringValue(p.QD),
-		RD:          types.StringValue(p.RD),
-		Reviewer:    reviewers,
-		Groups:      groups,
-		Whitelist:   whitelist,
-		Status:      types.StringValue(p.Status),
-		CreatedBy:   types.StringValue(p.CreatedBy),
-		CreatedDate: types.StringValue(p.CreatedDate),
+		ID:        types.StringValue(strconv.FormatInt(deref(p.ID), 10)),
+		Code:      types.StringValue(deref(p.Code)),
+		Shadow:    types.BoolValue(deref(p.Shadow)),
+		Name:      types.StringValue(deref(p.Name)),
+		Program:   types.Int64Value(deref(p.Program)),
+		Line:      types.Int64Value(deref(p.Line)),
+		Type:      types.StringValue(deref(p.Type)),
+		Desc:      types.StringValue(deref(p.Desc)),
+		ACL:       types.StringValue(deref(p.ACL)),
+		PO:        types.StringValue(deref(p.PO)),
+		QD:        types.StringValue(deref(p.QD)),
+		RD:        types.StringValue(deref(p.RD)),
+		Reviewer:  reviewers,
+		Groups:    groups,
+		Whitelist: whitelist,
+		Status:    types.StringValue(deref(p.Status)),
+		Deleted:   types.BoolValue(deref(p.Deleted)),
 	}, diags
-}
-
-// stringListFromSlice normalises a nil slice into an empty list value
-// (Terraform distinguishes null-list from empty-list and the latter is
-// what `flexibleStringList` decodes to when the wire returns an empty
-// string).
-func stringListFromSlice(ctx context.Context, src []string) (types.List, diag.Diagnostics) {
-	if src == nil {
-		src = []string{}
-	}
-	return types.ListValueFrom(ctx, types.StringType, src)
 }

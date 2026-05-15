@@ -15,9 +15,6 @@ type programEditRespInner struct {
 }
 
 // Program represents a ZenTao program (project portfolio).
-//
-// `Path` is server-derived (zt_project.path, comma-bracketed ancestry list,
-// e.g. ",1,5,10,") and is read-only.
 type Program struct {
 	ID         *int64  `json:"id,omitempty"`
 	Parent     *int64  `json:"parent,omitempty"`
@@ -96,17 +93,17 @@ func (p *Program) UnmarshalJSON(data []byte) error {
 // is empty/0.
 func (p *Program) toForm() url.Values {
 	form := url.Values{}
-	form.Set("parent", strconv.FormatInt(derefInt64(p.Parent), 10))
-	form.Set("name", derefString(p.Name))
-	form.Set("PM", derefString(p.PM))
-	form.Set("budget", derefString(p.Budget))
-	form.Set("budgetUnit", derefString(p.BudgetUnit))
-	form.Set("begin", derefString(p.Begin))
-	form.Set("end", derefString(p.End))
-	form.Set("desc", derefString(p.Desc))
-	form.Set("acl", derefString(p.ACL))
-	form.Set("whitelist", derefString(p.Whitelist))
-	form.Set("deleted", boolToIntStr(derefBool(p.Deleted)))
+	form.Set("parent", strconv.FormatInt(deref(p.Parent), 10))
+	form.Set("name", deref(p.Name))
+	form.Set("PM", deref(p.PM))
+	form.Set("budget", deref(p.Budget))
+	form.Set("budgetUnit", deref(p.BudgetUnit))
+	form.Set("begin", deref(p.Begin))
+	form.Set("end", deref(p.End))
+	form.Set("desc", deref(p.Desc))
+	form.Set("acl", deref(p.ACL))
+	form.Set("whitelist", deref(p.Whitelist))
+	form.Set("deleted", boolToIntStr(deref(p.Deleted)))
 	return form
 }
 
@@ -294,7 +291,7 @@ func (c *Client) SetProgramParent(ctx context.Context, childID, parentID int64) 
 		// If childID appears as a segment in parentRow.Path, the would-be parent
 		// is already a descendant of the child — attaching would form a cycle.
 		childToken := "," + strconv.FormatInt(childID, 10) + ","
-		parentPath := derefString(parentRow.Path)
+		parentPath := deref(parentRow.Path)
 		if strings.Contains(parentPath, childToken) {
 			return nil, fmt.Errorf("SetProgramParent: %w (child=%d is ancestor of parent=%d, parent.path=%q)",
 				ErrCycleDetected, childID, parentID, parentPath)

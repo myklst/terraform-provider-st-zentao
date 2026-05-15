@@ -5,23 +5,10 @@ import (
 	"fmt"
 )
 
-func derefString(p *string) string {
+func deref[T any](p *T) T {
 	if p == nil {
-		return ""
-	}
-	return *p
-}
-
-func derefInt64(p *int64) int64 {
-	if p == nil {
-		return 0
-	}
-	return *p
-}
-
-func derefBool(p *bool) bool {
-	if p == nil {
-		return false
+		var def T
+		return def
 	}
 	return *p
 }
@@ -50,6 +37,7 @@ func jsonNumberToBool(n json.Number) bool {
 	return n == "1"
 }
 
-func strptr(s string) *string { return &s }
-func int64ptr(i int64) *int64 { return &i }
-func boolptr(b bool) *bool    { return &b }
+func strptr(s string) *string          { return &s }
+func int64ptr(i int64) *int64          { return &i }
+func boolptr(b bool) *bool             { return &b }
+func strSlicePtr(s []string) *[]string { return &s }

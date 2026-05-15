@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
@@ -12,12 +11,12 @@ import (
 	"testing"
 )
 
-// productCtrlWire round-trip — mirrors the inner.product payload from
-// product-view-{id}.json on the probed Max 8.1 instance. Numerics use
-// the real wire types — a mix of int and string-quoted, exercised by
-// json.Number on the wire struct. Multi-value reviewer arrives as the
-// comma-joined string per filter:join in form.php.
-func TestProductCtrlWire_ToProduct_FullPayload(t *testing.T) {
+// Product UnmarshalJSON round-trip — mirrors the inner.product payload from
+// product-view-{id}.json on the probed Max 8.1 instance. Numerics use the
+// real wire types — a mix of int and string-quoted, exercised by the
+// json.Number locals in (*Product).UnmarshalJSON. Multi-value reviewer
+// arrives as the comma-joined string per filter:join in form.php.
+func TestProduct_UnmarshalJSON_FullPayload(t *testing.T) {
 	raw := `{
 		"id": 42,
 		"program": "7",
@@ -34,38 +33,32 @@ func TestProductCtrlWire_ToProduct_FullPayload(t *testing.T) {
 		"reviewer": "r1,r2",
 		"groups": "1,2",
 		"whitelist": "admin,PM",
-		"createdBy": "admin",
-		"createdDate": "2026-05-03 10:00:00"
+		"deleted": "0"
 	}`
-	var w productCtrlWire
-	if err := json.Unmarshal([]byte(raw), &w); err != nil {
+	var p Product
+	if err := json.Unmarshal([]byte(raw), &p); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
-	p, err := w.toProduct()
-	if err != nil {
-		t.Fatalf("toProduct: %v", err)
-	}
 	want := &Product{
-		ID:          42,
-		Name:        "Alpha",
-		Code:        "alpha-code",
-		Program:     7,
-		Line:        3,
-		Type:        "normal",
-		Status:      "normal",
-		Desc:        "a desc",
-		ACL:         "private",
-		PO:          "po-user",
-		QD:          "qd-user",
-		RD:          "rd-user",
-		Reviewer:    []string{"r1", "r2"},
-		Groups:      []string{"1", "2"},
-		Whitelist:   []string{"admin", "PM"},
-		CreatedBy:   "admin",
-		CreatedDate: "2026-05-03 10:00:00",
+		ID:        int64ptr(42),
+		Name:      strptr("Alpha"),
+		Code:      strptr("alpha-code"),
+		Program:   int64ptr(7),
+		Line:      int64ptr(3),
+		Type:      strptr("normal"),
+		Status:    strptr("normal"),
+		Desc:      strptr("a desc"),
+		ACL:       strptr("private"),
+		PO:        strptr("po-user"),
+		QD:        strptr("qd-user"),
+		RD:        strptr("rd-user"),
+		Reviewer:  strSlicePtr([]string{"r1", "r2"}),
+		Groups:    strSlicePtr([]string{"1", "2"}),
+		Whitelist: strSlicePtr([]string{"admin", "PM"}),
+		Deleted:   boolptr(false),
 	}
-	if !reflect.DeepEqual(p, want) {
-		t.Fatalf("Product mismatch:\n got %+v\nwant %+v", p, want)
+	if !reflect.DeepEqual(&p, want) {
+		t.Fatalf("Product mismatch:\n got %+v\nwant %+v", &p, want)
 	}
 }
 
@@ -75,7 +68,7 @@ func TestGetProduct_HappyPath(t *testing.T) {
 			t.Errorf("unexpected req %s %s", r.Method, r.URL.Path)
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"status":"success","data":"{\"product\":{\"id\":42,\"program\":7,\"name\":\"Alpha\",\"code\":\"alpha\",\"type\":\"normal\",\"status\":\"normal\",\"desc\":\"d\",\"acl\":\"private\",\"PO\":\"po\",\"QD\":\"qd\",\"RD\":\"rd\",\"reviewer\":\"r1,r2\",\"groups\":\"\",\"whitelist\":\"\",\"createdBy\":\"admin\",\"createdDate\":\"2026-05-03 10:00:00\",\"deleted\":\"0\"}}"}`))
+		_, _ = w.Write([]byte(`{"status":"success","data":"{\"product\":{\"id\":42,\"program\":7,\"name\":\"Alpha\",\"code\":\"alpha\",\"type\":\"normal\",\"status\":\"normal\",\"desc\":\"d\",\"acl\":\"private\",\"PO\":\"po\",\"QD\":\"qd\",\"RD\":\"rd\",\"reviewer\":\"r1,r2\",\"groups\":\"\",\"whitelist\":\"\",\"deleted\":\"0\"}}"}`))
 	}))
 	defer srv.Close()
 
@@ -84,11 +77,11 @@ func TestGetProduct_HappyPath(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetProduct: %v", err)
 	}
-	if p.ID != 42 || p.Name != "Alpha" || p.Program != 7 {
+	if deref(p.ID) != 42 || deref(p.Name) != "Alpha" || deref(p.Program) != 7 {
 		t.Fatalf("got %+v", p)
 	}
-	if !reflect.DeepEqual(p.Reviewer, []string{"r1", "r2"}) {
-		t.Fatalf("Reviewer = %v", p.Reviewer)
+	if !reflect.DeepEqual(deref(p.Reviewer), []string{"r1", "r2"}) {
+		t.Fatalf("Reviewer = %v", deref(p.Reviewer))
 	}
 }
 
@@ -104,8 +97,14 @@ func TestGetProduct_ReviewerEmpty(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetProduct: %v", err)
 	}
-	if p.Reviewer != nil {
-		t.Fatalf("Reviewer = %v, want nil", p.Reviewer)
+	// Empty wire string decodes to a non-nil pointer to an empty slice
+	// (an explicit "the column is empty" signal), distinct from nil
+	// ("wire omitted the column").
+	if p.Reviewer == nil {
+		t.Fatalf("Reviewer pointer is nil, want non-nil empty slice")
+	}
+	if len(*p.Reviewer) != 0 {
+		t.Fatalf("Reviewer = %v, want empty slice", *p.Reviewer)
 	}
 }
 
@@ -126,24 +125,6 @@ func TestGetProduct_MissingID_LoadAlertEnvelope(t *testing.T) {
 	_, err := c.GetProduct(context.Background(), 99999)
 	if !errors.Is(err, ErrNotFound) {
 		t.Fatalf("err = %v, want ErrNotFound (load.alert envelope)", err)
-	}
-}
-
-// Soft-deleted rows still come back from product-view (the row's
-// `deleted=1` flag distinguishes them). GetProduct must treat them as
-// gone so Terraform Read clears state. Probe 2026-05-10 confirmed view
-// echoes deleted rows verbatim with `deleted:1`.
-func TestGetProduct_SoftDeletedIsErrNotFound(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"status":"success","data":"{\"product\":{\"id\":7,\"name\":\"old\",\"deleted\":1}}"}`))
-	}))
-	defer srv.Close()
-
-	c := newTestClient(t, "tok-1", srv.URL)
-	_, err := c.GetProduct(context.Background(), 7)
-	if !errors.Is(err, ErrNotFound) {
-		t.Fatalf("err = %v, want ErrNotFound (deleted=1 row)", err)
 	}
 }
 
@@ -235,28 +216,27 @@ func TestCreateProduct_BodyShapeAndRefetch(t *testing.T) {
 
 	c := newTestClient(t, "tok-1", srv.URL)
 	in := &Product{
-		Name:     "Beta",
-		Program:  1,
-		Line:     0,
-		Type:     "normal",
-		Desc:     "d",
-		ACL:      "open",
-		PO:       "po1",
-		QD:       "qd1",
-		RD:       "rd1",
-		Reviewer: []string{"r1"},
-		// these must be ignored on write (server-managed / not in form.php)
-		Code:        "should-not-go",
-		Status:      "normal",
-		CreatedBy:   "should-not-go",
-		CreatedDate: "should-not-go",
+		Name:     strptr("Beta"),
+		Program:  int64ptr(1),
+		Line:     int64ptr(0),
+		Type:     strptr("normal"),
+		Desc:     strptr("d"),
+		ACL:      strptr("open"),
+		PO:       strptr("po1"),
+		QD:       strptr("qd1"),
+		RD:       strptr("rd1"),
+		Reviewer: strSlicePtr([]string{"r1"}),
+		// Code is server-managed — caller-set value is ignored by toForm
+		// (key absent from form.php).
+		Code:   strptr("should-not-go"),
+		Status: strptr("normal"),
 	}
 	out, err := c.CreateProduct(context.Background(), in)
 	if err != nil {
 		t.Fatalf("CreateProduct: %v", err)
 	}
-	if out.ID != 77 {
-		t.Fatalf("id = %d, want 77", out.ID)
+	if deref(out.ID) != 77 {
+		t.Fatalf("id = %d, want 77", deref(out.ID))
 	}
 	if posts != 1 || gets != 1 {
 		t.Fatalf("posts=%d gets=%d, want 1/1", posts, gets)
@@ -277,7 +257,7 @@ func TestCreateProduct_BodyShapeAndRefetch(t *testing.T) {
 		t.Errorf("reviewer must be sent as reviewer[]=r1 (URL-encoded), got body=%s", postBody)
 	}
 	// Server-managed / non-writable fields must NOT leak into the form.
-	for _, mustNotSend := range []string{"code=", "createdBy=", "createdDate="} {
+	for _, mustNotSend := range []string{"code="} {
 		if strings.Contains(postBody, mustNotSend) {
 			t.Errorf("body must NOT carry %q: %s", mustNotSend, postBody)
 		}
@@ -292,7 +272,7 @@ func TestCreateProduct_PreflightValidation(t *testing.T) {
 		want string
 	}{
 		{"nil", nil, "nil"},
-		{"missing name", &Product{Program: 1}, "name required"},
+		{"missing name", &Product{Program: int64ptr(1)}, "name required"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -312,7 +292,7 @@ func TestCreateProduct_ZeroIDIsError(t *testing.T) {
 	defer srv.Close()
 
 	c := newTestClient(t, "tok-1", srv.URL)
-	_, err := c.CreateProduct(context.Background(), &Product{Name: "X"})
+	_, err := c.CreateProduct(context.Background(), &Product{Name: strptr("X")})
 	if err == nil || !strings.Contains(err.Error(), "empty id") {
 		t.Fatalf("err = %v, want empty-id error", err)
 	}
@@ -326,7 +306,7 @@ func TestCreateProduct_FailEnvelope(t *testing.T) {
 	defer srv.Close()
 
 	c := newTestClient(t, "tok-1", srv.URL)
-	_, err := c.CreateProduct(context.Background(), &Product{Name: "dup"})
+	_, err := c.CreateProduct(context.Background(), &Product{Name: strptr("dup")})
 	var apiErr *APIError
 	if !errors.As(err, &apiErr) || !strings.Contains(apiErr.Reason, "already exists") {
 		t.Fatalf("err = %v", err)
@@ -363,7 +343,7 @@ func TestUpdateProduct_BaselineMergeThenRefetch(t *testing.T) {
 	defer srv.Close()
 
 	c := newTestClient(t, "tok-1", srv.URL)
-	out, err := c.UpdateProduct(context.Background(), &Product{ID: 5, Name: "NewName"})
+	out, err := c.UpdateProduct(context.Background(), &Product{ID: int64ptr(5), Name: strptr("NewName")})
 	if err != nil {
 		t.Fatalf("UpdateProduct: %v", err)
 	}
@@ -382,14 +362,14 @@ func TestUpdateProduct_BaselineMergeThenRefetch(t *testing.T) {
 	if !strings.Contains(postBody, "reviewer%5B%5D=r1") || !strings.Contains(postBody, "reviewer%5B%5D=r2") {
 		t.Errorf("POST body must preserve baseline reviewer list: %s", postBody)
 	}
-	if out.ID != 5 {
+	if deref(out.ID) != 5 {
 		t.Fatalf("got %+v", out)
 	}
 }
 
 func TestUpdateProduct_MissingID(t *testing.T) {
 	c := newTestClient(t, "tok-1", "http://example.invalid")
-	_, err := c.UpdateProduct(context.Background(), &Product{Name: "x"})
+	_, err := c.UpdateProduct(context.Background(), &Product{Name: strptr("x")})
 	if err == nil || !strings.Contains(err.Error(), "missing id") {
 		t.Fatalf("err = %v, want missing id error", err)
 	}
@@ -402,7 +382,7 @@ func TestUpdateProduct_NotFound(t *testing.T) {
 	defer srv.Close()
 
 	c := newTestClient(t, "tok-1", srv.URL)
-	_, err := c.UpdateProduct(context.Background(), &Product{ID: 99, Name: "x"})
+	_, err := c.UpdateProduct(context.Background(), &Product{ID: int64ptr(99), Name: strptr("x")})
 	if !errors.Is(err, ErrNotFound) {
 		t.Fatalf("err = %v, want ErrNotFound", err)
 	}
@@ -466,11 +446,11 @@ func TestDeleteProduct_OtherFailure(t *testing.T) {
 	}
 }
 
-// productToForm always emits every form.php writable field even when the
+// toForm always emits every form.php writable field even when the
 // value is empty/0. ZenTao's product-edit POST resets any omitted field
 // to its default — see probe-product-controller.md §4a.
 func TestProductToForm_AlwaysSetsAllWriteableFields(t *testing.T) {
-	form := productToForm(&Product{Name: "x"})
+	form := (&Product{Name: strptr("x")}).toForm()
 	for _, k := range []string{"name", "program", "line", "PO", "QD", "RD", "type", "status", "desc", "acl"} {
 		if _, ok := form[k]; !ok {
 			t.Errorf("form must always carry key %q (always-set rule): %v", k, form)
@@ -488,12 +468,12 @@ func TestProductToForm_AlwaysSetsAllWriteableFields(t *testing.T) {
 }
 
 func TestProductToForm_MultiValueExpansion(t *testing.T) {
-	form := productToForm(&Product{
-		Name:      "x",
-		Reviewer:  []string{"r1", "r2"},
-		Groups:    []string{"1", "2"},
-		Whitelist: []string{"admin"},
-	})
+	form := (&Product{
+		Name:      strptr("x"),
+		Reviewer:  strSlicePtr([]string{"r1", "r2"}),
+		Groups:    strSlicePtr([]string{"1", "2"}),
+		Whitelist: strSlicePtr([]string{"admin"}),
+	}).toForm()
 	if got := form["reviewer[]"]; !reflect.DeepEqual(got, []string{"r1", "r2"}) {
 		t.Errorf("reviewer[] = %v, want [r1 r2]", got)
 	}
@@ -505,14 +485,14 @@ func TestProductToForm_MultiValueExpansion(t *testing.T) {
 	}
 }
 
-func TestMergeProductBaseline_PreservesBaselineWhenInputZero(t *testing.T) {
+func TestMergeProductBaseline_PreservesBaselineWhenInputNil(t *testing.T) {
 	baseline := &Product{
-		ID: 5, Name: "Base", Program: 2, Line: 3,
-		PO: "alice", QD: "bob", RD: "carol",
-		Desc: "old desc", ACL: "private", Type: "normal", Status: "normal",
-		Reviewer:  []string{"r1", "r2"},
-		Groups:    []string{"1"},
-		Whitelist: []string{"admin"},
+		ID: int64ptr(5), Name: strptr("Base"), Program: int64ptr(2), Line: int64ptr(3),
+		PO: strptr("alice"), QD: strptr("bob"), RD: strptr("carol"),
+		Desc: strptr("old desc"), ACL: strptr("private"), Type: strptr("normal"), Status: strptr("normal"),
+		Reviewer:  strSlicePtr([]string{"r1", "r2"}),
+		Groups:    strSlicePtr([]string{"1"}),
+		Whitelist: strSlicePtr([]string{"admin"}),
 	}
 	cases := []struct {
 		name  string
@@ -521,40 +501,40 @@ func TestMergeProductBaseline_PreservesBaselineWhenInputZero(t *testing.T) {
 	}{
 		{
 			"only Name set — preserve everything else",
-			&Product{ID: 5, Name: "NewName"},
+			&Product{ID: int64ptr(5), Name: strptr("NewName")},
 			func(t *testing.T, m *Product) {
-				if m.Name != "NewName" {
-					t.Errorf("Name not overridden: %q", m.Name)
+				if deref(m.Name) != "NewName" {
+					t.Errorf("Name not overridden: %q", deref(m.Name))
 				}
-				if m.Program != 2 || m.PO != "alice" || m.Desc != "old desc" || m.ACL != "private" {
+				if deref(m.Program) != 2 || deref(m.PO) != "alice" || deref(m.Desc) != "old desc" || deref(m.ACL) != "private" {
 					t.Errorf("baseline scalars not preserved: %+v", m)
 				}
-				if !reflect.DeepEqual(m.Reviewer, []string{"r1", "r2"}) || !reflect.DeepEqual(m.Groups, []string{"1"}) {
+				if !reflect.DeepEqual(deref(m.Reviewer), []string{"r1", "r2"}) || !reflect.DeepEqual(deref(m.Groups), []string{"1"}) {
 					t.Errorf("baseline slices not preserved: %+v", m)
 				}
 			},
 		},
 		{
 			"override Reviewer with explicit empty slice — replace baseline",
-			&Product{ID: 5, Reviewer: []string{}},
+			&Product{ID: int64ptr(5), Reviewer: strSlicePtr([]string{})},
 			func(t *testing.T, m *Product) {
-				if len(m.Reviewer) != 0 {
-					t.Errorf("Reviewer should be cleared by explicit []string{}, got %v", m.Reviewer)
+				if len(deref(m.Reviewer)) != 0 {
+					t.Errorf("Reviewer should be cleared by explicit []string{}, got %v", deref(m.Reviewer))
 				}
-				if !reflect.DeepEqual(m.Groups, []string{"1"}) {
-					t.Errorf("Groups should still be preserved: %v", m.Groups)
+				if !reflect.DeepEqual(deref(m.Groups), []string{"1"}) {
+					t.Errorf("Groups should still be preserved: %v", deref(m.Groups))
 				}
 			},
 		},
 		{
 			"override Program → caller wins",
-			&Product{ID: 5, Program: 9},
+			&Product{ID: int64ptr(5), Program: int64ptr(9)},
 			func(t *testing.T, m *Product) {
-				if m.Program != 9 {
-					t.Errorf("Program not overridden: %d", m.Program)
+				if deref(m.Program) != 9 {
+					t.Errorf("Program not overridden: %d", deref(m.Program))
 				}
-				if m.Name != "Base" {
-					t.Errorf("Name should still be baseline: %q", m.Name)
+				if deref(m.Name) != "Base" {
+					t.Errorf("Name should still be baseline: %q", deref(m.Name))
 				}
 			},
 		},
@@ -562,8 +542,8 @@ func TestMergeProductBaseline_PreservesBaselineWhenInputZero(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			got := mergeProductBaseline(tc.input, baseline)
-			if got.ID != 5 {
-				t.Errorf("ID must always be the input ID: got %d", got.ID)
+			if deref(got.ID) != 5 {
+				t.Errorf("ID must always be the input ID: got %d", deref(got.ID))
 			}
 			tc.check(t, got)
 		})
@@ -579,7 +559,7 @@ func TestFlexibleStringList_Unmarshal(t *testing.T) {
 		{"array", `["a","b"]`, []string{"a", "b"}},
 		{"empty array", `[]`, []string{}},
 		{"comma string", `"a,b ,c"`, []string{"a", "b", "c"}},
-		{"empty string", `""`, nil},
+		{"empty string", `""`, []string{}},
 		{"null", `null`, nil},
 	}
 	for _, tc := range cases {
@@ -592,128 +572,5 @@ func TestFlexibleStringList_Unmarshal(t *testing.T) {
 				t.Fatalf("got %v want %v", []string(got), tc.want)
 			}
 		})
-	}
-}
-
-// --- Restore-on-soft-deleted (CreateProduct with caller-supplied id) ---
-//
-// Simplified per SKILL.md §6a-bis: when p.ID != 0 the wrapper does a
-// single edit POST with merged input + deleted=0 (no separate undelete
-// call, no preflight name-compare). ErrNotFound on the baseline lookup
-// falls through to a fresh create.
-
-type productReplaceMock struct {
-	views, posts int
-	postBody     string
-	getResponse  string // returned from every product-view GET
-	t            *testing.T
-}
-
-func (m *productReplaceMock) handler(id int64) http.HandlerFunc {
-	viewPath := fmt.Sprintf("/product-view-%d.json", id)
-	editPath := fmt.Sprintf("/product-edit-%d.json", id)
-	return func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		switch {
-		case r.Method == http.MethodGet && r.URL.Path == viewPath:
-			m.views++
-			_, _ = w.Write([]byte(m.getResponse))
-		case r.Method == http.MethodPost && r.URL.Path == editPath:
-			m.posts++
-			buf := make([]byte, 4096)
-			n, _ := r.Body.Read(buf)
-			m.postBody = string(buf[:n])
-			_, _ = w.Write([]byte(`{"result":"success","message":"保存成功","locate":"/product-browse.json"}`))
-		default:
-			m.t.Errorf("unexpected request %s %s", r.Method, r.URL.Path)
-			w.WriteHeader(http.StatusInternalServerError)
-		}
-	}
-}
-
-func TestCreateProduct_RestoreOnSoftDeleted_HappyPath(t *testing.T) {
-	mock := &productReplaceMock{
-		t: t,
-		// Same response for both views (Any baseline + post-replace refetch);
-		// stub returns deleted=0 to simulate the post-restore state.
-		getResponse: `{"status":"success","data":"{\"product\":{\"id\":42,\"program\":7,\"name\":\"Alpha\",\"code\":\"alpha\",\"type\":\"normal\",\"status\":\"normal\",\"desc\":\"old\",\"acl\":\"private\",\"PO\":\"po\",\"QD\":\"qd\",\"RD\":\"rd\",\"reviewer\":\"r1,r2\",\"groups\":\"\",\"whitelist\":\"\",\"createdBy\":\"admin\",\"createdDate\":\"2026-05-03 10:00:00\",\"deleted\":0}}"}`,
-	}
-	srv := httptest.NewServer(mock.handler(42))
-	defer srv.Close()
-
-	c := newTestClient(t, "tok-1", srv.URL)
-	in := &Product{ID: 42, Name: "Alpha", Desc: "fresh"}
-	out, err := c.CreateProduct(context.Background(), in)
-	if err != nil {
-		t.Fatalf("CreateProduct: %v", err)
-	}
-	if out.ID != 42 {
-		t.Fatalf("returned id = %d, want 42 (id preserved across restore)", out.ID)
-	}
-	if mock.posts != 1 {
-		t.Fatalf("edit POSTs = %d, want 1", mock.posts)
-	}
-	if mock.views != 2 {
-		t.Fatalf("view GETs = %d, want 2 (Any-baseline + refetch)", mock.views)
-	}
-	for _, want := range []string{"name=Alpha", "desc=fresh", "PO=po", "acl=private", "deleted=0"} {
-		if !strings.Contains(mock.postBody, want) {
-			t.Errorf("POST body missing %q: %s", want, mock.postBody)
-		}
-	}
-}
-
-func TestCreateProduct_RestoreOnSoftDeleted_NotFound_FallsThroughToCreate(t *testing.T) {
-	var preflights, creates, refetches int
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		switch {
-		case r.Method == http.MethodGet && r.URL.Path == "/product-view-42.json":
-			preflights++
-			_, _ = w.Write([]byte(`{"result":"success","load":{"alert":"对象不存在！","locate":"/zentao/product-all.json"}}`))
-		case r.Method == http.MethodPost && r.URL.Path == "/product-create.json":
-			creates++
-			_, _ = w.Write([]byte(`{"result":"success","message":"保存成功","id":99}`))
-		case r.Method == http.MethodGet && r.URL.Path == "/product-view-99.json":
-			refetches++
-			_, _ = w.Write([]byte(`{"status":"success","data":"{\"product\":{\"id\":99,\"name\":\"Alpha\",\"deleted\":0}}"}`))
-		default:
-			t.Errorf("unexpected request %s %s", r.Method, r.URL.Path)
-			w.WriteHeader(http.StatusInternalServerError)
-		}
-	}))
-	defer srv.Close()
-
-	c := newTestClient(t, "tok-1", srv.URL)
-	out, err := c.CreateProduct(context.Background(), &Product{ID: 42, Name: "Alpha"})
-	if err != nil {
-		t.Fatalf("CreateProduct: %v", err)
-	}
-	if preflights != 1 || creates != 1 || refetches != 1 {
-		t.Fatalf("preflights=%d creates=%d refetches=%d, want 1/1/1", preflights, creates, refetches)
-	}
-	if out.ID != 99 {
-		t.Fatalf("returned id = %d, want 99 (fresh server-assigned)", out.ID)
-	}
-}
-
-func TestCreateProduct_RestoreOnSoftDeleted_AliveRow_Replaces(t *testing.T) {
-	mock := &productReplaceMock{
-		t:           t,
-		getResponse: `{"status":"success","data":"{\"product\":{\"id\":42,\"name\":\"Alpha\",\"desc\":\"old\",\"deleted\":0}}"}`,
-	}
-	srv := httptest.NewServer(mock.handler(42))
-	defer srv.Close()
-
-	c := newTestClient(t, "tok-1", srv.URL)
-	out, err := c.CreateProduct(context.Background(), &Product{ID: 42, Name: "Alpha", Desc: "overwrite"})
-	if err != nil {
-		t.Fatalf("CreateProduct: %v", err)
-	}
-	if out.ID != 42 || mock.posts != 1 {
-		t.Fatalf("out.ID=%d posts=%d, want 42/1", out.ID, mock.posts)
-	}
-	if !strings.Contains(mock.postBody, "desc=overwrite") || !strings.Contains(mock.postBody, "deleted=0") {
-		t.Errorf("POST body missing override or deleted=0: %s", mock.postBody)
 	}
 }

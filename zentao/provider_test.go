@@ -39,7 +39,7 @@ func TestProductResource_Schema(t *testing.T) {
 	if !resp.Schema.Attributes["name"].IsRequired() {
 		t.Error("name must be Required")
 	}
-	for _, computedOnly := range []string{"id", "code", "status", "created_by", "created_date"} {
+	for _, computedOnly := range []string{"id", "code", "shadow", "status", "deleted"} {
 		a := resp.Schema.Attributes[computedOnly]
 		if !a.IsComputed() {
 			t.Errorf("%s must be Computed", computedOnly)

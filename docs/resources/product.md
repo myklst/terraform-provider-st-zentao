@@ -52,7 +52,7 @@ resource "st-zentao_product" "example" {
 ### Read-Only
 
 - `code` (String) Product short code.
-- `created_by` (String) Creator username.
-- `created_date` (String) Creation timestamp.
+- `deleted` (Boolean) Whether deleted.
 - `id` (String) Numeric ZenTao product ID.
+- `shadow` (Boolean) Whether a shadow product.
 - `status` (String) Product status.

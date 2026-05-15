@@ -39,8 +39,7 @@ output "product" {
 
 - `acl` (String) Access control (`open` / `private`).
 - `code` (String) Product short code.
-- `created_by` (String) Creator username.
-- `created_date` (String) Creation timestamp.
+- `deleted` (Boolean) Whether deleted.
 - `desc` (String) Description.
 - `groups` (List of String) Permission group ids granted access to this product.
 - `line` (Number) Associated product line id.
