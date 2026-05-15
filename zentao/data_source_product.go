@@ -27,12 +27,12 @@ type productDataSourceModel struct {
 	ID   types.String `tfsdk:"id"`
 	Code types.String `tfsdk:"code"`
 
-	Name     types.String `tfsdk:"name"`
-	Program  types.Int64  `tfsdk:"program"`
-	Line     types.Int64  `tfsdk:"line"`
-	Type     types.String `tfsdk:"type"`
-	Desc     types.String `tfsdk:"desc"`
-	ACL      types.String `tfsdk:"acl"`
+	Name      types.String `tfsdk:"name"`
+	Program   types.Int64  `tfsdk:"program"`
+	Line      types.Int64  `tfsdk:"line"`
+	Type      types.String `tfsdk:"type"`
+	Desc      types.String `tfsdk:"desc"`
+	ACL       types.String `tfsdk:"acl"`
 	PO        types.String `tfsdk:"po"`
 	QD        types.String `tfsdk:"qd"`
 	RD        types.String `tfsdk:"rd"`
@@ -40,9 +40,8 @@ type productDataSourceModel struct {
 	Groups    types.List   `tfsdk:"groups"`
 	Whitelist types.List   `tfsdk:"whitelist"`
 
-	Status      types.String `tfsdk:"status"`
-	CreatedBy   types.String `tfsdk:"created_by"`
-	CreatedDate types.String `tfsdk:"created_date"`
+	Status  types.String `tfsdk:"status"`
+	Deleted types.Bool   `tfsdk:"deleted"`
 }
 
 func NewProductDataSource() datasource.DataSource { return &productDataSource{} }
@@ -59,22 +58,21 @@ func (d *productDataSource) Schema(_ context.Context, _ datasource.SchemaRequest
 				Description: "Numeric ZenTao product ID.",
 				Required:    true,
 			},
-			"code":         schema.StringAttribute{Description: "Product short code.", Computed: true},
-			"name":         schema.StringAttribute{Description: "Product display name.", Computed: true},
-			"program":      schema.Int64Attribute{Description: "Associated program id.", Computed: true},
-			"line":         schema.Int64Attribute{Description: "Associated product line id.", Computed: true},
-			"type":         schema.StringAttribute{Description: "Product type (`normal` / `branch` / `platform`).", Computed: true},
-			"desc":         schema.StringAttribute{Description: "Description.", Computed: true},
-			"acl":          schema.StringAttribute{Description: "Access control (`open` / `private`).", Computed: true},
-			"po":           schema.StringAttribute{Description: "Product Owner username.", Computed: true},
-			"qd":           schema.StringAttribute{Description: "QA Lead username.", Computed: true},
-			"rd":           schema.StringAttribute{Description: "Release Lead username.", Computed: true},
-			"reviewer":     schema.ListAttribute{Description: "Reviewer usernames.", Computed: true, ElementType: types.StringType},
-			"groups":       schema.ListAttribute{Description: "Permission group ids granted access to this product.", Computed: true, ElementType: types.StringType},
-			"whitelist":    schema.ListAttribute{Description: "Whitelisted usernames granted access to this product.", Computed: true, ElementType: types.StringType},
-			"status":       schema.StringAttribute{Description: "Product status.", Computed: true},
-			"created_by":   schema.StringAttribute{Description: "Creator username.", Computed: true},
-			"created_date": schema.StringAttribute{Description: "Creation timestamp.", Computed: true},
+			"code":      schema.StringAttribute{Description: "Product short code.", Computed: true},
+			"name":      schema.StringAttribute{Description: "Product display name.", Computed: true},
+			"program":   schema.Int64Attribute{Description: "Associated program id.", Computed: true},
+			"line":      schema.Int64Attribute{Description: "Associated product line id.", Computed: true},
+			"type":      schema.StringAttribute{Description: "Product type (`normal` / `branch` / `platform`).", Computed: true},
+			"desc":      schema.StringAttribute{Description: "Description.", Computed: true},
+			"acl":       schema.StringAttribute{Description: "Access control (`open` / `private`).", Computed: true},
+			"po":        schema.StringAttribute{Description: "Product Owner username.", Computed: true},
+			"qd":        schema.StringAttribute{Description: "QA Lead username.", Computed: true},
+			"rd":        schema.StringAttribute{Description: "Release Lead username.", Computed: true},
+			"reviewer":  schema.ListAttribute{Description: "Reviewer usernames.", Computed: true, ElementType: types.StringType},
+			"groups":    schema.ListAttribute{Description: "Permission group ids granted access to this product.", Computed: true, ElementType: types.StringType},
+			"whitelist": schema.ListAttribute{Description: "Whitelisted usernames granted access to this product.", Computed: true, ElementType: types.StringType},
+			"status":    schema.StringAttribute{Description: "Product status.", Computed: true},
+			"deleted":   schema.BoolAttribute{Description: "Whether deleted.", Computed: true},
 		},
 	}
 }
@@ -121,32 +119,31 @@ func (d *productDataSource) Read(ctx context.Context, req datasource.ReadRequest
 		resp.Diagnostics.AddError("Read product failed", err.Error())
 		return
 	}
-	reviewers, diags := stringListFromSlice(ctx, fetched.Reviewer)
+	reviewers, diags := stringListFromSlice(ctx, deref(fetched.Reviewer))
 	resp.Diagnostics.Append(diags...)
-	groups, gdiags := stringListFromSlice(ctx, fetched.Groups)
+	groups, gdiags := stringListFromSlice(ctx, deref(fetched.Groups))
 	resp.Diagnostics.Append(gdiags...)
-	whitelist, wdiags := stringListFromSlice(ctx, fetched.Whitelist)
+	whitelist, wdiags := stringListFromSlice(ctx, deref(fetched.Whitelist))
 	resp.Diagnostics.Append(wdiags...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
 	resp.Diagnostics.Append(resp.State.Set(ctx, productDataSourceModel{
-		ID:          types.StringValue(strconv.FormatInt(fetched.ID, 10)),
-		Code:        types.StringValue(fetched.Code),
-		Name:        types.StringValue(fetched.Name),
-		Program:     types.Int64Value(int64(fetched.Program)),
-		Line:        types.Int64Value(int64(fetched.Line)),
-		Type:        types.StringValue(fetched.Type),
-		Desc:        types.StringValue(fetched.Desc),
-		ACL:         types.StringValue(fetched.ACL),
-		PO:          types.StringValue(fetched.PO),
-		QD:          types.StringValue(fetched.QD),
-		RD:          types.StringValue(fetched.RD),
-		Reviewer:    reviewers,
-		Groups:      groups,
-		Whitelist:   whitelist,
-		Status:      types.StringValue(fetched.Status),
-		CreatedBy:   types.StringValue(fetched.CreatedBy),
-		CreatedDate: types.StringValue(fetched.CreatedDate),
+		ID:        types.StringValue(strconv.FormatInt(deref(fetched.ID), 10)),
+		Code:      types.StringValue(deref(fetched.Code)),
+		Name:      types.StringValue(deref(fetched.Name)),
+		Program:   types.Int64Value(deref(fetched.Program)),
+		Line:      types.Int64Value(deref(fetched.Line)),
+		Type:      types.StringValue(deref(fetched.Type)),
+		Desc:      types.StringValue(deref(fetched.Desc)),
+		ACL:       types.StringValue(deref(fetched.ACL)),
+		PO:        types.StringValue(deref(fetched.PO)),
+		QD:        types.StringValue(deref(fetched.QD)),
+		RD:        types.StringValue(deref(fetched.RD)),
+		Reviewer:  reviewers,
+		Groups:    groups,
+		Whitelist: whitelist,
+		Status:    types.StringValue(deref(fetched.Status)),
+		Deleted:   types.BoolValue(deref(fetched.Deleted)),
 	})...)
 }

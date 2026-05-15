@@ -45,6 +45,7 @@ output "program" {
 - `begin` (String) Planned start date (YYYY-MM-DD).
 - `budget` (String) Program budget amount.
 - `budget_unit` (String) Currency unit of the budget.
+- `deleted` (Boolean) Whether deleted.
 - `desc` (String) Description.
 - `end` (String) Planned end date (YYYY-MM-DD).
 - `name` (String) Program display name.

@@ -135,7 +135,7 @@ func (r *programParentAttachmentResource) Create(ctx context.Context, req resour
 		resp.Diagnostics.AddError("Read child program failed", err.Error())
 		return
 	}
-	currentParent := derefInt64(current.Parent)
+	currentParent := deref(current.Parent)
 	switch currentParent {
 	case 0:
 		// first attachment — proceed
@@ -180,7 +180,7 @@ func (r *programParentAttachmentResource) Read(ctx context.Context, req resource
 		resp.Diagnostics.AddError("Read child program failed", err.Error())
 		return
 	}
-	fetchedParent := derefInt64(fetched.Parent)
+	fetchedParent := deref(fetched.Parent)
 	if fetchedParent == 0 {
 		// out-of-band detach — drop the attachment from state
 		resp.State.RemoveResource(ctx)

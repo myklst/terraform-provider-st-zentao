@@ -36,6 +36,7 @@ type programDataSourceModel struct {
 	Status     types.String `tfsdk:"status"`
 	ACL        types.String `tfsdk:"acl"`
 	Whitelist  types.String `tfsdk:"whitelist"`
+	Deleted    types.Bool   `tfsdk:"deleted"`
 }
 
 func NewProgramDataSource() datasource.DataSource { return &programDataSource{} }
@@ -96,6 +97,10 @@ func (d *programDataSource) Schema(_ context.Context, _ datasource.SchemaRequest
 				Description: "Comma-joined account list when `acl = \"custom\"`.",
 				Computed:    true,
 			},
+			"deleted": schema.BoolAttribute{
+				Description: "Whether deleted.",
+				Computed:    true,
+			},
 		},
 	}
 }
@@ -143,17 +148,18 @@ func (d *programDataSource) Read(ctx context.Context, req datasource.ReadRequest
 		return
 	}
 	resp.Diagnostics.Append(resp.State.Set(ctx, programDataSourceModel{
-		ID:         types.StringValue(strconv.FormatInt(derefInt64(fetched.ID), 10)),
-		Parent:     types.Int64Value(derefInt64(fetched.Parent)),
-		Name:       types.StringValue(derefString(fetched.Name)),
-		PM:         types.StringValue(derefString(fetched.PM)),
-		Budget:     types.StringValue(derefString(fetched.Budget)),
-		BudgetUnit: types.StringValue(derefString(fetched.BudgetUnit)),
-		Begin:      types.StringValue(derefString(fetched.Begin)),
-		End:        types.StringValue(derefString(fetched.End)),
-		Desc:       types.StringValue(derefString(fetched.Desc)),
-		Status:     types.StringValue(derefString(fetched.Status)),
-		ACL:        types.StringValue(derefString(fetched.ACL)),
-		Whitelist:  types.StringValue(derefString(fetched.Whitelist)),
+		ID:         types.StringValue(strconv.FormatInt(deref(fetched.ID), 10)),
+		Parent:     types.Int64Value(deref(fetched.Parent)),
+		Name:       types.StringValue(deref(fetched.Name)),
+		PM:         types.StringValue(deref(fetched.PM)),
+		Budget:     types.StringValue(deref(fetched.Budget)),
+		BudgetUnit: types.StringValue(deref(fetched.BudgetUnit)),
+		Begin:      types.StringValue(deref(fetched.Begin)),
+		End:        types.StringValue(deref(fetched.End)),
+		Desc:       types.StringValue(deref(fetched.Desc)),
+		Status:     types.StringValue(deref(fetched.Status)),
+		ACL:        types.StringValue(deref(fetched.ACL)),
+		Whitelist:  types.StringValue(deref(fetched.Whitelist)),
+		Deleted:    types.BoolValue(deref(fetched.Deleted)),
 	})...)
 }

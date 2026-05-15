@@ -392,10 +392,10 @@ func TestMergeProgramBaseline_PreservesBaselineWhenInputNil(t *testing.T) {
 			"only Name set — preserve everything else",
 			&Program{ID: int64ptr(5), Name: strptr("NewName")},
 			func(t *testing.T, m *Program) {
-				if derefString(m.Name) != "NewName" {
-					t.Errorf("Name not overridden: %q", derefString(m.Name))
+				if deref(m.Name) != "NewName" {
+					t.Errorf("Name not overridden: %q", deref(m.Name))
 				}
-				if derefInt64(m.Parent) != 9 || derefString(m.PM) != "alice" || derefString(m.Desc) != "old desc" || derefString(m.ACL) != "private" || derefString(m.Budget) != "1000" || derefString(m.BudgetUnit) != "USD" || derefString(m.Whitelist) != "u1,u2" {
+				if deref(m.Parent) != 9 || deref(m.PM) != "alice" || deref(m.Desc) != "old desc" || deref(m.ACL) != "private" || deref(m.Budget) != "1000" || deref(m.BudgetUnit) != "USD" || deref(m.Whitelist) != "u1,u2" {
 					t.Errorf("baseline not preserved: %+v", m)
 				}
 			},
@@ -404,10 +404,10 @@ func TestMergeProgramBaseline_PreservesBaselineWhenInputNil(t *testing.T) {
 			"only Desc set — preserve PM/ACL/Budget",
 			&Program{ID: int64ptr(5), Desc: strptr("new desc")},
 			func(t *testing.T, m *Program) {
-				if derefString(m.Desc) != "new desc" {
-					t.Errorf("Desc not overridden: %q", derefString(m.Desc))
+				if deref(m.Desc) != "new desc" {
+					t.Errorf("Desc not overridden: %q", deref(m.Desc))
 				}
-				if derefString(m.PM) != "alice" || derefString(m.ACL) != "private" || derefString(m.Budget) != "1000" {
+				if deref(m.PM) != "alice" || deref(m.ACL) != "private" || deref(m.Budget) != "1000" {
 					t.Errorf("non-Desc fields wiped: %+v", m)
 				}
 			},
@@ -416,10 +416,10 @@ func TestMergeProgramBaseline_PreservesBaselineWhenInputNil(t *testing.T) {
 			"only Parent set — overrides parent, preserves others",
 			&Program{ID: int64ptr(5), Parent: int64ptr(13)},
 			func(t *testing.T, m *Program) {
-				if derefInt64(m.Parent) != 13 {
-					t.Errorf("Parent not overridden: %d", derefInt64(m.Parent))
+				if deref(m.Parent) != 13 {
+					t.Errorf("Parent not overridden: %d", deref(m.Parent))
 				}
-				if derefString(m.Name) != "Base" || derefString(m.PM) != "alice" {
+				if deref(m.Name) != "Base" || deref(m.PM) != "alice" {
 					t.Errorf("non-Parent fields wiped: %+v", m)
 				}
 			},
@@ -428,7 +428,7 @@ func TestMergeProgramBaseline_PreservesBaselineWhenInputNil(t *testing.T) {
 			"all fields set — overrides everything",
 			&Program{ID: int64ptr(5), Name: strptr("N2"), Begin: strptr("2027-01-01"), End: strptr("2027-12-31"), Parent: int64ptr(1), PM: strptr("bob"), Desc: strptr("d2"), ACL: strptr("open"), Budget: strptr("2"), BudgetUnit: strptr("CNY"), Whitelist: strptr("x")},
 			func(t *testing.T, m *Program) {
-				if derefString(m.Name) != "N2" || derefString(m.Begin) != "2027-01-01" || derefString(m.End) != "2027-12-31" || derefInt64(m.Parent) != 1 || derefString(m.PM) != "bob" || derefString(m.Desc) != "d2" || derefString(m.ACL) != "open" || derefString(m.Budget) != "2" || derefString(m.BudgetUnit) != "CNY" || derefString(m.Whitelist) != "x" {
+				if deref(m.Name) != "N2" || deref(m.Begin) != "2027-01-01" || deref(m.End) != "2027-12-31" || deref(m.Parent) != 1 || deref(m.PM) != "bob" || deref(m.Desc) != "d2" || deref(m.ACL) != "open" || deref(m.Budget) != "2" || deref(m.BudgetUnit) != "CNY" || deref(m.Whitelist) != "x" {
 					t.Errorf("override incomplete: %+v", m)
 				}
 			},
@@ -438,7 +438,7 @@ func TestMergeProgramBaseline_PreservesBaselineWhenInputNil(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			merged := mergeProgramBaseline(tc.input, baseline)
 			tc.check(t, merged)
-			if derefString(baseline.Name) != "Base" {
+			if deref(baseline.Name) != "Base" {
 				t.Errorf("baseline mutated: %+v", baseline)
 			}
 		})
@@ -584,10 +584,10 @@ func TestSetProgramParent_HappyAttach(t *testing.T) {
 	if out == nil {
 		t.Fatalf("returned program is nil")
 	}
-	if got := derefInt64(out.Parent); got != 5 {
+	if got := deref(out.Parent); got != 5 {
 		t.Errorf("returned Parent = %d, want 5", got)
 	}
-	if got := derefString(out.Path); got != ",5,10," {
+	if got := deref(out.Path); got != ",5,10," {
 		t.Errorf("returned Path = %q, want %q", got, ",5,10,")
 	}
 }
@@ -617,10 +617,10 @@ func TestSetProgramParent_DetachWritesParentZero(t *testing.T) {
 	if out == nil {
 		t.Fatalf("returned program is nil")
 	}
-	if got := derefInt64(out.Parent); got != 0 {
+	if got := deref(out.Parent); got != 0 {
 		t.Errorf("returned Parent = %d, want 0", got)
 	}
-	if got := derefString(out.Path); got != ",10," {
+	if got := deref(out.Path); got != ",10," {
 		t.Errorf("returned Path = %q, want %q", got, ",10,")
 	}
 }

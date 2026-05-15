@@ -254,17 +254,17 @@ func (m *programResourceModel) toAPI() *zentaoapi.Program {
 
 func programFromAPI(p *zentaoapi.Program) programResourceModel {
 	return programResourceModel{
-		ID:         types.StringValue(strconv.FormatInt(derefInt64(p.ID), 10)),
-		Parent:     types.Int64Value(derefInt64(p.Parent)),
-		Name:       types.StringValue(derefString(p.Name)),
-		PM:         types.StringValue(derefString(p.PM)),
-		Budget:     types.StringValue(derefString(p.Budget)),
-		BudgetUnit: types.StringValue(derefString(p.BudgetUnit)),
-		Begin:      types.StringValue(derefString(p.Begin)),
-		End:        types.StringValue(derefString(p.End)),
-		Desc:       types.StringValue(derefString(p.Desc)),
-		Status:     types.StringValue(derefString(p.Status)),
-		ACL:        types.StringValue(derefString(p.ACL)),
-		Whitelist:  types.StringValue(derefString(p.Whitelist)),
+		ID:         types.StringValue(strconv.FormatInt(deref(p.ID), 10)),
+		Parent:     types.Int64Value(deref(p.Parent)),
+		Name:       types.StringValue(deref(p.Name)),
+		PM:         types.StringValue(deref(p.PM)),
+		Budget:     types.StringValue(deref(p.Budget)),
+		BudgetUnit: types.StringValue(deref(p.BudgetUnit)),
+		Begin:      types.StringValue(deref(p.Begin)),
+		End:        types.StringValue(deref(p.End)),
+		Desc:       types.StringValue(deref(p.Desc)),
+		Status:     types.StringValue(deref(p.Status)),
+		ACL:        types.StringValue(deref(p.ACL)),
+		Whitelist:  types.StringValue(deref(p.Whitelist)),
 	}
 }

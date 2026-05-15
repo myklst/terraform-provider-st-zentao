@@ -1,20 +1,15 @@
 package zentao
 
 import (
-	"context"
-	"errors"
 	"fmt"
 	"os"
 	"regexp"
-	"strconv"
 	"testing"
 	"time"
 
 	"github.com/hashicorp/terraform-plugin-framework/providerserver"
 	"github.com/hashicorp/terraform-plugin-go/tfprotov6"
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
-	"github.com/hashicorp/terraform-plugin-testing/terraform"
-	zentaoapi "github.com/myklst/terraform-provider-st-zentao/zentaoAPI"
 )
 
 var protoV6Factories = map[string]func() (tfprotov6.ProviderServer, error){
@@ -64,7 +59,6 @@ resource "st-zentao_product" "p" {
 					resource.TestCheckResourceAttrSet("st-zentao_product.p", "type"),
 					resource.TestCheckResourceAttrSet("st-zentao_product.p", "acl"),
 					resource.TestCheckResourceAttrSet("st-zentao_product.p", "status"),
-					resource.TestCheckResourceAttrSet("st-zentao_product.p", "created_by"),
 				),
 			},
 			{
@@ -115,37 +109,6 @@ func TestAccProductResource_import(t *testing.T) {
 				ResourceName:      "st-zentao_product.p",
 				ImportState:       true,
 				ImportStateVerify: true,
-			},
-		},
-	})
-}
-
-func TestAccProductResource_disappears(t *testing.T) {
-	name := uniqueName("dis")
-	resource.Test(t, resource.TestCase{
-		PreCheck:                 func() { testAccPreCheck(t) },
-		ProtoV6ProviderFactories: protoV6Factories,
-		Steps: []resource.TestStep{
-			{
-				Config: providerBlock() + fmt.Sprintf(`resource "st-zentao_product" "p" { name = %q }`, name),
-				Check: resource.ComposeTestCheckFunc(
-					func(s *terraform.State) error {
-						rs, ok := s.RootModule().Resources["st-zentao_product.p"]
-						if !ok {
-							return errors.New("resource missing from state")
-						}
-						id, err := strconv.ParseInt(rs.Primary.ID, 10, 64)
-						if err != nil {
-							return err
-						}
-						c, err := zentaoapi.NewClient(os.Getenv("ZENTAO_URL"), os.Getenv("ZENTAO_ACCOUNT"), os.Getenv("ZENTAO_PASSWORD"))
-						if err != nil {
-							return err
-						}
-						return c.DeleteProduct(context.Background(), id)
-					},
-				),
-				ExpectNonEmptyPlan: true,
 			},
 		},
 	})

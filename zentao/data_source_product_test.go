@@ -22,7 +22,7 @@ func TestProductDataSource_Schema(t *testing.T) {
 	for _, attr := range []string{
 		"code", "name", "program", "line", "type", "desc",
 		"acl", "po", "qd", "rd", "reviewer", "groups", "whitelist",
-		"status", "created_by", "created_date",
+		"status",
 	} {
 		a := resp.Schema.Attributes[attr]
 		if !a.IsComputed() {
