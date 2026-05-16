@@ -52,9 +52,8 @@ type productResourceModel struct {
 	PO        types.String `tfsdk:"po"`
 	QD        types.String `tfsdk:"qd"`
 	RD        types.String `tfsdk:"rd"`
-	Reviewer  types.List   `tfsdk:"reviewer"`
+	Reviewers types.List   `tfsdk:"reviewers"`
 	ACL       types.String `tfsdk:"acl"`
-	Groups    types.List   `tfsdk:"groups"`
 	Whitelist types.List   `tfsdk:"whitelist"`
 	Deleted   types.Bool   `tfsdk:"deleted"`
 }
@@ -141,7 +140,7 @@ func (r *productResource) Schema(_ context.Context, _ resource.SchemaRequest, re
 				Computed:      true,
 				PlanModifiers: useStateForString,
 			},
-			"reviewer": schema.ListAttribute{
+			"reviewers": schema.ListAttribute{
 				Description:   "Reviewer usernames.",
 				Optional:      true,
 				Computed:      true,
@@ -154,13 +153,6 @@ func (r *productResource) Schema(_ context.Context, _ resource.SchemaRequest, re
 				Computed:      true,
 				PlanModifiers: useStateForString,
 				Validators:    []validator.String{stringvalidator.OneOf(productACLEnum...)},
-			},
-			"groups": schema.ListAttribute{
-				Description:   "Permission group ids granted access to this product.",
-				Optional:      true,
-				Computed:      true,
-				ElementType:   types.StringType,
-				PlanModifiers: useStateForList,
 			},
 			"whitelist": schema.ListAttribute{
 				Description:   "Whitelisted usernames granted access to this product.",
@@ -302,9 +294,7 @@ func (r *productResource) ImportState(ctx context.Context, req resource.ImportSt
 }
 
 func (m *productResourceModel) toAPI(ctx context.Context) (*zentaoapi.Product, diag.Diagnostics) {
-	reviewers, diags := optStrList(ctx, m.Reviewer)
-	groups, d := optStrList(ctx, m.Groups)
-	diags.Append(d...)
+	reviewers, diags := optStrList(ctx, m.Reviewers)
 	whitelist, d := optStrList(ctx, m.Whitelist)
 	diags.Append(d...)
 	return &zentaoapi.Product{
@@ -317,16 +307,13 @@ func (m *productResourceModel) toAPI(ctx context.Context) (*zentaoapi.Product, d
 		PO:        optString(m.PO),
 		QD:        optString(m.QD),
 		RD:        optString(m.RD),
-		Reviewer:  reviewers,
-		Groups:    groups,
+		Reviewers:  reviewers,
 		Whitelist: whitelist,
 	}, diags
 }
 
 func productFromAPI(ctx context.Context, p *zentaoapi.Product) (productResourceModel, diag.Diagnostics) {
-	reviewers, diags := stringListFromSlice(ctx, deref(p.Reviewer))
-	groups, d := stringListFromSlice(ctx, deref(p.Groups))
-	diags.Append(d...)
+	reviewers, diags := stringListFromSlice(ctx, deref(p.Reviewers))
 	whitelist, d := stringListFromSlice(ctx, deref(p.Whitelist))
 	diags.Append(d...)
 	return productResourceModel{
@@ -342,8 +329,7 @@ func productFromAPI(ctx context.Context, p *zentaoapi.Product) (productResourceM
 		PO:        types.StringValue(deref(p.PO)),
 		QD:        types.StringValue(deref(p.QD)),
 		RD:        types.StringValue(deref(p.RD)),
-		Reviewer:  reviewers,
-		Groups:    groups,
+		Reviewers: reviewers,
 		Whitelist: whitelist,
 		Status:    types.StringValue(deref(p.Status)),
 		Deleted:   types.BoolValue(deref(p.Deleted)),

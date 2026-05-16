@@ -20,9 +20,7 @@ func TestProjectDataSource_Schema(t *testing.T) {
 	for _, attr := range []string{
 		"name", "model", "begin", "end", "program", "products",
 		"workflow_group", "multiple", "acl", "pm", "po", "qd", "rd", "desc",
-		"code", "status", "lifetime", "opened_by", "opened_date",
-		"last_edited_by", "real_began", "real_end", "progress",
-		"team_count", "budget", "budget_unit",
+		"status",
 	} {
 		a := resp.Schema.Attributes[attr]
 		if !a.IsComputed() {
@@ -30,6 +28,12 @@ func TestProjectDataSource_Schema(t *testing.T) {
 		}
 		if a.IsRequired() || a.IsOptional() {
 			t.Errorf("%s must not be Required/Optional (Computed-only)", attr)
+		}
+	}
+	// Audit / derived columns must NO longer be in the data source schema.
+	for _, gone := range []string{"code", "lifetime", "opened_by", "opened_date", "last_edited_by", "real_began", "real_end", "progress", "team_count", "budget", "budget_unit"} {
+		if _, ok := resp.Schema.Attributes[gone]; ok {
+			t.Errorf("data source schema must NOT expose %q anymore", gone)
 		}
 	}
 }

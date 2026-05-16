@@ -18,6 +18,16 @@ func commaJoin(in []string) string {
 	return out
 }
 
+// deref returns *p when non-nil, otherwise T's zero value. Used to flatten
+// pointer fields off the API wrapper into plain Terraform types.
+func deref[T any](p *T) T {
+	if p == nil {
+		var def T
+		return def
+	}
+	return *p
+}
+
 // optString returns nil for null/unknown plan values, &v otherwise. Required
 // schema fields produce non-nil pointers; Optional+Computed fields produce
 // nil when the user did not set them, which the M-Z merge in Update<Entity>
@@ -38,13 +48,13 @@ func optInt64(v types.Int64) *int64 {
 	return &i
 }
 
-// func optBool(v types.Bool) *bool {
-// 	if v.IsNull() || v.IsUnknown() {
-// 		return nil
-// 	}
-// 	b := v.ValueBool()
-// 	return &b
-// }
+func optBool(v types.Bool) *bool {
+	if v.IsNull() || v.IsUnknown() {
+		return nil
+	}
+	b := v.ValueBool()
+	return &b
+}
 
 // optStrList converts a Terraform list to a *[]string; nil/unknown lists
 // become nil ("preserve baseline"), empty lists stay as &[]string{} so the
@@ -62,14 +72,17 @@ func optStrList(ctx context.Context, v types.List) (*[]string, diag.Diagnostics)
 	return &out, diags
 }
 
-// deref returns *p when non-nil, otherwise T's zero value. Used to flatten
-// pointer fields off the API wrapper into plain Terraform types.
-func deref[T any](p *T) T {
-	if p == nil {
-		var def T
-		return def
+// optInt64List is the int64 sibling of optStrList.
+func optInt64List(ctx context.Context, v types.List) (*[]int64, diag.Diagnostics) {
+	if v.IsNull() || v.IsUnknown() {
+		return nil, nil
 	}
-	return *p
+	var out []int64
+	diags := v.ElementsAs(ctx, &out, true)
+	if out == nil {
+		out = []int64{}
+	}
+	return &out, diags
 }
 
 // stringListFromSlice normalises a nil slice into an empty list value

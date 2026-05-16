@@ -10,7 +10,7 @@ import (
 	"strings"
 )
 
-type programEditRespInner struct {
+type programEditInner struct {
 	Program json.RawMessage `json:"program"`
 }
 
@@ -173,7 +173,7 @@ func (c *Client) GetProgram(ctx context.Context, id int64) (*Program, error) {
 	if env.Status != "success" {
 		return nil, classifyCtrlError(status, env, body)
 	}
-	var inner programEditRespInner
+	var inner programEditInner
 	if err := env.DecodeData(&inner); err != nil {
 		return nil, fmt.Errorf("decode get-program data: %w (body=%s)", err, string(body))
 	}
