@@ -29,11 +29,6 @@ type groupResource struct {
 	client *zentaoapi.Client
 }
 
-// groupResourceModel mirrors the v1 surface area documented in the
-// probe spec (docs/superpowers/specs/probe-group-controller.md §3.11).
-// We deliberately do NOT surface vision/developer/acl/users/actions here;
-// the wire layer keeps vision/developer for round-trip safety, but they
-// are not user-managed in v1.
 type groupResourceModel struct {
 	ID      types.String `tfsdk:"id"`
 	Project types.Int64  `tfsdk:"project"`
@@ -116,12 +111,7 @@ func (r *groupResource) Create(ctx context.Context, req resource.CreateRequest, 
 		resp.Diagnostics.AddError("Create group failed", err.Error())
 		return
 	}
-	fetched, err := r.client.GetGroup(ctx, created.ID)
-	if err != nil {
-		resp.Diagnostics.AddError("Re-fetch after create failed", err.Error())
-		return
-	}
-	resp.Diagnostics.Append(resp.State.Set(ctx, groupFromAPI(fetched))...)
+	resp.Diagnostics.Append(resp.State.Set(ctx, groupFromAPI(created))...)
 }
 
 func (r *groupResource) Read(ctx context.Context, req resource.ReadRequest, resp *resource.ReadResponse) {
@@ -160,24 +150,8 @@ func (r *groupResource) Update(ctx context.Context, req resource.UpdateRequest, 
 		return
 	}
 	apiInput := plan.toAPI()
-	apiInput.ID = id
+	apiInput.ID = &id
 	updated, err := r.client.UpdateGroup(ctx, apiInput)
-	// Probe spec §0.2: POST /group-edit-<id>.json on a non-existent id
-	// silently returns success. UpdateGroup re-reads after the POST
-	// and surfaces ErrNotFound when the row vanished. We surface this as a
-	// loud error rather than silently removing state mid-Update — losing
-	// state inside an Update step is unusual enough to warrant explicit
-	// operator attention.
-	if errors.Is(err, zentaoapi.ErrNotFound) {
-		resp.Diagnostics.AddError(
-			"Update group failed: row no longer exists",
-			fmt.Sprintf("ZenTao silently accepted POST /group-edit-%d.json but the row "+
-				"was not present on the server-side re-read. The group may have been "+
-				"deleted out-of-band. Run `terraform apply` again to recreate it, or "+
-				"investigate before retrying.", id),
-		)
-		return
-	}
 	if err != nil {
 		resp.Diagnostics.AddError("Update group failed", err.Error())
 		return
@@ -191,14 +165,11 @@ func (r *groupResource) Delete(ctx context.Context, req resource.DeleteRequest, 
 	if resp.Diagnostics.HasError() {
 		return
 	}
-	id, err := strconv.Atoi(prior.ID.ValueString())
+	id, err := strconv.ParseInt(prior.ID.ValueString(), 10, 64)
 	if err != nil {
 		resp.Diagnostics.AddError("Invalid id in state", err.Error())
 		return
 	}
-	// DeleteGroup is a destructive GET (probe spec §0.1, §2.5) and
-	// is idempotent on missing rows. The wrapper handles all the safety
-	// nuances; the resource simply propagates errors.
 	if err := r.client.DeleteGroup(ctx, id); err != nil {
 		resp.Diagnostics.AddError("Delete group failed", err.Error())
 		return
@@ -210,23 +181,23 @@ func (r *groupResource) ImportState(ctx context.Context, req resource.ImportStat
 }
 
 // toAPI projects a Terraform plan into the zentaoapi.Group wire shape.
-// vision/developer are intentionally left zero — the wire layer fills
-// vision="rnd" by default and the server ignores developer on Update.
+// Optional+Computed fields produce nil pointers when null/unknown so the
+// API layer's M-Z merge preserves baseline values.
 func (m *groupResourceModel) toAPI() *zentaoapi.Group {
 	return &zentaoapi.Group{
-		Project: m.Project.ValueInt64(),
-		Name:    m.Name.ValueString(),
-		Role:    m.Role.ValueString(),
-		Desc:    m.Desc.ValueString(),
+		Project: optInt64(m.Project),
+		Name:    optString(m.Name),
+		Role:    optString(m.Role),
+		Desc:    optString(m.Desc),
 	}
 }
 
 func groupFromAPI(g *zentaoapi.Group) groupResourceModel {
 	return groupResourceModel{
-		ID:      types.StringValue(strconv.FormatInt(g.ID, 10)),
-		Project: types.Int64Value(int64(g.Project)),
-		Name:    types.StringValue(g.Name),
-		Role:    types.StringValue(g.Role),
-		Desc:    types.StringValue(g.Desc),
+		ID:      types.StringValue(strconv.FormatInt(deref(g.ID), 10)),
+		Project: types.Int64Value(deref(g.Project)),
+		Name:    types.StringValue(deref(g.Name)),
+		Role:    types.StringValue(deref(g.Role)),
+		Desc:    types.StringValue(deref(g.Desc)),
 	}
 }

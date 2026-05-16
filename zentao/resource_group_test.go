@@ -132,22 +132,23 @@ func TestGroupResource_RoundTrip(t *testing.T) {
 	}
 
 	api := original.toAPI()
-	if api.Project != 28 {
-		t.Errorf("project wrong: got %d, want 28", api.Project)
+	if api.Project == nil || *api.Project != 28 {
+		t.Errorf("project wrong: got %v, want 28", api.Project)
 	}
-	if api.Name != "acme-team" {
-		t.Errorf("name wrong: got %q", api.Name)
+	if api.Name == nil || *api.Name != "acme-team" {
+		t.Errorf("name wrong: got %v", api.Name)
 	}
-	if api.Role != "dev" {
-		t.Errorf("role wrong: got %q", api.Role)
+	if api.Role == nil || *api.Role != "dev" {
+		t.Errorf("role wrong: got %v", api.Role)
 	}
-	if api.Desc != "acme description" {
-		t.Errorf("desc wrong: got %q", api.Desc)
+	if api.Desc == nil || *api.Desc != "acme description" {
+		t.Errorf("desc wrong: got %v", api.Desc)
 	}
 
 	// Simulate the wire shape coming back from GetGroup with the
 	// id assigned and other fields untouched.
-	api.ID = 10000007
+	id := int64(10000007)
+	api.ID = &id
 
 	roundtripped := groupFromAPI(api)
 	if roundtripped.ID.ValueString() != "10000007" {
