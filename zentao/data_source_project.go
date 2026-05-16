@@ -39,18 +39,7 @@ type projectDataSourceModel struct {
 	QD            types.String `tfsdk:"qd"`
 	RD            types.String `tfsdk:"rd"`
 	Desc          types.String `tfsdk:"desc"`
-	Code          types.String `tfsdk:"code"`
 	Status        types.String `tfsdk:"status"`
-	Lifetime      types.String `tfsdk:"lifetime"`
-	OpenedBy      types.String `tfsdk:"opened_by"`
-	OpenedDate    types.String `tfsdk:"opened_date"`
-	LastEditedBy  types.String `tfsdk:"last_edited_by"`
-	RealBegan     types.String `tfsdk:"real_began"`
-	RealEnd       types.String `tfsdk:"real_end"`
-	Progress      types.String `tfsdk:"progress"`
-	TeamCount     types.String `tfsdk:"team_count"`
-	Budget        types.String `tfsdk:"budget"`
-	BudgetUnit    types.String `tfsdk:"budget_unit"`
 }
 
 func NewProjectDataSource() datasource.DataSource { return &projectDataSource{} }
@@ -81,18 +70,7 @@ func (d *projectDataSource) Schema(_ context.Context, _ datasource.SchemaRequest
 			"qd":             schema.StringAttribute{Description: "QA Lead username.", Computed: true},
 			"rd":             schema.StringAttribute{Description: "Release Lead username.", Computed: true},
 			"desc":           schema.StringAttribute{Description: "Description.", Computed: true},
-			"code":           schema.StringAttribute{Description: "Project short code.", Computed: true},
-			"status":         schema.StringAttribute{Description: "Project status.", Computed: true},
-			"lifetime":       schema.StringAttribute{Description: "Project lifetime classification.", Computed: true},
-			"opened_by":      schema.StringAttribute{Description: "Creator username.", Computed: true},
-			"opened_date":    schema.StringAttribute{Description: "Creation timestamp.", Computed: true},
-			"last_edited_by": schema.StringAttribute{Description: "Last-editor username.", Computed: true},
-			"real_began":     schema.StringAttribute{Description: "Actual start date.", Computed: true},
-			"real_end":       schema.StringAttribute{Description: "Actual end date.", Computed: true},
-			"progress":       schema.StringAttribute{Description: "Completion progress percentage.", Computed: true},
-			"team_count":     schema.StringAttribute{Description: "Total team members.", Computed: true},
-			"budget":         schema.StringAttribute{Description: "Project budget amount.", Computed: true},
-			"budget_unit":    schema.StringAttribute{Description: "Currency unit of the budget.", Computed: true},
+			"status":         schema.StringAttribute{Description: "Lifecycle status (wait / doing / suspended / closed).", Computed: true},
 		},
 	}
 }
@@ -139,7 +117,7 @@ func (d *projectDataSource) Read(ctx context.Context, req datasource.ReadRequest
 		resp.Diagnostics.AddError("Read project failed", err.Error())
 		return
 	}
-	productsSrc := fetched.Products
+	productsSrc := deref(fetched.Products)
 	if productsSrc == nil {
 		productsSrc = []int64{}
 	}
@@ -149,32 +127,21 @@ func (d *projectDataSource) Read(ctx context.Context, req datasource.ReadRequest
 		return
 	}
 	resp.Diagnostics.Append(resp.State.Set(ctx, projectDataSourceModel{
-		ID:            types.StringValue(strconv.FormatInt(fetched.ID, 10)),
-		Name:          types.StringValue(fetched.Name),
-		Model:         types.StringValue(fetched.Model),
-		Begin:         types.StringValue(fetched.Begin),
-		End:           types.StringValue(fetched.End),
-		Program:       types.Int64Value(int64(fetched.Parent)),
+		ID:            types.StringValue(strconv.FormatInt(deref(fetched.ID), 10)),
+		Name:          types.StringValue(deref(fetched.Name)),
+		Model:         types.StringValue(deref(fetched.Model)),
+		Begin:         types.StringValue(deref(fetched.Begin)),
+		End:           types.StringValue(deref(fetched.End)),
+		Program:       types.Int64Value(deref(fetched.Parent)),
 		Products:      products,
-		WorkflowGroup: types.Int64Value(int64(fetched.WorkflowGroup)),
-		Multiple:      multipleWireToBool(fetched.Multiple),
-		ACL:           types.StringValue(fetched.ACL),
-		PM:            types.StringValue(fetched.PM),
-		PO:            types.StringValue(fetched.PO),
-		QD:            types.StringValue(fetched.QD),
-		RD:            types.StringValue(fetched.RD),
-		Desc:          types.StringValue(fetched.Desc),
-		Code:          types.StringValue(fetched.Code),
-		Status:        types.StringValue(fetched.Status),
-		Lifetime:      types.StringValue(fetched.Lifetime),
-		OpenedBy:      types.StringValue(fetched.OpenedBy),
-		OpenedDate:    types.StringValue(fetched.OpenedDate),
-		LastEditedBy:  types.StringValue(fetched.LastEditedBy),
-		RealBegan:     types.StringValue(fetched.RealBegan),
-		RealEnd:       types.StringValue(fetched.RealEnd),
-		Progress:      types.StringValue(fetched.Progress),
-		TeamCount:     types.StringValue(fetched.TeamCount),
-		Budget:        types.StringValue(fetched.Budget),
-		BudgetUnit:    types.StringValue(fetched.BudgetUnit),
+		WorkflowGroup: types.Int64Value(deref(fetched.WorkflowGroup)),
+		Multiple:      types.BoolValue(deref(fetched.Multiple)),
+		ACL:           types.StringValue(deref(fetched.ACL)),
+		PM:            types.StringValue(deref(fetched.PM)),
+		PO:            types.StringValue(deref(fetched.PO)),
+		QD:            types.StringValue(deref(fetched.QD)),
+		RD:            types.StringValue(deref(fetched.RD)),
+		Desc:          types.StringValue(deref(fetched.Desc)),
+		Status:        types.StringValue(deref(fetched.Status)),
 	})...)
 }

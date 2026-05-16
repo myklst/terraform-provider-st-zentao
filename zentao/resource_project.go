@@ -13,9 +13,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/boolplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/int64planmodifier"
-	"github.com/hashicorp/terraform-plugin-framework/resource/schema/listplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
-	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringdefault"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
 	"github.com/hashicorp/terraform-plugin-framework/types"
@@ -54,19 +52,7 @@ type projectResourceModel struct {
 	QD            types.String `tfsdk:"qd"`
 	RD            types.String `tfsdk:"rd"`
 	Desc          types.String `tfsdk:"desc"`
-
-	Code         types.String `tfsdk:"code"`
-	Status       types.String `tfsdk:"status"`
-	Lifetime     types.String `tfsdk:"lifetime"`
-	OpenedBy     types.String `tfsdk:"opened_by"`
-	OpenedDate   types.String `tfsdk:"opened_date"`
-	LastEditedBy types.String `tfsdk:"last_edited_by"`
-	RealBegan    types.String `tfsdk:"real_began"`
-	RealEnd      types.String `tfsdk:"real_end"`
-	Progress     types.String `tfsdk:"progress"`
-	TeamCount    types.String `tfsdk:"team_count"`
-	Budget       types.String `tfsdk:"budget"`
-	BudgetUnit   types.String `tfsdk:"budget_unit"`
+	Status        types.String `tfsdk:"status"`
 }
 
 func NewProjectResource() resource.Resource { return &projectResource{} }
@@ -92,12 +78,10 @@ func (r *projectResource) Schema(_ context.Context, _ resource.SchemaRequest, re
 				Required:    true,
 			},
 			"model": schema.StringAttribute{
-				Description: "Project execution model. One of: " + commaJoin(projectModelEnum) + ". Changing this forces resource replacement.",
-				Required:    true,
-				PlanModifiers: []planmodifier.String{
-					stringplanmodifier.RequiresReplace(),
-				},
-				Validators: []validator.String{stringvalidator.OneOf(projectModelEnum...)},
+				Description:   "Project execution model. One of: " + commaJoin(projectModelEnum) + ". Changing this forces resource replacement.",
+				Required:      true,
+				PlanModifiers: []planmodifier.String{stringplanmodifier.RequiresReplace()},
+				Validators:    []validator.String{stringvalidator.OneOf(projectModelEnum...)},
 			},
 			"begin": schema.StringAttribute{
 				Description: "Planned start date (YYYY-MM-DD).",
@@ -116,32 +100,29 @@ func (r *projectResource) Schema(_ context.Context, _ resource.SchemaRequest, re
 				PlanModifiers: useStateForInt,
 			},
 			"products": schema.ListAttribute{
-				Description: "Associated product IDs.",
-				Optional:    true,
-				Computed:    true,
+				Description: "Associated product IDs (at least one required).",
+				Required:    true,
 				ElementType: types.Int64Type,
-				PlanModifiers: []planmodifier.List{
-					listplanmodifier.UseStateForUnknown(),
-				},
 			},
 			"workflow_group": schema.Int64Attribute{
-				Description: "Workflow scheme id.",
-				Required:    true,
+				Description:   "Workflow scheme id. Changing this forces resource replacement.",
+				Required:      true,
+				PlanModifiers: []planmodifier.Int64{int64planmodifier.RequiresReplace()},
 			},
 			"multiple": schema.BoolAttribute{
-				Description: "Whether iterations (sprints) are enabled.",
+				Description: "Whether iterations (sprints) are enabled. Create-only; changing this forces resource replacement.",
 				Optional:    true,
 				Computed:    true,
 				PlanModifiers: []planmodifier.Bool{
+					boolplanmodifier.RequiresReplace(),
 					boolplanmodifier.UseStateForUnknown(),
 				},
 			},
 			"acl": schema.StringAttribute{
 				Description:   "Access control. One of: " + commaJoin(projectACLEnum) + ".",
-				Optional:      true,
-				Computed:      true,
-				PlanModifiers: useStateForString,
+				Required:      true,
 				Validators:    []validator.String{stringvalidator.OneOf(projectACLEnum...)},
+				PlanModifiers: useStateForString,
 			},
 			"pm": schema.StringAttribute{
 				Description:   "Project Manager username.",
@@ -171,22 +152,12 @@ func (r *projectResource) Schema(_ context.Context, _ resource.SchemaRequest, re
 				Description:   "Description.",
 				Optional:      true,
 				Computed:      true,
-				Default:       stringdefault.StaticString(""),
 				PlanModifiers: useStateForString,
 			},
-
-			"code":           schema.StringAttribute{Description: "Project short code.", Computed: true, PlanModifiers: useStateForString},
-			"status":         schema.StringAttribute{Description: "Project status.", Computed: true, PlanModifiers: useStateForString},
-			"lifetime":       schema.StringAttribute{Description: "Project lifetime classification.", Computed: true, PlanModifiers: useStateForString},
-			"opened_by":      schema.StringAttribute{Description: "Creator username.", Computed: true, PlanModifiers: useStateForString},
-			"opened_date":    schema.StringAttribute{Description: "Creation timestamp.", Computed: true, PlanModifiers: useStateForString},
-			"last_edited_by": schema.StringAttribute{Description: "Last-editor username.", Computed: true, PlanModifiers: useStateForString},
-			"real_began":     schema.StringAttribute{Description: "Actual start date.", Computed: true, PlanModifiers: useStateForString},
-			"real_end":       schema.StringAttribute{Description: "Actual end date.", Computed: true, PlanModifiers: useStateForString},
-			"progress":       schema.StringAttribute{Description: "Completion progress percentage.", Computed: true, PlanModifiers: useStateForString},
-			"team_count":     schema.StringAttribute{Description: "Total team members.", Computed: true, PlanModifiers: useStateForString},
-			"budget":         schema.StringAttribute{Description: "Project budget amount.", Computed: true, PlanModifiers: useStateForString},
-			"budget_unit":    schema.StringAttribute{Description: "Currency unit of the budget.", Computed: true, PlanModifiers: useStateForString},
+			"status": schema.StringAttribute{
+				Description: "Lifecycle status (wait / doing / suspended / closed). Server-managed; changes outside of Terraform are surfaced on next read.",
+				Computed:    true,
+			},
 		},
 	}
 }
@@ -222,14 +193,7 @@ func (r *projectResource) Create(ctx context.Context, req resource.CreateRequest
 		resp.Diagnostics.AddError("Create project failed", err.Error())
 		return
 	}
-	fetched, err := r.client.GetProject(ctx, created.ID)
-	if err != nil {
-		resp.Diagnostics.AddError("Re-fetch after create failed", err.Error())
-		return
-	}
-	// Read does not echo the product list back; preserve plan input.
-	fetched.Products = apiInput.Products
-	state, diags := projectFromAPI(ctx, fetched)
+	state, diags := projectFromAPI(ctx, created)
 	resp.Diagnostics.Append(diags...)
 	if resp.Diagnostics.HasError() {
 		return
@@ -262,7 +226,6 @@ func (r *projectResource) Read(ctx context.Context, req resource.ReadRequest, re
 	if resp.Diagnostics.HasError() {
 		return
 	}
-	state.Products = prior.Products
 	resp.Diagnostics.Append(resp.State.Set(ctx, state)...)
 }
 
@@ -283,13 +246,12 @@ func (r *projectResource) Update(ctx context.Context, req resource.UpdateRequest
 	if resp.Diagnostics.HasError() {
 		return
 	}
-	apiInput.ID = id
+	apiInput.ID = &id
 	updated, err := r.client.UpdateProject(ctx, apiInput)
 	if err != nil {
 		resp.Diagnostics.AddError("Update project failed", err.Error())
 		return
 	}
-	updated.Products = apiInput.Products
 	state, diags := projectFromAPI(ctx, updated)
 	resp.Diagnostics.Append(diags...)
 	if resp.Diagnostics.HasError() {
@@ -319,78 +281,53 @@ func (r *projectResource) ImportState(ctx context.Context, req resource.ImportSt
 	resource.ImportStatePassthroughID(ctx, path.Root("id"), req, resp)
 }
 
+// toAPI converts plan/state into the pointer-typed API Project. Nil
+// pointers signal "field absent from input"; the API wrapper's
+// mergeProjectBaseline reads that as "preserve baseline" on edits.
 func (m *projectResourceModel) toAPI(ctx context.Context) (*zentaoapi.Project, diag.Diagnostics) {
-	var products []int64
-	diags := m.Products.ElementsAs(ctx, &products, true)
-	intProducts := make([]int64, 0, len(products))
-	intProducts = append(intProducts, products...)
+	var diags diag.Diagnostics
+	products, pdiags := optInt64List(ctx, m.Products)
+	diags.Append(pdiags...)
 	return &zentaoapi.Project{
-		Name:          m.Name.ValueString(),
-		Model:         m.Model.ValueString(),
-		Begin:         m.Begin.ValueString(),
-		End:           m.End.ValueString(),
-		Parent:        m.Program.ValueInt64(),
-		Products:      intProducts,
-		WorkflowGroup: m.WorkflowGroup.ValueInt64(),
-		Multiple:      multipleBoolToWire(m.Multiple),
-		ACL:           m.ACL.ValueString(),
-		PM:            m.PM.ValueString(),
-		PO:            m.PO.ValueString(),
-		QD:            m.QD.ValueString(),
-		RD:            m.RD.ValueString(),
-		Desc:          m.Desc.ValueString(),
+		Name:          optString(m.Name),
+		Model:         optString(m.Model),
+		Begin:         optString(m.Begin),
+		End:           optString(m.End),
+		Parent:        optInt64(m.Program),
+		Products:      products,
+		WorkflowGroup: optInt64(m.WorkflowGroup),
+		Multiple:      optBool(m.Multiple),
+		ACL:           optString(m.ACL),
+		PM:            optString(m.PM),
+		PO:            optString(m.PO),
+		QD:            optString(m.QD),
+		RD:            optString(m.RD),
+		Desc:          optString(m.Desc),
 	}, diags
 }
 
-// multipleBoolToWire returns "" for null/unknown so omitempty drops it
-// and the server applies its own default.
-func multipleBoolToWire(v types.Bool) string {
-	if v.IsNull() || v.IsUnknown() {
-		return ""
-	}
-	if v.ValueBool() {
-		return "1"
-	}
-	return "0"
-}
-
-func multipleWireToBool(s string) types.Bool {
-	return types.BoolValue(s == "1")
-}
-
 func projectFromAPI(ctx context.Context, p *zentaoapi.Project) (projectResourceModel, diag.Diagnostics) {
-	src := p.Products
-	if src == nil {
-		src = []int64{}
+	products := deref(p.Products)
+	if products == nil {
+		products = []int64{}
 	}
-	productsList, diags := types.ListValueFrom(ctx, types.Int64Type, src)
+	productsList, diags := types.ListValueFrom(ctx, types.Int64Type, products)
 	return projectResourceModel{
-		ID:            types.StringValue(strconv.FormatInt(p.ID, 10)),
-		Name:          types.StringValue(p.Name),
-		Model:         types.StringValue(p.Model),
-		Begin:         types.StringValue(p.Begin),
-		End:           types.StringValue(p.End),
-		Program:       types.Int64Value(int64(p.Parent)),
+		ID:            types.StringValue(strconv.FormatInt(deref(p.ID), 10)),
+		Name:          types.StringValue(deref(p.Name)),
+		Model:         types.StringValue(deref(p.Model)),
+		Begin:         types.StringValue(deref(p.Begin)),
+		End:           types.StringValue(deref(p.End)),
+		Program:       types.Int64Value(deref(p.Parent)),
 		Products:      productsList,
-		WorkflowGroup: types.Int64Value(int64(p.WorkflowGroup)),
-		Multiple:      multipleWireToBool(p.Multiple),
-		ACL:           types.StringValue(p.ACL),
-		PM:            types.StringValue(p.PM),
-		PO:            types.StringValue(p.PO),
-		QD:            types.StringValue(p.QD),
-		RD:            types.StringValue(p.RD),
-		Desc:          types.StringValue(p.Desc),
-		Code:          types.StringValue(p.Code),
-		Status:        types.StringValue(p.Status),
-		Lifetime:      types.StringValue(p.Lifetime),
-		OpenedBy:      types.StringValue(p.OpenedBy),
-		OpenedDate:    types.StringValue(p.OpenedDate),
-		LastEditedBy:  types.StringValue(p.LastEditedBy),
-		RealBegan:     types.StringValue(p.RealBegan),
-		RealEnd:       types.StringValue(p.RealEnd),
-		Progress:      types.StringValue(p.Progress),
-		TeamCount:     types.StringValue(p.TeamCount),
-		Budget:        types.StringValue(p.Budget),
-		BudgetUnit:    types.StringValue(p.BudgetUnit),
+		WorkflowGroup: types.Int64Value(deref(p.WorkflowGroup)),
+		Multiple:      types.BoolValue(deref(p.Multiple)),
+		ACL:           types.StringValue(deref(p.ACL)),
+		PM:            types.StringValue(deref(p.PM)),
+		PO:            types.StringValue(deref(p.PO)),
+		QD:            types.StringValue(deref(p.QD)),
+		RD:            types.StringValue(deref(p.RD)),
+		Desc:          types.StringValue(deref(p.Desc)),
+		Status: types.StringValue(deref(p.Status)),
 	}, diags
 }

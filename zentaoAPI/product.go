@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
-	"strings"
 )
 
 type productViewInner struct {
@@ -28,9 +27,8 @@ type Product struct {
 	PO        *string   `json:"PO,omitempty"`
 	QD        *string   `json:"QD,omitempty"`
 	RD        *string   `json:"RD,omitempty"`
-	Reviewer  *[]string `json:"reviewer,omitempty"`
+	Reviewers *[]string `json:"reviewer,omitempty"`
 	ACL       *string   `json:"acl,omitempty"`
-	Groups    *[]string `json:"groups,omitempty"`
 	Whitelist *[]string `json:"whitelist,omitempty"`
 	Deleted   *bool     `json:"deleted,omitempty"`
 }
@@ -56,9 +54,8 @@ func (p *Product) UnmarshalJSON(data []byte) error {
 		PO        *string            `json:"PO"`
 		QD        *string            `json:"QD"`
 		RD        *string            `json:"RD"`
-		Reviewer  flexibleStringList `json:"reviewer"`
+		Reviewers flexibleStringList `json:"reviewer"`
 		ACL       *string            `json:"acl"`
-		Groups    flexibleStringList `json:"groups"`
 		Whitelist flexibleStringList `json:"whitelist"`
 		Deleted   json.Number        `json:"deleted"`
 	}
@@ -103,13 +100,9 @@ func (p *Product) UnmarshalJSON(data []byte) error {
 	p.QD = raw.QD
 	p.RD = raw.RD
 	p.ACL = raw.ACL
-	if raw.Reviewer != nil {
-		v := []string(raw.Reviewer)
-		p.Reviewer = &v
-	}
-	if raw.Groups != nil {
-		v := []string(raw.Groups)
-		p.Groups = &v
+	if raw.Reviewers != nil {
+		v := []string(raw.Reviewers)
+		p.Reviewers = &v
 	}
 	if raw.Whitelist != nil {
 		v := []string(raw.Whitelist)
@@ -118,19 +111,15 @@ func (p *Product) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-// toForm always emits every form.php writable field, even when the value
-// is empty / 0. ZenTao's product-edit POST is not PATCH-semantic — any
-// omitted form.php field is reset to its form.php default. See
-// docs/superpowers/specs/probe-product-controller.md §4a.
-//
-// Multi-value fields use `name[]=v1&name[]=v2` so PHP parses them as an
-// array; the server's filter:join then stores them comma-joined.
+// toForm produces a form for `/product-create.json` and `/product-edit.json`.
 //
 // `deleted=0` is emitted unconditionally so a single edit POST drives
 // the restore-on-soft-deleted path (CreateProduct with caller-supplied
 // id): if the row was deleted=1, this flips it back; if alive, it's a
 // no-op. Form.php acceptance of `deleted` is integration-test-verified.
 func (p *Product) toForm() url.Values {
+	// Multi-value fields use `name[]=v1&name[]=v2` so PHP parses them as an
+	// array; the server's filter:join then stores them comma-joined.
 	addMulti := func(form url.Values, key string, values []string) {
 		if len(values) == 0 {
 			form.Set(key+"[]", "")
@@ -145,60 +134,19 @@ func (p *Product) toForm() url.Values {
 	form.Set("name", deref(p.Name))
 	form.Set("line", strconv.FormatInt(deref(p.Line), 10))
 	form.Set("type", deref(p.Type))
-	form.Set("status", deref(p.Status))
 	form.Set("desc", deref(p.Desc))
 	form.Set("PO", deref(p.PO))
 	form.Set("QD", deref(p.QD))
 	form.Set("RD", deref(p.RD))
-	addMulti(form, "reviewer", deref(p.Reviewer))
+	addMulti(form, "reviewer", deref(p.Reviewers))
 	form.Set("acl", deref(p.ACL))
-	form.Set("deleted", boolToIntStr(deref(p.Deleted)))
-	addMulti(form, "groups", deref(p.Groups))
 	addMulti(form, "whitelist", deref(p.Whitelist))
+	form.Set("deleted", boolToIntStr(deref(p.Deleted)))
 	return form
 }
 
-// flexibleStringList accepts either a JSON array of strings or a
-// comma-separated JSON string.
-type flexibleStringList []string
-
-func (f *flexibleStringList) UnmarshalJSON(data []byte) error {
-	if len(data) == 0 || string(data) == "null" {
-		*f = nil
-		return nil
-	}
-	switch data[0] {
-	case '[':
-		var arr []string
-		if err := json.Unmarshal(data, &arr); err != nil {
-			return err
-		}
-		*f = arr
-		return nil
-	case '"':
-		var s string
-		if err := json.Unmarshal(data, &s); err != nil {
-			return err
-		}
-		if s == "" {
-			*f = []string{}
-			return nil
-		}
-		out := strings.Split(s, ",")
-		for i := range out {
-			out[i] = strings.TrimSpace(out[i])
-		}
-		*f = out
-		return nil
-	default:
-		return fmt.Errorf("flexibleStringList: unexpected JSON %s", string(data))
-	}
-}
-
 // mergeProductBaseline copies baseline and overrides only the fields the
-// caller explicitly set on input (non-nil pointers). A nil pointer reads
-// as "preserve baseline". This is the M-Z merge that makes UpdateProduct
-// safe against ZenTao's non-PATCH product-edit semantic.
+// caller explicitly set on input (non-nil pointers).
 func mergeProductBaseline(input, baseline *Product) *Product {
 	out := *baseline
 	if input.ID != nil {
@@ -231,14 +179,11 @@ func mergeProductBaseline(input, baseline *Product) *Product {
 	if input.RD != nil {
 		out.RD = input.RD
 	}
-	if input.Reviewer != nil {
-		out.Reviewer = input.Reviewer
+	if input.Reviewers != nil {
+		out.Reviewers = input.Reviewers
 	}
 	if input.ACL != nil {
 		out.ACL = input.ACL
-	}
-	if input.Groups != nil {
-		out.Groups = input.Groups
 	}
 	if input.Whitelist != nil {
 		out.Whitelist = input.Whitelist
@@ -249,9 +194,7 @@ func mergeProductBaseline(input, baseline *Product) *Product {
 	return &out
 }
 
-// GetProduct reads via product-view-{id}.json and surfaces only alive
-// rows. Missing rows — HTTP 404, the `result/load.alert "对象不存在"`
-// response, or the `product:false` payload — all collapse to ErrNotFound.
+// GetProduct reads via `/product-view-{id}.json`.
 func (c *Client) GetProduct(ctx context.Context, id int64) (*Product, error) {
 	body, status, err := c.doController(ctx, "product", "view", []string{strconv.FormatInt(id, 10)}, nil, nil)
 	if err != nil {
@@ -278,14 +221,14 @@ func (c *Client) GetProduct(ctx context.Context, id int64) (*Product, error) {
 	}
 	var env CtrlResp
 	if err := json.Unmarshal(body, &env); err != nil {
-		return nil, fmt.Errorf("decode get-product envelope: %w (body=%s)", err, string(body))
+		return nil, fmt.Errorf("decode get-product outer: %w (body=%s)", err, string(body))
 	}
 	if env.Status != "success" {
 		return nil, classifyCtrlError(status, env, body)
 	}
 	var inner productViewInner
 	if err := env.DecodeData(&inner); err != nil {
-		return nil, fmt.Errorf("decode get-product data: %w (body=%s)", err, string(body))
+		return nil, fmt.Errorf("decode get-product inner: %w (body=%s)", err, string(body))
 	}
 	if len(inner.Product) == 0 || string(inner.Product) == "null" || string(inner.Product) == "false" {
 		return nil, ErrNotFound
@@ -335,10 +278,7 @@ func (c *Client) CreateProduct(ctx context.Context, p *Product) (*Product, error
 }
 
 // UpdateProduct fetches the baseline, merges caller overrides on top
-// (M-Z merge), then submits the full form. ZenTao's product-edit POST
-// is non-PATCH — any omitted form.php field is reset to its default
-// (verified empirically: name-only edit clears program/PO/QD/RD/desc
-// /reviewer). See spec §4a.
+// (M-Z merge), then submits the full form.
 func (c *Client) UpdateProduct(ctx context.Context, p *Product) (*Product, error) {
 	if p == nil {
 		return nil, fmt.Errorf("UpdateProduct: product is nil")
@@ -399,15 +339,4 @@ func (c *Client) DeleteProduct(ctx context.Context, id int64) error {
 		return nil
 	}
 	return classifyCtrlSimple(status, resp, body)
-}
-
-func apiError(httpStatus int, body []byte) error {
-	var env ZentaoResponse
-	_ = json.Unmarshal(body, &env)
-	return &APIError{
-		HTTPStatus:   httpStatus,
-		ZentaoStatus: env.Status,
-		Reason:       env.ZentaoFailReason(),
-		RawBody:      body,
-	}
 }

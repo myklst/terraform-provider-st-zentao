@@ -178,6 +178,14 @@ func (r CtrlSimpleResponse) IsSuccess() bool {
 // ("", map). When `message` is absent or unparseable as either shape,
 // both return values are zero — caller can decide whether to treat as
 // silent success or surface raw.
+//
+// Per-field maps come in two value shapes across modules: the common
+// `{field: ["err1", ...]}` (user / group / program / product validators)
+// and the project-specific `{field: "err"}` flat-string-per-field variant
+// — see docs/superpowers/specs/probe-project-controller.md §2. We try the
+// array shape first (the majority case) and fall back to the flat shape,
+// wrapping each value into a single-element slice so the return type stays
+// uniform.
 func (r CtrlSimpleResponse) FieldErrors() (string, map[string][]string) {
 	if len(r.Message) == 0 || string(r.Message) == "null" {
 		return "", nil
@@ -192,6 +200,14 @@ func (r CtrlSimpleResponse) FieldErrors() (string, map[string][]string) {
 		var m map[string][]string
 		if err := json.Unmarshal(r.Message, &m); err == nil {
 			return "", m
+		}
+		var ms map[string]string
+		if err := json.Unmarshal(r.Message, &ms); err == nil {
+			out := make(map[string][]string, len(ms))
+			for k, v := range ms {
+				out[k] = []string{v}
+			}
+			return "", out
 		}
 	}
 	return "", nil

@@ -551,6 +551,39 @@ func TestCtrlSimpleResponse_FieldErrors(t *testing.T) {
 		}
 	})
 
+	t.Run("per-field map with flat string values (project-create shape)", func(t *testing.T) {
+		// ZenTao project validation returns {field: "string"} instead of
+		// {field: ["string"]} for some single-error cases. See
+		// docs/superpowers/specs/probe-project-controller.md §2.
+		r := CtrlSimpleResponse{
+			Result:  "fail",
+			Message: json.RawMessage(`{"end":"『计划完成』不能为空。","productsBox":"最少关联一个产品"}`),
+		}
+		flat, fields := r.FieldErrors()
+		if flat != "" {
+			t.Fatalf("flat should be empty when message is a per-field map, got %q", flat)
+		}
+		if got := fields["end"]; len(got) != 1 || got[0] != "『计划完成』不能为空。" {
+			t.Fatalf("end field = %v", got)
+		}
+		if got := fields["productsBox"]; len(got) != 1 || got[0] != "最少关联一个产品" {
+			t.Fatalf("productsBox field = %v", got)
+		}
+	})
+
+	t.Run("per-field map with indexed key (products[N] shape)", func(t *testing.T) {
+		// project-edit POST returns the productsBox validation under key
+		// "products[0]" rather than the unindexed name.
+		r := CtrlSimpleResponse{
+			Result:  "fail",
+			Message: json.RawMessage(`{"products[0]":"最少关联一个产品"}`),
+		}
+		_, fields := r.FieldErrors()
+		if got := fields["products[0]"]; len(got) != 1 || got[0] != "最少关联一个产品" {
+			t.Fatalf("products[0] field = %v", got)
+		}
+	})
+
 	t.Run("absent message", func(t *testing.T) {
 		r := CtrlSimpleResponse{Result: "success"}
 		flat, fields := r.FieldErrors()

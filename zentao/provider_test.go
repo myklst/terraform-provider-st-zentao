@@ -48,7 +48,7 @@ func TestProductResource_Schema(t *testing.T) {
 			t.Errorf("%s must be Computed-only (got required=%v optional=%v)", computedOnly, a.IsRequired(), a.IsOptional())
 		}
 	}
-	for _, optional := range []string{"program", "line", "type", "desc", "acl", "po", "qd", "rd", "reviewer", "groups", "whitelist"} {
+	for _, optional := range []string{"program", "line", "type", "desc", "acl", "po", "qd", "rd", "reviewers", "whitelist"} {
 		a := resp.Schema.Attributes[optional]
 		if !a.IsOptional() || !a.IsComputed() {
 			t.Errorf("%s must be Optional+Computed (got optional=%v computed=%v)", optional, a.IsOptional(), a.IsComputed())

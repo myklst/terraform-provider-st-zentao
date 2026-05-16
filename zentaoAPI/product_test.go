@@ -52,8 +52,7 @@ func TestProduct_UnmarshalJSON_FullPayload(t *testing.T) {
 		PO:        strptr("po-user"),
 		QD:        strptr("qd-user"),
 		RD:        strptr("rd-user"),
-		Reviewer:  strSlicePtr([]string{"r1", "r2"}),
-		Groups:    strSlicePtr([]string{"1", "2"}),
+		Reviewers:  strSlicePtr([]string{"r1", "r2"}),
 		Whitelist: strSlicePtr([]string{"admin", "PM"}),
 		Deleted:   boolptr(false),
 	}
@@ -80,8 +79,8 @@ func TestGetProduct_HappyPath(t *testing.T) {
 	if deref(p.ID) != 42 || deref(p.Name) != "Alpha" || deref(p.Program) != 7 {
 		t.Fatalf("got %+v", p)
 	}
-	if !reflect.DeepEqual(deref(p.Reviewer), []string{"r1", "r2"}) {
-		t.Fatalf("Reviewer = %v", deref(p.Reviewer))
+	if !reflect.DeepEqual(deref(p.Reviewers), []string{"r1", "r2"}) {
+		t.Fatalf("Reviewer = %v", deref(p.Reviewers))
 	}
 }
 
@@ -100,11 +99,11 @@ func TestGetProduct_ReviewerEmpty(t *testing.T) {
 	// Empty wire string decodes to a non-nil pointer to an empty slice
 	// (an explicit "the column is empty" signal), distinct from nil
 	// ("wire omitted the column").
-	if p.Reviewer == nil {
+	if p.Reviewers == nil {
 		t.Fatalf("Reviewer pointer is nil, want non-nil empty slice")
 	}
-	if len(*p.Reviewer) != 0 {
-		t.Fatalf("Reviewer = %v, want empty slice", *p.Reviewer)
+	if len(*p.Reviewers) != 0 {
+		t.Fatalf("Reviewers = %v, want empty slice", *p.Reviewers)
 	}
 }
 
@@ -225,7 +224,7 @@ func TestCreateProduct_BodyShapeAndRefetch(t *testing.T) {
 		PO:       strptr("po1"),
 		QD:       strptr("qd1"),
 		RD:       strptr("rd1"),
-		Reviewer: strSlicePtr([]string{"r1"}),
+		Reviewers: strSlicePtr([]string{"r1"}),
 		// Code is server-managed — caller-set value is ignored by toForm
 		// (key absent from form.php).
 		Code:   strptr("should-not-go"),
@@ -451,7 +450,7 @@ func TestDeleteProduct_OtherFailure(t *testing.T) {
 // to its default — see probe-product-controller.md §4a.
 func TestProductToForm_AlwaysSetsAllWriteableFields(t *testing.T) {
 	form := (&Product{Name: strptr("x")}).toForm()
-	for _, k := range []string{"name", "program", "line", "PO", "QD", "RD", "type", "status", "desc", "acl"} {
+	for _, k := range []string{"name", "program", "line", "PO", "QD", "RD", "type", "desc", "acl"} {
 		if _, ok := form[k]; !ok {
 			t.Errorf("form must always carry key %q (always-set rule): %v", k, form)
 		}
@@ -460,7 +459,7 @@ func TestProductToForm_AlwaysSetsAllWriteableFields(t *testing.T) {
 		t.Errorf("zero-valued ints must be explicit \"0\": program=%q line=%q", form.Get("program"), form.Get("line"))
 	}
 	// Multi-value keys are emitted with the [] suffix.
-	for _, k := range []string{"reviewer[]", "groups[]", "whitelist[]"} {
+	for _, k := range []string{"reviewer[]", "whitelist[]"} {
 		if _, ok := form[k]; !ok {
 			t.Errorf("multi-value key %q must always be present (empty placeholder ok): %v", k, form)
 		}
@@ -470,15 +469,11 @@ func TestProductToForm_AlwaysSetsAllWriteableFields(t *testing.T) {
 func TestProductToForm_MultiValueExpansion(t *testing.T) {
 	form := (&Product{
 		Name:      strptr("x"),
-		Reviewer:  strSlicePtr([]string{"r1", "r2"}),
-		Groups:    strSlicePtr([]string{"1", "2"}),
+		Reviewers:  strSlicePtr([]string{"r1", "r2"}),
 		Whitelist: strSlicePtr([]string{"admin"}),
 	}).toForm()
 	if got := form["reviewer[]"]; !reflect.DeepEqual(got, []string{"r1", "r2"}) {
 		t.Errorf("reviewer[] = %v, want [r1 r2]", got)
-	}
-	if got := form["groups[]"]; !reflect.DeepEqual(got, []string{"1", "2"}) {
-		t.Errorf("groups[] = %v, want [1 2]", got)
 	}
 	if got := form["whitelist[]"]; !reflect.DeepEqual(got, []string{"admin"}) {
 		t.Errorf("whitelist[] = %v, want [admin]", got)
@@ -490,8 +485,7 @@ func TestMergeProductBaseline_PreservesBaselineWhenInputNil(t *testing.T) {
 		ID: int64ptr(5), Name: strptr("Base"), Program: int64ptr(2), Line: int64ptr(3),
 		PO: strptr("alice"), QD: strptr("bob"), RD: strptr("carol"),
 		Desc: strptr("old desc"), ACL: strptr("private"), Type: strptr("normal"), Status: strptr("normal"),
-		Reviewer:  strSlicePtr([]string{"r1", "r2"}),
-		Groups:    strSlicePtr([]string{"1"}),
+		Reviewers:  strSlicePtr([]string{"r1", "r2"}),
 		Whitelist: strSlicePtr([]string{"admin"}),
 	}
 	cases := []struct {
@@ -509,20 +503,17 @@ func TestMergeProductBaseline_PreservesBaselineWhenInputNil(t *testing.T) {
 				if deref(m.Program) != 2 || deref(m.PO) != "alice" || deref(m.Desc) != "old desc" || deref(m.ACL) != "private" {
 					t.Errorf("baseline scalars not preserved: %+v", m)
 				}
-				if !reflect.DeepEqual(deref(m.Reviewer), []string{"r1", "r2"}) || !reflect.DeepEqual(deref(m.Groups), []string{"1"}) {
+				if !reflect.DeepEqual(deref(m.Reviewers), []string{"r1", "r2"}) {
 					t.Errorf("baseline slices not preserved: %+v", m)
 				}
 			},
 		},
 		{
 			"override Reviewer with explicit empty slice — replace baseline",
-			&Product{ID: int64ptr(5), Reviewer: strSlicePtr([]string{})},
+			&Product{ID: int64ptr(5), Reviewers: strSlicePtr([]string{})},
 			func(t *testing.T, m *Product) {
-				if len(deref(m.Reviewer)) != 0 {
-					t.Errorf("Reviewer should be cleared by explicit []string{}, got %v", deref(m.Reviewer))
-				}
-				if !reflect.DeepEqual(deref(m.Groups), []string{"1"}) {
-					t.Errorf("Groups should still be preserved: %v", deref(m.Groups))
+				if len(deref(m.Reviewers)) != 0 {
+					t.Errorf("Reviewer should be cleared by explicit []string{}, got %v", deref(m.Reviewers))
 				}
 			},
 		},

@@ -21,7 +21,7 @@ func TestProductDataSource_Schema(t *testing.T) {
 	}
 	for _, attr := range []string{
 		"code", "name", "program", "line", "type", "desc",
-		"acl", "po", "qd", "rd", "reviewer", "groups", "whitelist",
+		"acl", "po", "qd", "rd", "reviewer", "whitelist",
 		"status",
 	} {
 		a := resp.Schema.Attributes[attr]

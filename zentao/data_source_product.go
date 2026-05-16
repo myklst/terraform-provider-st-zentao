@@ -37,7 +37,6 @@ type productDataSourceModel struct {
 	QD        types.String `tfsdk:"qd"`
 	RD        types.String `tfsdk:"rd"`
 	Reviewer  types.List   `tfsdk:"reviewer"`
-	Groups    types.List   `tfsdk:"groups"`
 	Whitelist types.List   `tfsdk:"whitelist"`
 
 	Status  types.String `tfsdk:"status"`
@@ -69,7 +68,6 @@ func (d *productDataSource) Schema(_ context.Context, _ datasource.SchemaRequest
 			"qd":        schema.StringAttribute{Description: "QA Lead username.", Computed: true},
 			"rd":        schema.StringAttribute{Description: "Release Lead username.", Computed: true},
 			"reviewer":  schema.ListAttribute{Description: "Reviewer usernames.", Computed: true, ElementType: types.StringType},
-			"groups":    schema.ListAttribute{Description: "Permission group ids granted access to this product.", Computed: true, ElementType: types.StringType},
 			"whitelist": schema.ListAttribute{Description: "Whitelisted usernames granted access to this product.", Computed: true, ElementType: types.StringType},
 			"status":    schema.StringAttribute{Description: "Product status.", Computed: true},
 			"deleted":   schema.BoolAttribute{Description: "Whether deleted.", Computed: true},
@@ -119,10 +117,8 @@ func (d *productDataSource) Read(ctx context.Context, req datasource.ReadRequest
 		resp.Diagnostics.AddError("Read product failed", err.Error())
 		return
 	}
-	reviewers, diags := stringListFromSlice(ctx, deref(fetched.Reviewer))
+	reviewers, diags := stringListFromSlice(ctx, deref(fetched.Reviewers))
 	resp.Diagnostics.Append(diags...)
-	groups, gdiags := stringListFromSlice(ctx, deref(fetched.Groups))
-	resp.Diagnostics.Append(gdiags...)
 	whitelist, wdiags := stringListFromSlice(ctx, deref(fetched.Whitelist))
 	resp.Diagnostics.Append(wdiags...)
 	if resp.Diagnostics.HasError() {
@@ -141,7 +137,6 @@ func (d *productDataSource) Read(ctx context.Context, req datasource.ReadRequest
 		QD:        types.StringValue(deref(fetched.QD)),
 		RD:        types.StringValue(deref(fetched.RD)),
 		Reviewer:  reviewers,
-		Groups:    groups,
 		Whitelist: whitelist,
 		Status:    types.StringValue(deref(fetched.Status)),
 		Deleted:   types.BoolValue(deref(fetched.Deleted)),

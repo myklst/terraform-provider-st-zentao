@@ -108,6 +108,7 @@ func (p *zentaoProvider) DataSources(_ context.Context) []func() datasource.Data
 		NewProgramDataSource,
 		NewProjectDataSource,
 		NewGroupDataSource,
+		NewWorkflowGroupDataSource,
 	}
 }
 
