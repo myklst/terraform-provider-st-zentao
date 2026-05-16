@@ -31,14 +31,10 @@ type groupDataSourceModel struct {
 	Desc    types.String `tfsdk:"desc"`
 }
 
-// NewGroupDataSource registers the st-zentao_group data
-// source. It looks up a project-scoped permission group (a row in
-// zt_group with project>0) by its numeric id via the Controller
-// `group-edit-<id>.json` GET endpoint — the same read primitive used
-// by the resource. Returned attributes mirror the v1 resource schema
-// exactly (id/project/name/role/desc); fields the probe found but the
-// v1 resource does not surface (vision/developer/acl/users/actions)
-// are intentionally NOT exposed here.
+// NewGroupDataSource registers the st-zentao_group data source. It
+// looks up a ZenTao permission group by its numeric id and exposes
+// the same five attributes the resource manages (id/project/name/
+// role/desc); other zt_group columns are intentionally not surfaced.
 func NewGroupDataSource() datasource.DataSource { return &groupDataSource{} }
 
 func (d *groupDataSource) Metadata(_ context.Context, req datasource.MetadataRequest, resp *datasource.MetadataResponse) {
@@ -91,8 +87,8 @@ func (d *groupDataSource) Read(ctx context.Context, req datasource.ReadRequest, 
 	fetched, err := d.client.GetGroup(ctx, id)
 	if errors.Is(err, zentaoapi.ErrNotFound) {
 		resp.Diagnostics.AddError(
-			"Project group not found",
-			fmt.Sprintf("ZenTao has no project group with id=%d", id),
+			"Group not found",
+			fmt.Sprintf("ZenTao has no group with id=%d", id),
 		)
 		return
 	}
@@ -101,10 +97,10 @@ func (d *groupDataSource) Read(ctx context.Context, req datasource.ReadRequest, 
 		return
 	}
 	resp.Diagnostics.Append(resp.State.Set(ctx, groupDataSourceModel{
-		ID:      types.StringValue(strconv.FormatInt(fetched.ID, 10)),
-		Project: types.Int64Value(int64(fetched.Project)),
-		Name:    types.StringValue(fetched.Name),
-		Role:    types.StringValue(fetched.Role),
-		Desc:    types.StringValue(fetched.Desc),
+		ID:      types.StringValue(strconv.FormatInt(deref(fetched.ID), 10)),
+		Project: types.Int64Value(deref(fetched.Project)),
+		Name:    types.StringValue(deref(fetched.Name)),
+		Role:    types.StringValue(deref(fetched.Role)),
+		Desc:    types.StringValue(deref(fetched.Desc)),
 	})...)
 }
