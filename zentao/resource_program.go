@@ -59,8 +59,6 @@ func (r *programResource) Metadata(_ context.Context, req resource.MetadataReque
 func (r *programResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
 	pmUseStateForInt := []planmodifier.Int64{int64planmodifier.UseStateForUnknown()}
 	pmUseStateForString := []planmodifier.String{stringplanmodifier.UseStateForUnknown()}
-	pmStringRequiresReplace := []planmodifier.String{stringplanmodifier.RequiresReplace()}
-	// pmIntRequiresReplace := []planmodifier.Int64{int64planmodifier.RequiresReplace()}
 
 	resp.Schema = schema.Schema{
 		Description: "Manages a ZenTao program (project portfolio).",
@@ -68,7 +66,7 @@ func (r *programResource) Schema(_ context.Context, _ resource.SchemaRequest, re
 			"id": schema.StringAttribute{
 				Description:   "Numeric ZenTao program ID.",
 				Computed:      true,
-				PlanModifiers: pmStringRequiresReplace,
+				PlanModifiers: pmUseStateForString,
 			},
 			"parent": schema.Int64Attribute{
 				Description:   "Parent program id (0 = top-level). Read-only; set via `st-zentao_program_parent_attachment`.",
@@ -108,19 +106,21 @@ func (r *programResource) Schema(_ context.Context, _ resource.SchemaRequest, re
 				Validators:  []validator.String{stringvalidator.RegexMatches(dateRe, `must be YYYY-MM-DD`)},
 			},
 			"desc": schema.StringAttribute{
-				Description: "Description.",
-				Optional:    true,
-				Computed:    true,
+				Description:   "Description.",
+				Optional:      true,
+				Computed:      true,
+				PlanModifiers: pmUseStateForString,
 			},
 			"status": schema.StringAttribute{
 				Description: "Status.",
 				Computed:    true,
 			},
 			"acl": schema.StringAttribute{
-				Description: "Access control. One of: " + commaJoin(programACLEnum) + ".",
-				Optional:    true,
-				Computed:    true,
-				Validators:  []validator.String{stringvalidator.OneOf(programACLEnum...)},
+				Description:   "Access control. One of: " + commaJoin(programACLEnum) + ".",
+				Optional:      true,
+				Computed:      true,
+				PlanModifiers: pmUseStateForString,
+				Validators:    []validator.String{stringvalidator.OneOf(programACLEnum...)},
 			},
 			"whitelist": schema.StringAttribute{
 				Description: "Comma-joined account list when `acl = \"custom\"`.",
