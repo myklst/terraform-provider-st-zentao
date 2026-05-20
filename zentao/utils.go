@@ -72,8 +72,11 @@ func optStrList(ctx context.Context, v types.List) (*[]string, diag.Diagnostics)
 	return &out, diags
 }
 
-// optInt64List is the int64 sibling of optStrList.
-func optInt64List(ctx context.Context, v types.List) (*[]int64, diag.Diagnostics) {
+// optInt64Set is the int64 set-typed sibling of optStrList. products is a
+// set (order-independent) because GetProject returns the linked product
+// ids sorted ascending; a List would diff against the config's element
+// order and trip "inconsistent result after apply".
+func optInt64Set(ctx context.Context, v types.Set) (*[]int64, diag.Diagnostics) {
 	if v.IsNull() || v.IsUnknown() {
 		return nil, nil
 	}

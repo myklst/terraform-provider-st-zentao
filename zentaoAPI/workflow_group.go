@@ -4,17 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"net/http"
 	"sort"
-	"strconv"
 )
 
 // WorkflowGroup represents one row from ZenTao's `zt_workflowgroup` table —
 // a preset combination of (projectModel, projectType) that the project
 // resource's `workflow_group` form input references by id. The default
-// Max 8.x install ships two: id=2 (scrumproduct: scrum + product-typed)
-// and id=3 (scrumproject: scrum + project-typed). Admins can extend the
-// catalog at runtime.
+// Max 8.x install ships ten (scrum/waterfall/agileplus/waterfallplus/kanban
+// × product/project). Admins can extend the catalog at runtime.
 type WorkflowGroup struct {
 	ID           *int64  `json:"id,omitempty"`
 	Code         *string `json:"code,omitempty"`         // e.g. "scrumproduct"
@@ -23,6 +20,7 @@ type WorkflowGroup struct {
 	ProjectType  *string `json:"projectType,omitempty"`  // product / project
 	Vision       *string `json:"vision,omitempty"`       // rnd / ops / lite
 	Deliverable  *string `json:"deliverable,omitempty"`
+	Deleted      *int64  `json:"deleted,omitempty"` // soft-delete flag; 1 == removed
 }
 
 func (w *WorkflowGroup) UnmarshalJSON(data []byte) error {
@@ -34,6 +32,7 @@ func (w *WorkflowGroup) UnmarshalJSON(data []byte) error {
 		ProjectType  *string     `json:"projectType"`
 		Vision       *string     `json:"vision"`
 		Deliverable  *string     `json:"deliverable"`
+		Deleted      json.Number `json:"deleted"`
 	}
 	if err := json.Unmarshal(data, &raw); err != nil {
 		return err
@@ -45,6 +44,13 @@ func (w *WorkflowGroup) UnmarshalJSON(data []byte) error {
 		}
 		w.ID = &v
 	}
+	if raw.Deleted != "" {
+		v, err := jsonNumberToInt64(raw.Deleted, "deleted")
+		if err != nil {
+			return err
+		}
+		w.Deleted = &v
+	}
 	w.Code = raw.Code
 	w.Name = raw.Name
 	w.ProjectModel = raw.ProjectModel
@@ -54,57 +60,29 @@ func (w *WorkflowGroup) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-type workflowGroupViewInner struct {
-	Group json.RawMessage `json:"group"`
+type workflowGroupListInner struct {
+	Groups map[string]WorkflowGroup `json:"groups"`
+	Pager  struct {
+		PageTotal int `json:"pageTotal"`
+	} `json:"pager"`
 }
 
-// GetWorkflowGroup fetches one workflow group by id via the
-// workflowgroup-view-{id}.json endpoint. Missing-id (HTTP 404 or
-// envelope-fail "does not exist") collapses to ErrNotFound.
-func (c *Client) GetWorkflowGroup(ctx context.Context, id int64) (*WorkflowGroup, error) {
-	body, status, err := c.doController(ctx, "workflowgroup", "view", []string{strconv.FormatInt(id, 10)}, nil, nil)
-	if err != nil {
-		return nil, err
-	}
-	if status == http.StatusNotFound {
-		return nil, ErrNotFound
-	}
-	if status >= 400 {
-		return nil, apiError(status, body)
-	}
-	var env CtrlResp
-	if err := json.Unmarshal(body, &env); err != nil {
-		return nil, fmt.Errorf("decode get-workflowgroup envelope: %w (body=%s)", err, string(body))
-	}
-	if env.Status != "success" {
-		return nil, classifyCtrlError(status, env, body)
-	}
-	var inner workflowGroupViewInner
-	if err := env.DecodeData(&inner); err != nil {
-		return nil, fmt.Errorf("decode get-workflowgroup data: %w (body=%s)", err, string(body))
-	}
-	if len(inner.Group) == 0 || string(inner.Group) == "null" || string(inner.Group) == "false" {
-		return nil, ErrNotFound
-	}
-	var wfg WorkflowGroup
-	if err := json.Unmarshal(inner.Group, &wfg); err != nil {
-		return nil, fmt.Errorf("decode get-workflowgroup wire: %w (body=%s)", err, string(body))
-	}
-	return &wfg, nil
-}
-
-// ListWorkflowGroupIDs enumerates all workflow group ids visible to the
-// authenticated user. ZenTao does not expose a dedicated list endpoint
-// (workflowgroup-browse → "module has no browse method"); the only
-// reliable enumeration path is the `project-create.json` form's
-// `workflowGroupPairs` map. We POST an empty form body — empty POST is
-// interpreted as "render the form" rather than "try to create" and
-// returns the catalog as part of the form scaffolding.
+// ListWorkflowGroups enumerates every workflow group visible to the
+// authenticated user via the workflowgroup-project.json controller route.
+// A single call returns the full catalog (both product-typed and
+// project-typed rows) keyed by id; see
+// docs/superpowers/specs/probe-workflowgroup-project.md.
 //
-// Returns ids sorted ascending for deterministic ordering. Use
-// GetWorkflowGroup per-id to fetch the full row.
-func (c *Client) ListWorkflowGroupIDs(ctx context.Context) ([]int64, error) {
-	body, status, err := c.doControllerForm(ctx, "project", "create", nil, nil, nil)
+// Soft-deleted rows (deleted == 1) are dropped. Results are sorted by id
+// ascending for deterministic ordering.
+//
+// Pagination is not implemented: the default page holds 20 rows and the
+// factory catalog is 10, so realistic catalogs fit one page. If an admin
+// grows the catalog past one page (pager.pageTotal > 1) we fail loudly
+// rather than silently truncate — the paging parameter format has not been
+// probed, so completing it is deferred until someone actually hits it.
+func (c *Client) ListWorkflowGroups(ctx context.Context) ([]*WorkflowGroup, error) {
+	body, status, err := c.doController(ctx, "workflowgroup", "project", nil, nil, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -113,33 +91,33 @@ func (c *Client) ListWorkflowGroupIDs(ctx context.Context) ([]int64, error) {
 	}
 	var env CtrlResp
 	if err := json.Unmarshal(body, &env); err != nil {
-		return nil, fmt.Errorf("decode project-create form envelope: %w (body=%s)", err, string(body))
+		return nil, fmt.Errorf("decode list-workflowgroup envelope: %w (body=%s)", err, string(body))
 	}
 	if env.Status != "success" {
 		return nil, classifyCtrlError(status, env, body)
 	}
-	var inner struct {
-		WorkflowGroupPairs map[string]string `json:"workflowGroupPairs"`
-	}
+	var inner workflowGroupListInner
 	if err := env.DecodeData(&inner); err != nil {
-		return nil, fmt.Errorf("decode project-create form data: %w (body=%s)", err, string(body))
+		return nil, fmt.Errorf("decode list-workflowgroup data: %w (body=%s)", err, string(body))
 	}
-	out := make([]int64, 0, len(inner.WorkflowGroupPairs))
-	for k := range inner.WorkflowGroupPairs {
-		n, err := strconv.ParseInt(k, 10, 64)
-		if err != nil {
-			return nil, fmt.Errorf("workflowGroupPairs: non-integer key %q: %w", k, err)
+	if inner.Pager.PageTotal > 1 {
+		return nil, fmt.Errorf("ListWorkflowGroups: workflow group count exceeds a single page (pageTotal=%d); paginated fetch is not implemented — please contact the maintainer", inner.Pager.PageTotal)
+	}
+	out := make([]*WorkflowGroup, 0, len(inner.Groups))
+	for _, g := range inner.Groups {
+		if deref(g.Deleted) == 1 {
+			continue
 		}
-		out = append(out, n)
+		wfg := g
+		out = append(out, &wfg)
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i] < out[j] })
+	sort.Slice(out, func(i, j int) bool { return deref(out[i].ID) < deref(out[j].ID) })
 	return out, nil
 }
 
 // FindWorkflowGroup looks up the workflow group whose (projectModel,
-// projectType) pair matches the caller's filters. Enumerates via
-// ListWorkflowGroupIDs and then fetches each candidate via
-// GetWorkflowGroup until a match is found.
+// projectType) pair matches the caller's filters by enumerating via
+// ListWorkflowGroups and filtering in memory.
 //
 // Returns ErrNotFound when no group matches. Returns an error when
 // multiple groups match (ZenTao admins can create duplicates — surface
@@ -151,18 +129,14 @@ func (c *Client) FindWorkflowGroup(ctx context.Context, projectModel, projectTyp
 	if projectType == "" {
 		return nil, fmt.Errorf("FindWorkflowGroup: projectType required")
 	}
-	ids, err := c.ListWorkflowGroupIDs(ctx)
+	groups, err := c.ListWorkflowGroups(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("FindWorkflowGroup: list ids: %w", err)
+		return nil, fmt.Errorf("FindWorkflowGroup: list groups: %w", err)
 	}
 	var matches []*WorkflowGroup
-	for _, id := range ids {
-		wfg, err := c.GetWorkflowGroup(ctx, id)
-		if err != nil {
-			return nil, fmt.Errorf("FindWorkflowGroup: fetch id=%d: %w", id, err)
-		}
-		if deref(wfg.ProjectModel) == projectModel && deref(wfg.ProjectType) == projectType {
-			matches = append(matches, wfg)
+	for _, g := range groups {
+		if deref(g.ProjectModel) == projectModel && deref(g.ProjectType) == projectType {
+			matches = append(matches, g)
 		}
 	}
 	switch len(matches) {

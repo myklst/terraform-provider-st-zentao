@@ -146,9 +146,9 @@ func TestProjectResource_MultipleRequiresReplace(t *testing.T) {
 func TestProjectResource_RoundTrip(t *testing.T) {
 	ctx := context.Background()
 
-	productsList, diags := types.ListValueFrom(ctx, types.Int64Type, []int64{42, 7})
+	productsList, diags := types.SetValueFrom(ctx, types.Int64Type, []int64{42, 7})
 	if diags.HasError() {
-		t.Fatalf("build products list: %v", diags)
+		t.Fatalf("build products set: %v", diags)
 	}
 
 	original := projectResourceModel{

@@ -18,8 +18,9 @@ resource "st-zentao_project" "example" {
   model = "scrum"
   begin = "2026-01-01"
   end   = "2026-12-31"
+  acl   = "open"
 
-  workflow_group = 1
+  workflow_group = 2
 
   products = [1]
   multiple = true
@@ -35,36 +36,25 @@ resource "st-zentao_project" "example" {
 
 ### Required
 
+- `acl` (String) Access control. One of: "open", "private", "custom".
 - `begin` (String) Planned start date (YYYY-MM-DD).
 - `end` (String) Planned end date (YYYY-MM-DD).
 - `model` (String) Project execution model. One of: "scrum", "waterfall", "kanban", "agileplus", "waterfallplus", "cmmi". Changing this forces resource replacement.
 - `name` (String) Project display name.
-- `workflow_group` (Number) Workflow scheme id.
+- `products` (Set of Number) Associated product IDs (at least one required).
+- `workflow_group` (Number) Workflow scheme id. Changing this forces resource replacement.
 
 ### Optional
 
-- `acl` (String) Access control. One of: "open", "private", "custom".
 - `desc` (String) Description.
-- `multiple` (Boolean) Whether iterations (sprints) are enabled.
+- `multiple` (Boolean) Whether iterations (sprints) are enabled. Create-only; changing this forces resource replacement.
 - `pm` (String) Project Manager username.
 - `po` (String) Product Owner username.
-- `products` (List of Number) Associated product IDs.
 - `program` (Number) Parent program id (0 = no parent program).
 - `qd` (String) QA Lead username.
 - `rd` (String) Release Lead username.
 
 ### Read-Only
 
-- `budget` (String) Project budget amount.
-- `budget_unit` (String) Currency unit of the budget.
-- `code` (String) Project short code.
 - `id` (String) Numeric ZenTao project ID.
-- `last_edited_by` (String) Last-editor username.
-- `lifetime` (String) Project lifetime classification.
-- `opened_by` (String) Creator username.
-- `opened_date` (String) Creation timestamp.
-- `progress` (String) Completion progress percentage.
-- `real_began` (String) Actual start date.
-- `real_end` (String) Actual end date.
-- `status` (String) Project status.
-- `team_count` (String) Total team members.
+- `status` (String) Lifecycle status (wait / doing / suspended / closed). Server-managed; changes outside of Terraform are surfaced on next read.
