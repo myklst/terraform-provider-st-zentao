@@ -2,7 +2,6 @@ package zentaoapi
 
 import (
 	"context"
-	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -10,7 +9,7 @@ import (
 )
 
 // groupsEnvelope wraps a stringified `{"groups":..,"pager":..}` inner body in
-// the controller success envelope, matching the real workflowgroup-project.json
+// the controller success envelope, matching the real workflowgroup-*.json
 // wire shape (data is a JSON-encoded string).
 func groupsEnvelope(inner string) string {
 	return `{"status":"success","data":` + jsonString(inner) + `}`
@@ -34,29 +33,32 @@ func jsonString(s string) string {
 	return b.String()
 }
 
-func newWorkflowGroupServer(t *testing.T, inner string) *httptest.Server {
+// newWorkflowGroupServer asserts the request hits the catalog endpoint for the
+// given controller method (product | project) and replies with the envelope.
+func newWorkflowGroupServer(t *testing.T, method, inner string) *httptest.Server {
 	t.Helper()
+	wantPath := "/workflowgroup-" + method + ".json"
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/workflowgroup-project.json" || r.Method != http.MethodGet {
-			t.Errorf("unexpected req %s %s", r.Method, r.URL.Path)
+		if r.URL.Path != wantPath || r.Method != http.MethodGet {
+			t.Errorf("unexpected req %s %s, want GET %s", r.Method, r.URL.Path, wantPath)
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(groupsEnvelope(inner)))
 	}))
 }
 
-func TestListWorkflowGroups_HappyPath(t *testing.T) {
+func TestListProjectWorkflowGroups_HappyPath(t *testing.T) {
 	inner := `{"title":"x","groups":{` +
 		`"3":{"id":3,"code":"scrumproject","name":"敏捷式项目研发","projectModel":"scrum","projectType":"project","vision":"rnd","status":"normal","deleted":0},` +
 		`"2":{"id":2,"code":"scrumproduct","name":"敏捷式产品研发","projectModel":"scrum","projectType":"product","vision":"rnd","status":"normal","deleted":0}` +
 		`},"pager":{"recTotal":2,"recPerPage":20,"pageTotal":1}}`
-	srv := newWorkflowGroupServer(t, inner)
+	srv := newWorkflowGroupServer(t, "project", inner)
 	defer srv.Close()
 
 	c := newTestClient(t, "tok-1", srv.URL)
-	groups, err := c.ListWorkflowGroups(context.Background())
+	groups, err := c.ListProjectWorkflowGroups(context.Background())
 	if err != nil {
-		t.Fatalf("ListWorkflowGroups: %v", err)
+		t.Fatalf("ListProjectWorkflowGroups: %v", err)
 	}
 	if len(groups) != 2 {
 		t.Fatalf("len = %d, want 2", len(groups))
@@ -69,87 +71,67 @@ func TestListWorkflowGroups_HappyPath(t *testing.T) {
 	}
 }
 
-func TestListWorkflowGroups_SkipsDeleted(t *testing.T) {
+func TestListProjectWorkflowGroups_SkipsDeleted(t *testing.T) {
 	inner := `{"groups":{` +
 		`"2":{"id":2,"code":"scrumproduct","projectModel":"scrum","projectType":"product","deleted":0},` +
 		`"99":{"id":99,"code":"gone","projectModel":"scrum","projectType":"product","deleted":1}` +
 		`},"pager":{"pageTotal":1}}`
-	srv := newWorkflowGroupServer(t, inner)
+	srv := newWorkflowGroupServer(t, "project", inner)
 	defer srv.Close()
 
 	c := newTestClient(t, "tok-1", srv.URL)
-	groups, err := c.ListWorkflowGroups(context.Background())
+	groups, err := c.ListProjectWorkflowGroups(context.Background())
 	if err != nil {
-		t.Fatalf("ListWorkflowGroups: %v", err)
+		t.Fatalf("ListProjectWorkflowGroups: %v", err)
 	}
 	if len(groups) != 1 || deref(groups[0].ID) != 2 {
 		t.Fatalf("groups = %+v, want only id=2 (deleted skipped)", groups)
 	}
 }
 
-func TestListWorkflowGroups_PageTotalExceeded(t *testing.T) {
+func TestListProjectWorkflowGroups_PageTotalExceeded(t *testing.T) {
 	inner := `{"groups":{"2":{"id":2,"projectModel":"scrum","projectType":"product","deleted":0}},"pager":{"pageTotal":2}}`
-	srv := newWorkflowGroupServer(t, inner)
+	srv := newWorkflowGroupServer(t, "project", inner)
 	defer srv.Close()
 
 	c := newTestClient(t, "tok-1", srv.URL)
-	_, err := c.ListWorkflowGroups(context.Background())
+	_, err := c.ListProjectWorkflowGroups(context.Background())
 	if err == nil || !strings.Contains(err.Error(), "pageTotal") {
 		t.Fatalf("err = %v, want pageTotal-exceeded error", err)
 	}
 }
 
-func TestFindWorkflowGroup_UniqueMatch(t *testing.T) {
-	inner := `{"groups":{` +
-		`"2":{"id":2,"code":"scrumproduct","projectModel":"scrum","projectType":"product","deleted":0},` +
-		`"3":{"id":3,"code":"scrumproject","projectModel":"scrum","projectType":"project","deleted":0}` +
-		`},"pager":{"pageTotal":1}}`
-	srv := newWorkflowGroupServer(t, inner)
+// TestListProductWorkflowGroups_HappyPath mirrors the real factory product
+// catalog: a single 默认流程 row with an empty projectModel (see
+// docs/superpowers/specs/probe-workflowgroup-project.md §6).
+func TestListProductWorkflowGroups_HappyPath(t *testing.T) {
+	inner := `{"title":"产品流程列表","groups":{` +
+		`"1":{"id":1,"type":"product","projectModel":"","projectType":"project","name":"默认流程","code":"productproject","status":"normal","main":1,"vision":"rnd","deleted":0}` +
+		`},"pager":{"recTotal":1,"recPerPage":20,"pageTotal":1,"methodName":"product"},"browseType":"all"}`
+	srv := newWorkflowGroupServer(t, "product", inner)
 	defer srv.Close()
 
 	c := newTestClient(t, "tok-1", srv.URL)
-	wfg, err := c.FindWorkflowGroup(context.Background(), "scrum", "product")
+	groups, err := c.ListProductWorkflowGroups(context.Background())
 	if err != nil {
-		t.Fatalf("FindWorkflowGroup: %v", err)
+		t.Fatalf("ListProductWorkflowGroups: %v", err)
 	}
-	if deref(wfg.ID) != 2 || deref(wfg.Code) != "scrumproduct" {
-		t.Fatalf("matched wrong row: %+v", wfg)
+	if len(groups) != 1 {
+		t.Fatalf("len = %d, want 1", len(groups))
+	}
+	if deref(groups[0].ID) != 1 || deref(groups[0].Code) != "productproject" || deref(groups[0].ProjectModel) != "" {
+		t.Fatalf("decode wrong: %+v", groups[0])
 	}
 }
 
-func TestFindWorkflowGroup_NoMatch(t *testing.T) {
-	inner := `{"groups":{"2":{"id":2,"projectModel":"scrum","projectType":"product","deleted":0}},"pager":{"pageTotal":1}}`
-	srv := newWorkflowGroupServer(t, inner)
+func TestListProductWorkflowGroups_PageTotalExceeded(t *testing.T) {
+	inner := `{"groups":{"1":{"id":1,"type":"product","projectModel":"","deleted":0}},"pager":{"pageTotal":2}}`
+	srv := newWorkflowGroupServer(t, "product", inner)
 	defer srv.Close()
 
 	c := newTestClient(t, "tok-1", srv.URL)
-	_, err := c.FindWorkflowGroup(context.Background(), "waterfall", "project")
-	if !errors.Is(err, ErrNotFound) {
-		t.Fatalf("err = %v, want ErrNotFound wrapped", err)
-	}
-}
-
-func TestFindWorkflowGroup_MultipleMatches(t *testing.T) {
-	inner := `{"groups":{` +
-		`"2":{"id":2,"projectModel":"scrum","projectType":"product","deleted":0},` +
-		`"3":{"id":3,"projectModel":"scrum","projectType":"product","deleted":0}` +
-		`},"pager":{"pageTotal":1}}`
-	srv := newWorkflowGroupServer(t, inner)
-	defer srv.Close()
-
-	c := newTestClient(t, "tok-1", srv.URL)
-	_, err := c.FindWorkflowGroup(context.Background(), "scrum", "product")
-	if err == nil || !strings.Contains(err.Error(), "2 groups match") {
-		t.Fatalf("err = %v, want ambiguity error", err)
-	}
-}
-
-func TestFindWorkflowGroup_Preflight(t *testing.T) {
-	c := newTestClient(t, "tok-1", "http://example.invalid")
-	if _, err := c.FindWorkflowGroup(context.Background(), "", "product"); err == nil || !strings.Contains(err.Error(), "projectModel required") {
-		t.Fatalf("err = %v, want projectModel required", err)
-	}
-	if _, err := c.FindWorkflowGroup(context.Background(), "scrum", ""); err == nil || !strings.Contains(err.Error(), "projectType required") {
-		t.Fatalf("err = %v, want projectType required", err)
+	_, err := c.ListProductWorkflowGroups(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "pageTotal") {
+		t.Fatalf("err = %v, want pageTotal-exceeded error", err)
 	}
 }

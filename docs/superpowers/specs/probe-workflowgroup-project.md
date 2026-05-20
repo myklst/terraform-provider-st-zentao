@@ -79,3 +79,46 @@ silently truncating (which would make `FindWorkflowGroup` falsely report
 `ErrNotFound` for groups on later pages). Implementing real pagination is
 deferred until someone actually grows the catalog past one page — at which
 point the paging URL form must be probed first.
+
+## 6. Addendum (2026-05-20): the sibling `workflowgroup-product` catalog
+
+ZenTao exposes **two** workflow-group catalogs, distinguished by the
+`zt_workflowgroup.type` column — NOT to be confused with the per-row
+`projectType` field (see §4):
+
+| Catalog | Endpoint | `type` column | Factory rows |
+|---|---|---|---|
+| 项目流程 (project flow) | `GET workflowgroup-project.json` | `project` | 10 (scrum/waterfall/… × product/project) |
+| 产品流程 (product flow) | `GET workflowgroup-product.json` | `product` | 1 (默认流程) |
+
+`type` (product | project) is the **catalog/endpoint selector**; the
+`st-zentao_workflow_group` data source surfaces it as the required `type`
+input. `project_model` / `project_type` only further-filter within the
+**project** catalog.
+
+### Real `workflowgroup-product.json` response (2026-05-20, factory Max 8.x)
+
+Same stringified-`data` envelope and `groups`/`pager` shape as the project
+catalog, so `CtrlResp.DecodeData` and the existing `WorkflowGroup` struct parse
+it unchanged:
+
+```json
+{"status":"success","data":"{\"title\":\"产品流程列表\",\"groups\":{\"1\":{\"id\":1,\"objectID\":0,\"type\":\"product\",\"projectModel\":\"\",\"projectType\":\"project\",\"name\":\"默认流程\",\"code\":\"productproject\",\"status\":\"normal\",\"main\":1,\"vision\":\"rnd\",\"deleted\":0}},\"pager\":{\"recTotal\":1,\"pageTotal\":1,\"methodName\":\"product\"},\"browseType\":\"all\"}","md5":"..."}
+```
+
+The single factory product row:
+
+| id | code | type | projectModel | projectType | name |
+|---|---|---|---|---|---|
+| 1 | productproject | product | `""` (empty) | project | 默认流程 |
+
+Key consequences for the client:
+
+- **`projectModel` is empty for product-flow rows.** The original
+  `FindWorkflowGroup` hard-required a non-empty `projectModel`; the product
+  catalog has none, which is why the data source's `project_model` /
+  `project_type` are now Optional (forbidden when `type=product`, required when
+  `type=project`).
+- The product catalog ships exactly one row. `ListProductWorkflowGroups`
+  returns it; if an admin adds more, the data source reports an ambiguity error
+  (no narrowing knob exists for the product catalog).

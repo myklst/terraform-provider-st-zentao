@@ -133,6 +133,29 @@ data "st-zentao_project" "p" { id = "28" }
 data "st-zentao_group"   "g" { id = "10000002" }
 ```
 
+### `st-zentao_workflow_group`
+
+Resolves a workflow group's numeric `id` for use as `st-zentao_project.workflow_group`.
+`type` selects the catalog: `product` returns the single product flow; `project`
+requires `project_model` and `project_type` to pick one project flow.
+
+```hcl
+# Project flow — project_model and project_type are required:
+data "st-zentao_workflow_group" "scrum_product" {
+  type          = "project"
+  project_model = "scrum"
+  project_type  = "product"
+}
+
+# Product flow — project_model / project_type must be omitted:
+data "st-zentao_workflow_group" "default_product" {
+  type = "product"
+}
+```
+
+> Breaking change: `type` is now required, and `project_model` / `project_type`
+> are optional (required only when `type = "project"`).
+
 ## Development
 
 ```bash
