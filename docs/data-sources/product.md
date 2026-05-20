@@ -41,7 +41,6 @@ output "product" {
 - `code` (String) Product short code.
 - `deleted` (Boolean) Whether deleted.
 - `desc` (String) Description.
-- `groups` (List of String) Permission group ids granted access to this product.
 - `line` (Number) Associated product line id.
 - `name` (String) Product display name.
 - `po` (String) Product Owner username.

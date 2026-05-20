@@ -43,7 +43,7 @@ type projectResourceModel struct {
 	Begin         types.String `tfsdk:"begin"`
 	End           types.String `tfsdk:"end"`
 	Program       types.Int64  `tfsdk:"program"`
-	Products      types.List   `tfsdk:"products"`
+	Products      types.Set    `tfsdk:"products"`
 	WorkflowGroup types.Int64  `tfsdk:"workflow_group"`
 	Multiple      types.Bool   `tfsdk:"multiple"`
 	ACL           types.String `tfsdk:"acl"`
@@ -99,7 +99,7 @@ func (r *projectResource) Schema(_ context.Context, _ resource.SchemaRequest, re
 				Computed:      true,
 				PlanModifiers: useStateForInt,
 			},
-			"products": schema.ListAttribute{
+			"products": schema.SetAttribute{
 				Description: "Associated product IDs (at least one required).",
 				Required:    true,
 				ElementType: types.Int64Type,
@@ -286,7 +286,7 @@ func (r *projectResource) ImportState(ctx context.Context, req resource.ImportSt
 // mergeProjectBaseline reads that as "preserve baseline" on edits.
 func (m *projectResourceModel) toAPI(ctx context.Context) (*zentaoapi.Project, diag.Diagnostics) {
 	var diags diag.Diagnostics
-	products, pdiags := optInt64List(ctx, m.Products)
+	products, pdiags := optInt64Set(ctx, m.Products)
 	diags.Append(pdiags...)
 	return &zentaoapi.Project{
 		Name:          optString(m.Name),
@@ -311,7 +311,7 @@ func projectFromAPI(ctx context.Context, p *zentaoapi.Project) (projectResourceM
 	if products == nil {
 		products = []int64{}
 	}
-	productsList, diags := types.ListValueFrom(ctx, types.Int64Type, products)
+	productsList, diags := types.SetValueFrom(ctx, types.Int64Type, products)
 	return projectResourceModel{
 		ID:            types.StringValue(strconv.FormatInt(deref(p.ID), 10)),
 		Name:          types.StringValue(deref(p.Name)),

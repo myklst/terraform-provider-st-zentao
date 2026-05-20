@@ -9,74 +9,102 @@ import (
 	"testing"
 )
 
-func TestGetWorkflowGroup_HappyPath(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/workflowgroup-view-2.json" || r.Method != http.MethodGet {
+// groupsEnvelope wraps a stringified `{"groups":..,"pager":..}` inner body in
+// the controller success envelope, matching the real workflowgroup-project.json
+// wire shape (data is a JSON-encoded string).
+func groupsEnvelope(inner string) string {
+	return `{"status":"success","data":` + jsonString(inner) + `}`
+}
+
+func jsonString(s string) string {
+	// minimal JSON string encoder for test fixtures
+	var b strings.Builder
+	b.WriteByte('"')
+	for _, r := range s {
+		switch r {
+		case '"':
+			b.WriteString(`\"`)
+		case '\\':
+			b.WriteString(`\\`)
+		default:
+			b.WriteRune(r)
+		}
+	}
+	b.WriteByte('"')
+	return b.String()
+}
+
+func newWorkflowGroupServer(t *testing.T, inner string) *httptest.Server {
+	t.Helper()
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/workflowgroup-project.json" || r.Method != http.MethodGet {
 			t.Errorf("unexpected req %s %s", r.Method, r.URL.Path)
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"status":"success","data":"{\"group\":{\"id\":2,\"code\":\"scrumproduct\",\"name\":\"敏捷式产品研发\",\"projectModel\":\"scrum\",\"projectType\":\"product\",\"vision\":\"rnd\"}}"}`))
+		_, _ = w.Write([]byte(groupsEnvelope(inner)))
 	}))
+}
+
+func TestListWorkflowGroups_HappyPath(t *testing.T) {
+	inner := `{"title":"x","groups":{` +
+		`"3":{"id":3,"code":"scrumproject","name":"敏捷式项目研发","projectModel":"scrum","projectType":"project","vision":"rnd","status":"normal","deleted":0},` +
+		`"2":{"id":2,"code":"scrumproduct","name":"敏捷式产品研发","projectModel":"scrum","projectType":"product","vision":"rnd","status":"normal","deleted":0}` +
+		`},"pager":{"recTotal":2,"recPerPage":20,"pageTotal":1}}`
+	srv := newWorkflowGroupServer(t, inner)
 	defer srv.Close()
 
 	c := newTestClient(t, "tok-1", srv.URL)
-	wfg, err := c.GetWorkflowGroup(context.Background(), 2)
+	groups, err := c.ListWorkflowGroups(context.Background())
 	if err != nil {
-		t.Fatalf("GetWorkflowGroup: %v", err)
+		t.Fatalf("ListWorkflowGroups: %v", err)
 	}
-	if deref(wfg.ID) != 2 || deref(wfg.Code) != "scrumproduct" || deref(wfg.ProjectModel) != "scrum" || deref(wfg.ProjectType) != "product" {
-		t.Fatalf("decode wrong: %+v", wfg)
+	if len(groups) != 2 {
+		t.Fatalf("len = %d, want 2", len(groups))
+	}
+	if deref(groups[0].ID) != 2 || deref(groups[1].ID) != 3 {
+		t.Fatalf("ids = [%d %d], want [2 3] ascending", deref(groups[0].ID), deref(groups[1].ID))
+	}
+	if deref(groups[0].Code) != "scrumproduct" || deref(groups[0].ProjectModel) != "scrum" || deref(groups[0].ProjectType) != "product" {
+		t.Fatalf("decode wrong: %+v", groups[0])
 	}
 }
 
-func TestGetWorkflowGroup_NotFound_HTTP404(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusNotFound)
-	}))
+func TestListWorkflowGroups_SkipsDeleted(t *testing.T) {
+	inner := `{"groups":{` +
+		`"2":{"id":2,"code":"scrumproduct","projectModel":"scrum","projectType":"product","deleted":0},` +
+		`"99":{"id":99,"code":"gone","projectModel":"scrum","projectType":"product","deleted":1}` +
+		`},"pager":{"pageTotal":1}}`
+	srv := newWorkflowGroupServer(t, inner)
 	defer srv.Close()
+
 	c := newTestClient(t, "tok-1", srv.URL)
-	_, err := c.GetWorkflowGroup(context.Background(), 999)
-	if !errors.Is(err, ErrNotFound) {
-		t.Fatalf("err = %v, want ErrNotFound", err)
+	groups, err := c.ListWorkflowGroups(context.Background())
+	if err != nil {
+		t.Fatalf("ListWorkflowGroups: %v", err)
+	}
+	if len(groups) != 1 || deref(groups[0].ID) != 2 {
+		t.Fatalf("groups = %+v, want only id=2 (deleted skipped)", groups)
 	}
 }
 
-func TestListWorkflowGroupIDs_HappyPath(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/project-create.json" || r.Method != http.MethodPost {
-			t.Errorf("unexpected req %s %s", r.Method, r.URL.Path)
-		}
-		w.Header().Set("Content-Type", "application/json")
-		// Trimmed project-create form rendering. Real payload has
-		// workflowGroupPairs as id→name map.
-		_, _ = w.Write([]byte(`{"status":"success","data":"{\"workflowGroupPairs\":{\"3\":\"敏捷式项目研发\",\"2\":\"敏捷式产品研发\"}}"}`))
-	}))
+func TestListWorkflowGroups_PageTotalExceeded(t *testing.T) {
+	inner := `{"groups":{"2":{"id":2,"projectModel":"scrum","projectType":"product","deleted":0}},"pager":{"pageTotal":2}}`
+	srv := newWorkflowGroupServer(t, inner)
 	defer srv.Close()
 
 	c := newTestClient(t, "tok-1", srv.URL)
-	ids, err := c.ListWorkflowGroupIDs(context.Background())
-	if err != nil {
-		t.Fatalf("ListWorkflowGroupIDs: %v", err)
-	}
-	if len(ids) != 2 || ids[0] != 2 || ids[1] != 3 {
-		t.Fatalf("ids = %v, want [2 3] sorted ascending", ids)
+	_, err := c.ListWorkflowGroups(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "pageTotal") {
+		t.Fatalf("err = %v, want pageTotal-exceeded error", err)
 	}
 }
 
 func TestFindWorkflowGroup_UniqueMatch(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		switch r.URL.Path {
-		case "/project-create.json":
-			_, _ = w.Write([]byte(`{"status":"success","data":"{\"workflowGroupPairs\":{\"2\":\"P\",\"3\":\"Q\"}}"}`))
-		case "/workflowgroup-view-2.json":
-			_, _ = w.Write([]byte(`{"status":"success","data":"{\"group\":{\"id\":2,\"code\":\"scrumproduct\",\"projectModel\":\"scrum\",\"projectType\":\"product\"}}"}`))
-		case "/workflowgroup-view-3.json":
-			_, _ = w.Write([]byte(`{"status":"success","data":"{\"group\":{\"id\":3,\"code\":\"scrumproject\",\"projectModel\":\"scrum\",\"projectType\":\"project\"}}"}`))
-		default:
-			t.Errorf("unexpected path %s", r.URL.Path)
-		}
-	}))
+	inner := `{"groups":{` +
+		`"2":{"id":2,"code":"scrumproduct","projectModel":"scrum","projectType":"product","deleted":0},` +
+		`"3":{"id":3,"code":"scrumproject","projectModel":"scrum","projectType":"project","deleted":0}` +
+		`},"pager":{"pageTotal":1}}`
+	srv := newWorkflowGroupServer(t, inner)
 	defer srv.Close()
 
 	c := newTestClient(t, "tok-1", srv.URL)
@@ -90,15 +118,8 @@ func TestFindWorkflowGroup_UniqueMatch(t *testing.T) {
 }
 
 func TestFindWorkflowGroup_NoMatch(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		switch r.URL.Path {
-		case "/project-create.json":
-			_, _ = w.Write([]byte(`{"status":"success","data":"{\"workflowGroupPairs\":{\"2\":\"P\"}}"}`))
-		case "/workflowgroup-view-2.json":
-			_, _ = w.Write([]byte(`{"status":"success","data":"{\"group\":{\"id\":2,\"projectModel\":\"scrum\",\"projectType\":\"product\"}}"}`))
-		}
-	}))
+	inner := `{"groups":{"2":{"id":2,"projectModel":"scrum","projectType":"product","deleted":0}},"pager":{"pageTotal":1}}`
+	srv := newWorkflowGroupServer(t, inner)
 	defer srv.Close()
 
 	c := newTestClient(t, "tok-1", srv.URL)
@@ -109,17 +130,11 @@ func TestFindWorkflowGroup_NoMatch(t *testing.T) {
 }
 
 func TestFindWorkflowGroup_MultipleMatches(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		switch r.URL.Path {
-		case "/project-create.json":
-			_, _ = w.Write([]byte(`{"status":"success","data":"{\"workflowGroupPairs\":{\"2\":\"P\",\"3\":\"Q\"}}"}`))
-		case "/workflowgroup-view-2.json":
-			_, _ = w.Write([]byte(`{"status":"success","data":"{\"group\":{\"id\":2,\"projectModel\":\"scrum\",\"projectType\":\"product\"}}"}`))
-		case "/workflowgroup-view-3.json":
-			_, _ = w.Write([]byte(`{"status":"success","data":"{\"group\":{\"id\":3,\"projectModel\":\"scrum\",\"projectType\":\"product\"}}"}`))
-		}
-	}))
+	inner := `{"groups":{` +
+		`"2":{"id":2,"projectModel":"scrum","projectType":"product","deleted":0},` +
+		`"3":{"id":3,"projectModel":"scrum","projectType":"product","deleted":0}` +
+		`},"pager":{"pageTotal":1}}`
+	srv := newWorkflowGroupServer(t, inner)
 	defer srv.Close()
 
 	c := newTestClient(t, "tok-1", srv.URL)

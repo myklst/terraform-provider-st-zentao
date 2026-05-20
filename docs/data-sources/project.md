@@ -45,27 +45,16 @@ output "project" {
 
 - `acl` (String) Access control (`open` / `private` / `custom`).
 - `begin` (String) Planned start date (YYYY-MM-DD).
-- `budget` (String) Project budget amount.
-- `budget_unit` (String) Currency unit of the budget.
-- `code` (String) Project short code.
 - `desc` (String) Description.
 - `end` (String) Planned end date (YYYY-MM-DD).
-- `last_edited_by` (String) Last-editor username.
-- `lifetime` (String) Project lifetime classification.
 - `model` (String) Project methodology.
 - `multiple` (Boolean) Whether iterations (sprints) are enabled.
 - `name` (String) Project display name.
-- `opened_by` (String) Creator username.
-- `opened_date` (String) Creation timestamp.
 - `pm` (String) Project Manager username.
 - `po` (String) Product Owner username.
 - `products` (List of Number) Associated product IDs.
 - `program` (Number) Parent program id (0 = no parent).
-- `progress` (String) Completion progress percentage.
 - `qd` (String) QA Lead username.
 - `rd` (String) Release Lead username.
-- `real_began` (String) Actual start date.
-- `real_end` (String) Actual end date.
-- `status` (String) Project status.
-- `team_count` (String) Total team members.
+- `status` (String) Lifecycle status (wait / doing / suspended / closed).
 - `workflow_group` (Number) Workflow scheme id.
