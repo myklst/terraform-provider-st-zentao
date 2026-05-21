@@ -3,12 +3,12 @@
 page_title: "st-zentao_workflow_group Data Source - st-zentao"
 subcategory: ""
 description: |-
-  Look up a ZenTao workflow group and resolve its numeric id for use as st-zentao_project.workflow_group, without hardcoding instance-specific magic numbers. Set type to choose the catalog: product returns the single product flow; project requires project_model and project_type to pick one project flow.
+  Look up a ZenTao workflow group and resolve its numeric id, without hardcoding instance-specific magic numbers. Set type to choose the catalog: product returns the single product flow; project requires project_model and project_type to pick one project flow.
 ---
 
 # st-zentao_workflow_group (Data Source)
 
-Look up a ZenTao workflow group and resolve its numeric `id` for use as `st-zentao_project.workflow_group`, without hardcoding instance-specific magic numbers. Set `type` to choose the catalog: `product` returns the single product flow; `project` requires `project_model` and `project_type` to pick one project flow.
+Look up a ZenTao workflow group and resolve its numeric `id`, without hardcoding instance-specific magic numbers. Set `type` to choose the catalog: `product` returns the single product flow; `project` requires `project_model` and `project_type` to pick one project flow.
 
 ## Example Usage
 
@@ -51,5 +51,5 @@ resource "st-zentao_project" "example" {
 ### Read-Only
 
 - `code` (String) Stable code identifier (e.g. `scrumproduct`).
-- `id` (Number) Numeric workflow group id, used as the value for `workflow_group` on `st-zentao_project`.
+- `id` (Number) Numeric workflow group id.
 - `name` (String) Localised display name.

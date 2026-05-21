@@ -56,10 +56,10 @@ func (d *workflowGroupDataSource) Metadata(_ context.Context, req datasource.Met
 
 func (d *workflowGroupDataSource) Schema(_ context.Context, _ datasource.SchemaRequest, resp *datasource.SchemaResponse) {
 	resp.Schema = schema.Schema{
-		Description: "Look up a ZenTao workflow group and resolve its numeric `id` for use as " +
-			"`st-zentao_project.workflow_group`, without hardcoding instance-specific magic numbers. " +
-			"Set `type` to choose the catalog: `product` returns the single product flow; " +
-			"`project` requires `project_model` and `project_type` to pick one project flow.",
+		Description: "Look up a ZenTao workflow group and resolve its numeric `id`, without " +
+			"hardcoding instance-specific magic numbers. Set `type` to choose the catalog: " +
+			"`product` returns the single product flow; `project` requires `project_model` " +
+			"and `project_type` to pick one project flow.",
 		Attributes: map[string]schema.Attribute{
 			"type": schema.StringAttribute{
 				Description: "Workflow catalog to query. One of: " + commaJoin(workflowGroupTypeEnum) + ".",
@@ -79,7 +79,7 @@ func (d *workflowGroupDataSource) Schema(_ context.Context, _ datasource.SchemaR
 				Validators: []validator.String{stringvalidator.OneOf(workflowProjectTypeEnum...)},
 			},
 			"id": schema.Int64Attribute{
-				Description: "Numeric workflow group id, used as the value for `workflow_group` on `st-zentao_project`.",
+				Description: "Numeric workflow group id.",
 				Computed:    true,
 			},
 			"code": schema.StringAttribute{

@@ -7,11 +7,8 @@ import (
 	"sort"
 )
 
-// WorkflowGroup represents one row from ZenTao's `zt_workflowgroup` table —
-// a preset combination of (projectModel, projectType) that the project
-// resource's `workflow_group` form input references by id. The default
-// Max 8.x install ships ten (scrum/waterfall/agileplus/waterfallplus/kanban
-// × product/project). Admins can extend the catalog at runtime.
+// WorkflowGroup is one zt_workflowgroup row; the project resource's
+// workflow_group input references it by id.
 type WorkflowGroup struct {
 	ID           *int64  `json:"id,omitempty"`
 	Code         *string `json:"code,omitempty"`         // e.g. "scrumproduct"
@@ -67,45 +64,27 @@ type workflowGroupListInner struct {
 	} `json:"pager"`
 }
 
-// ZenTao serves two workflow-group catalogs, distinguished by the
-// zt_workflowgroup.type column (NOT the per-row projectType field — see
-// docs/superpowers/specs/probe-workflowgroup-project.md §6):
-//
-//   - workflowgroup-product.json — 产品流程 (factory: a single 默认流程 row
-//     whose projectModel is empty)
-//   - workflowgroup-project.json — 项目流程 (factory: 10 rows subdivided by
-//     projectModel × projectType)
-//
-// They share the controller method names below.
+// Two catalogs share these controller method names, distinguished by the
+// zt_workflowgroup.type column: product (产品流程) and project (项目流程).
 const (
 	workflowGroupProductMethod = "product"
 	workflowGroupProjectMethod = "project"
 )
 
-// ListProductWorkflowGroups enumerates the 产品流程 catalog via
-// workflowgroup-product.json. See listWorkflowGroups for shared semantics.
+// ListProductWorkflowGroups returns the 产品流程 catalog.
 func (c *Client) ListProductWorkflowGroups(ctx context.Context) ([]*WorkflowGroup, error) {
 	return c.listWorkflowGroups(ctx, workflowGroupProductMethod)
 }
 
-// ListProjectWorkflowGroups enumerates the 项目流程 catalog via
-// workflowgroup-project.json. See listWorkflowGroups for shared semantics.
+// ListProjectWorkflowGroups returns the 项目流程 catalog.
 func (c *Client) ListProjectWorkflowGroups(ctx context.Context) ([]*WorkflowGroup, error) {
 	return c.listWorkflowGroups(ctx, workflowGroupProjectMethod)
 }
 
-// listWorkflowGroups enumerates one workflow-group catalog (selected by the
-// controller method) visible to the authenticated user via the
-// workflowgroup-<method>.json controller route.
-//
-// Soft-deleted rows (deleted == 1) are dropped. Results are sorted by id
-// ascending for deterministic ordering.
-//
-// Pagination is not implemented: the default page holds 20 rows and the
-// factory catalogs are far smaller, so realistic catalogs fit one page. If an
-// admin grows a catalog past one page (pager.pageTotal > 1) we fail loudly
-// rather than silently truncate — the paging parameter format has not been
-// probed, so completing it is deferred until someone actually hits it.
+// listWorkflowGroups returns one catalog (selected by controller method),
+// dropping soft-deleted rows and sorting by id. Pagination is unimplemented:
+// it fails loudly when a catalog spills past one page (pager.pageTotal > 1)
+// rather than silently truncating.
 func (c *Client) listWorkflowGroups(ctx context.Context, method string) ([]*WorkflowGroup, error) {
 	body, status, err := c.doController(ctx, "workflowgroup", method, nil, nil, nil)
 	if err != nil {
@@ -116,7 +95,7 @@ func (c *Client) listWorkflowGroups(ctx context.Context, method string) ([]*Work
 	}
 	var env CtrlResp
 	if err := json.Unmarshal(body, &env); err != nil {
-		return nil, fmt.Errorf("decode workflowgroup-%s envelope: %w (body=%s)", method, err, string(body))
+		return nil, fmt.Errorf("decode workflowgroup-%s response: %w (body=%s)", method, err, string(body))
 	}
 	if env.Status != "success" {
 		return nil, classifyCtrlError(status, env, body)

@@ -135,7 +135,7 @@ data "st-zentao_group"   "g" { id = "10000002" }
 
 ### `st-zentao_workflow_group`
 
-Resolves a workflow group's numeric `id` for use as `st-zentao_project.workflow_group`.
+Resolves a workflow group's numeric `id`.
 `type` selects the catalog: `product` returns the single product flow; `project`
 requires `project_model` and `project_type` to pick one project flow.
 

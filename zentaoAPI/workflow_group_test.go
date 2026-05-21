@@ -102,8 +102,7 @@ func TestListProjectWorkflowGroups_PageTotalExceeded(t *testing.T) {
 }
 
 // TestListProductWorkflowGroups_HappyPath mirrors the real factory product
-// catalog: a single 默认流程 row with an empty projectModel (see
-// docs/superpowers/specs/probe-workflowgroup-project.md §6).
+// catalog: a single 默认流程 row with an empty projectModel
 func TestListProductWorkflowGroups_HappyPath(t *testing.T) {
 	inner := `{"title":"产品流程列表","groups":{` +
 		`"1":{"id":1,"type":"product","projectModel":"","projectType":"project","name":"默认流程","code":"productproject","status":"normal","main":1,"vision":"rnd","deleted":0}` +
