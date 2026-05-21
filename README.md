@@ -122,6 +122,17 @@ Required: `name`. Optional: `project` (default `0` = system group), `role`, `des
 
 > Setting `project = 0` manages an org-wide group. Use a positive `project` id for per-project permission groups.
 
+### `st-zentao_group_privs`
+
+```hcl
+resource "st-zentao_group_privs" "developers" {
+  group = tonumber(st-zentao_group.developers.id)
+  privs = ["story-view", "story-create", "task-finish"]
+}
+```
+
+Required: `group`, `privs`. This resource owns the group's **entire** privilege set — applying replaces it, destroying clears it. Each priv is `module-method`; an empty `privs = []` asserts the group has no privileges. Works for both system (`project = 0`) and project-scoped groups.
+
 ## Data Sources
 
 Each resource has a matching data source that takes `id`:

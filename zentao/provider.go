@@ -99,6 +99,7 @@ func (p *zentaoProvider) Resources(_ context.Context) []func() resource.Resource
 		NewProgramParentAttachmentResource,
 		NewProjectResource,
 		NewGroupResource,
+		NewGroupPrivsResource,
 	}
 }
 
