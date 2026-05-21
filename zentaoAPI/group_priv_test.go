@@ -2,6 +2,7 @@ package zentaoapi
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -10,6 +11,19 @@ import (
 	"strings"
 	"testing"
 )
+
+// managePrivBody builds a managePriv GET envelope granting `selected` with
+// `catalog` assignable (data is a JSON-string-encoded payload, as on the wire).
+func managePrivBody(selected, catalog []string) string {
+	sel, _ := json.Marshal(selected)
+	cat, _ := json.Marshal(catalog)
+	inner, _ := json.Marshal(map[string]json.RawMessage{
+		"selectedPrivList": sel,
+		"allPrivList":      cat,
+	})
+	outer, _ := json.Marshal(map[string]any{"status": "success", "data": string(inner)})
+	return string(outer)
+}
 
 // groupEditBody returns a group-edit-<id>.json GET envelope whose inner
 // group row carries the given project column. Both GetGroupPrivs and
@@ -141,23 +155,43 @@ func TestGetGroupPrivs_EnvelopeFail(t *testing.T) {
 
 // --- SetGroupPrivs ---
 
-func TestSetGroupPrivs_BodyShape_ProjectScoped(t *testing.T) {
+// setGroupPrivsServer wires the 3-hit Set sequence: group-edit (project
+// derivation), managePriv catalog GET, then the managePriv save POST. The POST
+// form is captured into *gotForm; postResp is the save envelope to return.
+func setGroupPrivsServer(t *testing.T, catalog []string, postResp string, gotForm *url.Values, gotMeta *[2]string) *httptest.Server {
+	t.Helper()
 	var hits int
-	var gotForm url.Values
-	var gotCT, gotPath string
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		hits++
 		w.Header().Set("Content-Type", "application/json")
-		if hits == 1 {
+		switch hits {
+		case 1:
 			_, _ = w.Write([]byte(groupEditBody("28")))
-			return
+		case 2:
+			if r.Method != http.MethodGet {
+				t.Errorf("hit2 (catalog) method = %s, want GET", r.Method)
+			}
+			_, _ = w.Write([]byte(managePrivBody(nil, catalog)))
+		case 3:
+			if gotMeta != nil {
+				gotMeta[0] = r.URL.Path
+				gotMeta[1] = r.Header.Get("Content-Type")
+			}
+			_ = r.ParseForm()
+			if gotForm != nil {
+				*gotForm = r.PostForm
+			}
+			_, _ = w.Write([]byte(postResp))
+		default:
+			t.Errorf("unexpected hit %d to %s", hits, r.URL.Path)
 		}
-		gotPath = r.URL.Path
-		gotCT = r.Header.Get("Content-Type")
-		_ = r.ParseForm()
-		gotForm = r.PostForm
-		_, _ = w.Write([]byte(`{"result":"success","message":"保存成功"}`))
 	}))
+}
+
+func TestSetGroupPrivs_BodyShape_ProjectScoped(t *testing.T) {
+	var gotForm url.Values
+	var meta [2]string
+	srv := setGroupPrivsServer(t, []string{"story-view", "story-tasks"}, `{"result":"success","message":"保存成功"}`, &gotForm, &meta)
 	defer srv.Close()
 
 	c := newTestClient(t, "tok-1", srv.URL)
@@ -165,11 +199,11 @@ func TestSetGroupPrivs_BodyShape_ProjectScoped(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SetGroupPrivs: %v", err)
 	}
-	if gotPath != "/project-managePriv-28-7.json" {
-		t.Errorf("path = %s, want /project-managePriv-28-7.json", gotPath)
+	if meta[0] != "/project-managePriv-28-7.json" {
+		t.Errorf("path = %s, want /project-managePriv-28-7.json", meta[0])
 	}
-	if !strings.HasPrefix(gotCT, "application/x-www-form-urlencoded") {
-		t.Errorf("content-type = %s, want form-urlencoded", gotCT)
+	if !strings.HasPrefix(meta[1], "application/x-www-form-urlencoded") {
+		t.Errorf("content-type = %s, want form-urlencoded", meta[1])
 	}
 	if gotForm.Get("noChecked") != "1" {
 		t.Errorf("noChecked = %q, want 1 (or save degrades to a form re-render)", gotForm.Get("noChecked"))
@@ -183,19 +217,8 @@ func TestSetGroupPrivs_BodyShape_ProjectScoped(t *testing.T) {
 // Empty set still POSTs noChecked=1 (clears) — never an empty body, which
 // the server treats as "render form", not "save".
 func TestSetGroupPrivs_EmptyClears(t *testing.T) {
-	var hits int
 	var gotForm url.Values
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		hits++
-		w.Header().Set("Content-Type", "application/json")
-		if hits == 1 {
-			_, _ = w.Write([]byte(groupEditBody("28")))
-			return
-		}
-		_ = r.ParseForm()
-		gotForm = r.PostForm
-		_, _ = w.Write([]byte(`{"result":"success","message":"保存成功"}`))
-	}))
+	srv := setGroupPrivsServer(t, []string{"story-view"}, `{"result":"success","message":"保存成功"}`, &gotForm, nil)
 	defer srv.Close()
 
 	c := newTestClient(t, "tok-1", srv.URL)
@@ -209,6 +232,37 @@ func TestSetGroupPrivs_EmptyClears(t *testing.T) {
 		if strings.HasPrefix(k, "actions[") {
 			t.Errorf("unexpected actions key %q on empty clear", k)
 		}
+	}
+}
+
+// A priv outside the group's assignable catalog is rejected BEFORE the save
+// POST — the server would silently drop it, tripping inconsistent-after-apply.
+func TestSetGroupPrivs_RejectsPrivNotInCatalog(t *testing.T) {
+	var hits int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits++
+		w.Header().Set("Content-Type", "application/json")
+		switch hits {
+		case 1:
+			_, _ = w.Write([]byte(groupEditBody("28")))
+		case 2:
+			_, _ = w.Write([]byte(managePrivBody(nil, []string{"story-view", "story-create"})))
+		default:
+			t.Errorf("must not POST a save after catalog rejection (hit %d)", hits)
+		}
+	}))
+	defer srv.Close()
+
+	c := newTestClient(t, "tok-1", srv.URL)
+	err := c.SetGroupPrivs(context.Background(), 7, []string{"story-view", "my-index"})
+	if err == nil {
+		t.Fatal("err = nil, want catalog-rejection error")
+	}
+	if !strings.Contains(err.Error(), "my-index") {
+		t.Errorf("err = %v, want it to name the rejected priv my-index", err)
+	}
+	if hits != 2 {
+		t.Fatalf("hits = %d, want 2 (no save POST)", hits)
 	}
 }
 
@@ -234,19 +288,8 @@ func TestSetGroupPrivs_InvalidFormat_NoNetwork(t *testing.T) {
 
 // A priv whose method contains a hyphen is split on the FIRST hyphen only.
 func TestSetGroupPrivs_SplitsOnFirstHyphen(t *testing.T) {
-	var hits int
 	var gotForm url.Values
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		hits++
-		w.Header().Set("Content-Type", "application/json")
-		if hits == 1 {
-			_, _ = w.Write([]byte(groupEditBody("28")))
-			return
-		}
-		_ = r.ParseForm()
-		gotForm = r.PostForm
-		_, _ = w.Write([]byte(`{"result":"success"}`))
-	}))
+	srv := setGroupPrivsServer(t, []string{"my-multi-word"}, `{"result":"success"}`, &gotForm, nil)
 	defer srv.Close()
 
 	c := newTestClient(t, "tok-1", srv.URL)
@@ -259,16 +302,7 @@ func TestSetGroupPrivs_SplitsOnFirstHyphen(t *testing.T) {
 }
 
 func TestSetGroupPrivs_FailEnvelope(t *testing.T) {
-	var hits int
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		hits++
-		w.Header().Set("Content-Type", "application/json")
-		if hits == 1 {
-			_, _ = w.Write([]byte(groupEditBody("28")))
-			return
-		}
-		_, _ = w.Write([]byte(`{"result":"fail","message":"insufficient privs"}`))
-	}))
+	srv := setGroupPrivsServer(t, []string{"story-view"}, `{"result":"fail","message":"insufficient privs"}`, nil, nil)
 	defer srv.Close()
 
 	c := newTestClient(t, "tok-1", srv.URL)

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"regexp"
 	"testing"
 
 	"github.com/hashicorp/terraform-plugin-framework/diag"
@@ -160,6 +161,35 @@ resource "st-zentao_group_privs" "p" {
 				Check: tfresource.ComposeAggregateTestCheckFunc(
 					tfresource.TestCheckResourceAttr("st-zentao_group_privs.p", "privs.#", "1"),
 				),
+			},
+		},
+	})
+}
+
+// A priv outside the group's assignable catalog must fail with an actionable
+// error, not the opaque inconsistent-after-apply that the silent server drop
+// would otherwise produce.
+func TestAccGroupPrivsResource_rejectsUnassignablePriv(t *testing.T) {
+	if os.Getenv("TF_ACC") == "" {
+		t.Skip("TF_ACC not set; skipping acceptance test")
+	}
+	projectID := groupAccProjectID(t)
+	name := shortName("pg-acc-rej")
+	tfresource.Test(t, tfresource.TestCase{
+		PreCheck:                 func() { testAccPreCheck(t) },
+		ProtoV6ProviderFactories: protoV6Factories,
+		Steps: []tfresource.TestStep{
+			{
+				Config: providerBlock() + fmt.Sprintf(`
+resource "st-zentao_group" "g" {
+  project = %d
+  name    = %q
+}
+resource "st-zentao_group_privs" "p" {
+  group = tonumber(st-zentao_group.g.id)
+  privs = ["my-index"]
+}`, projectID, name),
+				ExpectError: regexp.MustCompile(`not assignable to group`),
 			},
 		},
 	})

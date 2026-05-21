@@ -31,7 +31,7 @@ Envelope: `{"status":"success","data":"<stringified-json>","md5":"..."}`. The in
 |---|---|---|
 | `selectedPrivList` | flat array `["story-view","story-tasks"]` | **the granted set — Read uses this directly** |
 | `groupPrivs` | nested map `{"story":{"view":"view","tasks":"tasks"}}` | redundant with selectedPrivList |
-| `allPrivList` | flat array of all `module-method` strings (~472) | full catalog; not surfaced |
+| `allPrivList` | flat array of all `module-method` strings (~454) | **assignable catalog — gates which privs the save will persist** |
 | `groupID` / `projectID` | stringified numbers | echo of path args |
 
 Each priv identifier is `module-method` (split on the **first** `-`; module/method
@@ -61,6 +61,16 @@ names POST successfully but silently no-op (`privs[]=...` returned 保存成功 
 nothing) — the standard ZenTao silent-render trap; the `actions[module][]` shape is
 load-bearing.
 
+**Out-of-catalog privs are silently dropped.** A priv absent from this group's
+`allPrivList` (e.g. `my-index` on a project-scoped group — the personal `my` module
+isn't assignable there) POSTs as `保存成功` but never persists; the re-read
+`selectedPrivList` excludes it. On a Required Terraform attribute this surfaces as the
+opaque `Provider produced inconsistent result after apply: .privs: planned set element
+… does not correlate`. **`SetGroupPrivs` must validate the requested set against
+`allPrivList` before the save POST** and reject unknowns with an actionable error
+naming them — catalog membership is the exact acceptance criterion (probe: 454-entry
+catalog; `story-view`/`task-finish` present and persisted, `my-index` absent and dropped).
+
 ## 4. Reconciliation table
 
 | Plan decision | Probe verdict |
@@ -70,14 +80,17 @@ load-bearing.
 | 3.2 full-set replace + Delete clears | ✅ Confirmed — `actions[module][]` is replace-all; `noChecked=1` alone clears. |
 | Read extracts granted subset | ✅ `selectedPrivList` is the flat granted set; no catalog filtering needed. |
 | Not-found detection | ➕ **Net-new** — managePriv never 404s; reuse `GetGroup` → `ErrNotFound`. |
+| Out-of-catalog priv handling | ➕ **Net-new** — server silently drops privs absent from `allPrivList`; `SetGroupPrivs` validates against the catalog pre-save to avoid inconsistent-after-apply. |
 
 ## 5. Implementation notes
 
 - `GetGroupPrivs(ctx, groupID)`: `GetGroup` (→ project, ErrNotFound passthrough) →
   GET `project-managePriv-{project}-{groupID}` → decode `data.selectedPrivList`.
-- `SetGroupPrivs(ctx, groupID, privs)`: `GetGroup` (→ project) → build form
-  (`noChecked=1` + split each priv on first `-` into `actions[module][]=method`) →
-  POST. Empty `privs` ⇒ `noChecked=1` only.
+- `SetGroupPrivs(ctx, groupID, privs)`: format-validate (zero-cost) → `GetGroup`
+  (→ project) → managePriv GET for `allPrivList` → reject any requested priv not in
+  the catalog → build form (`noChecked=1` + split each priv on first `-` into
+  `actions[module][]=method`) → POST. Empty `privs` ⇒ `noChecked=1` only. Three round
+  trips (group-edit, catalog GET, save POST).
 - Decode: inner `data` is a stringified JSON string (double-decode, like group-edit).
 - `selectedPrivList` may be `[]` (jq saw `"array"`); decode into `[]string`.
 
