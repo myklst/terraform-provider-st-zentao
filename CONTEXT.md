@@ -28,6 +28,15 @@ this).
 The methodology of a project-flow workflow group — `scrum` / `waterfall` /
 `kanban` / `agileplus` / `waterfallplus` / `cmmi`. Empty for product-flow rows.
 
+**Group Priv** (`zt_grouppriv`):
+A single (module, method) privilege grant belonging to a **permission group**.
+A group's complete privilege set is the collection of these rows. Managed via
+the Controller `project-managePriv-{projectID}-{groupID}` action, where
+`projectID` is the group's own `project` column (`0` for system groups, `> 0`
+for project-scoped) — one path serves both scopes. Modelled as the standalone
+`st-zentao_group_privs` resource, never an inline field on the group entity.
+_Avoid_: "permission" (ambiguous between group membership and module/method grant).
+
 ## Relationships
 
 - A **Workflow Group** has exactly one **Workflow Group Type** (`product` | `project`).
