@@ -3,19 +3,26 @@
 page_title: "st-zentao_workflow_group Data Source - st-zentao"
 subcategory: ""
 description: |-
-  Look up a ZenTao workflow group by (project_model, project_type). Use the resulting id to populate st-zentao_project.workflow_group without hardcoding ZenTao instance-specific magic numbers.
+  Look up a ZenTao workflow group and resolve its numeric id, without hardcoding instance-specific magic numbers. Set type to choose the catalog: product returns the single product flow; project requires project_model and project_type to pick one project flow.
 ---
 
 # st-zentao_workflow_group (Data Source)
 
-Look up a ZenTao workflow group by (project_model, project_type). Use the resulting `id` to populate `st-zentao_project.workflow_group` without hardcoding ZenTao instance-specific magic numbers.
+Look up a ZenTao workflow group and resolve its numeric `id`, without hardcoding instance-specific magic numbers. Set `type` to choose the catalog: `product` returns the single product flow; `project` requires `project_model` and `project_type` to pick one project flow.
 
 ## Example Usage
 
 ```terraform
+# A project flow: `type = "project"` requires project_model and project_type.
 data "st-zentao_workflow_group" "scrum_product" {
+  type          = "project"
   project_model = "scrum"
   project_type  = "product"
+}
+
+# A product flow: `type = "product"` takes no project_model / project_type.
+data "st-zentao_workflow_group" "default_product" {
+  type = "product"
 }
 
 resource "st-zentao_project" "example" {
@@ -34,11 +41,15 @@ resource "st-zentao_project" "example" {
 
 ### Required
 
-- `project_model` (String) Project methodology. One of: "scrum", "waterfall", "kanban", "agileplus", "waterfallplus", "cmmi".
-- `project_type` (String) Whether the workflow group is product-typed (`product`) or project-typed (`project`).
+- `type` (String) Workflow catalog to query. One of: "product", "project".
+
+### Optional
+
+- `project_model` (String) Project methodology. One of: "scrum", "waterfall", "kanban", "agileplus", "waterfallplus", "cmmi". Required when `type` is `project`; must be omitted when `type` is `product`.
+- `project_type` (String) Whether the project flow is product-typed (`product`) or project-typed (`project`). Required when `type` is `project`; must be omitted when `type` is `product`.
 
 ### Read-Only
 
 - `code` (String) Stable code identifier (e.g. `scrumproduct`).
-- `id` (Number) Numeric workflow group id, used as the value for `workflow_group` on `st-zentao_project`.
+- `id` (Number) Numeric workflow group id.
 - `name` (String) Localised display name.
