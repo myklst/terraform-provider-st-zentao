@@ -231,14 +231,7 @@ func (c *Client) CreateSystem(ctx context.Context, s *System) (*System, error) {
 }
 
 // findSystemIDByName resolves an application's id via the
-// system-getbyname-{hex(name)} endpoint. The name is hex-encoded because a
-// ZenTao PATH_INFO arg must avoid both `/` (URL path separator) and `-`
-// (ZenTao's segment separator); hex's `0-9a-f` alphabet sidesteps both.
-// Application names are unique across live and soft-deleted rows (create
-// rejects duplicates), so the lookup is unambiguous. The endpoint matches
-// by name only and does not filter tombstones, so a soft-deleted hit
-// (`deleted=1`) or a `false` payload both mean "no live row" -> ErrNotFound;
-// the product is verified defensively.
+// system-getbyname-{hex(name)} endpoint.
 func (c *Client) findSystemIDByName(ctx context.Context, productID int64, name string) (int64, error) {
 	arg := hex.EncodeToString([]byte(name))
 	body, status, err := c.doController(ctx, "system", "getbyname", []string{arg}, nil, nil)
