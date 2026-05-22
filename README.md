@@ -133,6 +133,19 @@ resource "st-zentao_group_privs" "developers" {
 
 Required: `group`, `privs`. This resource owns the group's **entire** privilege set — applying replaces it, destroying clears it. Each priv is `module-method`; an empty `privs = []` asserts the group has no privileges. Works for both system (`project = 0`) and project-scoped groups.
 
+### `st-zentao_system`
+
+```hcl
+resource "st-zentao_system" "example" {
+  product = 1
+  name    = "Back Office"
+  desc    = "Created by Terraform"
+  status  = "active" # active | inactive
+}
+```
+
+Manages a ZenTao application. Required: `product`, `name`. `product` is the owning product id and is immutable — changing it replaces the application. `status` (`active` | `inactive`) is Optional+Computed and toggled in place. `integrated`, `created_by` / `created_date`, and `last_edited_by` / `last_edited_date` are read-only.
+
 ## Data Sources
 
 Each resource has a matching data source that takes `id`:
