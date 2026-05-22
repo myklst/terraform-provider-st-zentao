@@ -304,6 +304,128 @@ func TestSystemToForm_EmptyChildren_NoKey(t *testing.T) {
 	}
 }
 
+// AttachSystemChild appends the child to the parent's children list and
+// delegates the write to UpdateSystem (which preserves every other column
+// via the M-Z merge). The child must exist.
+func TestAttachSystemChild_Happy_AppendsToList(t *testing.T) {
+	var editBody string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.URL.Path == "/system-edit-693.json" && r.Method == http.MethodGet: // child exists
+			_, _ = w.Write([]byte(`{"status":"success","data":"{\"system\":{\"id\":693,\"name\":\"c\",\"product\":1,\"children\":\"\",\"status\":\"active\",\"deleted\":0}}"}`))
+		case r.URL.Path == "/system-edit-691.json" && r.Method == http.MethodGet: // parent baseline
+			_, _ = w.Write([]byte(`{"status":"success","data":"{\"system\":{\"id\":691,\"name\":\"p\",\"product\":1,\"children\":\"686\",\"status\":\"active\",\"deleted\":0}}"}`))
+		case r.URL.Path == "/system-edit-691.json" && r.Method == http.MethodPost:
+			editBody = readAllString(r.Body)
+			_, _ = w.Write([]byte(`{"load":true,"result":"success","message":"ok"}`))
+		default:
+			t.Errorf("unexpected req %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer srv.Close()
+
+	c := newTestClient(t, "tok-1", srv.URL)
+	if _, err := c.AttachSystemChild(context.Background(), 691, 693); err != nil {
+		t.Fatalf("AttachSystemChild: %v", err)
+	}
+	form, _ := url.ParseQuery(editBody)
+	got := form["children[]"]
+	if !reflect.DeepEqual(got, []string{"686", "693"}) {
+		t.Errorf("children[] = %v, want [686 693] (existing preserved + appended)", got)
+	}
+}
+
+// When the edge already exists, Attach is a no-op: no edit POST is issued.
+func TestAttachSystemChild_Idempotent_NoEditPost(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.URL.Path == "/system-edit-693.json" && r.Method == http.MethodGet:
+			_, _ = w.Write([]byte(`{"status":"success","data":"{\"system\":{\"id\":693,\"name\":\"c\",\"product\":1,\"children\":\"\",\"status\":\"active\",\"deleted\":0}}"}`))
+		case r.URL.Path == "/system-edit-691.json" && r.Method == http.MethodGet:
+			_, _ = w.Write([]byte(`{"status":"success","data":"{\"system\":{\"id\":691,\"name\":\"p\",\"product\":1,\"children\":\"693\",\"status\":\"active\",\"deleted\":0}}"}`))
+		case r.Method == http.MethodPost:
+			t.Errorf("no edit POST expected for idempotent attach, got %s", r.URL.Path)
+		default:
+			t.Errorf("unexpected req %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer srv.Close()
+
+	c := newTestClient(t, "tok-1", srv.URL)
+	if _, err := c.AttachSystemChild(context.Background(), 691, 693); err != nil {
+		t.Fatalf("AttachSystemChild: %v", err)
+	}
+}
+
+func TestAttachSystemChild_Validation(t *testing.T) {
+	c := newTestClient(t, "tok-1", "http://example.invalid")
+	cases := []struct {
+		name          string
+		parent, child int64
+		wantCycleErr  bool
+	}{
+		{"zero parent", 0, 5, false},
+		{"zero child", 5, 0, false},
+		{"self-attach", 5, 5, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := c.AttachSystemChild(context.Background(), tc.parent, tc.child)
+			if err == nil {
+				t.Fatal("expected error")
+			}
+			if tc.wantCycleErr && !errors.Is(err, ErrCycleDetected) {
+				t.Errorf("err = %v, want ErrCycleDetected", err)
+			}
+		})
+	}
+}
+
+// DetachSystemChild removes the child from the parent list. A child not
+// in the list is an idempotent no-op (no edit POST).
+func TestDetachSystemChild_RemovesFromList(t *testing.T) {
+	var editBody string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.URL.Path == "/system-edit-691.json" && r.Method == http.MethodGet:
+			_, _ = w.Write([]byte(`{"status":"success","data":"{\"system\":{\"id\":691,\"name\":\"p\",\"product\":1,\"children\":\"686,693\",\"status\":\"active\",\"deleted\":0}}"}`))
+		case r.URL.Path == "/system-edit-691.json" && r.Method == http.MethodPost:
+			editBody = readAllString(r.Body)
+			_, _ = w.Write([]byte(`{"load":true,"result":"success","message":"ok"}`))
+		default:
+			t.Errorf("unexpected req %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer srv.Close()
+
+	c := newTestClient(t, "tok-1", srv.URL)
+	if _, err := c.DetachSystemChild(context.Background(), 691, 693); err != nil {
+		t.Fatalf("DetachSystemChild: %v", err)
+	}
+	form, _ := url.ParseQuery(editBody)
+	got := form["children[]"]
+	if !reflect.DeepEqual(got, []string{"686"}) {
+		t.Errorf("children[] = %v, want [686] (693 removed)", got)
+	}
+}
+
+func TestDetachSystemChild_ParentMissing_ErrNotFound(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"status":"success","data":"{\"system\":false}"}`))
+	}))
+	defer srv.Close()
+
+	c := newTestClient(t, "tok-1", srv.URL)
+	_, err := c.DetachSystemChild(context.Background(), 691, 693)
+	if !errors.Is(err, ErrNotFound) {
+		t.Fatalf("err = %v, want ErrNotFound", err)
+	}
+}
+
 // Exercise UnmarshalJSON's number tolerance for the showAll row shape
 // (id/product/integrated as bare ints, deleted as quoted string).
 func TestSystem_UnmarshalJSON_NumberTolerance(t *testing.T) {

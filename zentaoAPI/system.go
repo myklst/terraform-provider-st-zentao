@@ -346,6 +346,78 @@ func (c *Client) SetSystemStatus(ctx context.Context, id int64, status string) e
 	return nil
 }
 
+// AttachSystemChild adds childID to parentID's children list and delegates
+// the write to UpdateSystem (whose M-Z merge preserves every other column).
+// The membership is non-exclusive: a child may belong to several parents,
+// so attaching is purely additive — an already-present edge is an
+// idempotent no-op. The child must exist.
+func (c *Client) AttachSystemChild(ctx context.Context, parentID, childID int64) (*System, error) {
+	if parentID <= 0 {
+		return nil, fmt.Errorf("AttachSystemChild: parentID must be positive, got %d", parentID)
+	}
+	if childID <= 0 {
+		return nil, fmt.Errorf("AttachSystemChild: childID must be positive, got %d", childID)
+	}
+	if parentID == childID {
+		return nil, fmt.Errorf("AttachSystemChild: %w (self-attach: parent=child=%d)", ErrCycleDetected, parentID)
+	}
+	if _, err := c.GetSystem(ctx, childID); err != nil {
+		return nil, fmt.Errorf("AttachSystemChild: fetch child: %w", err)
+	}
+	parent, err := c.GetSystem(ctx, parentID)
+	if err != nil {
+		return nil, fmt.Errorf("AttachSystemChild: fetch parent: %w", err)
+	}
+	children := splitChildren(deref(parent.Children))
+	if containsID(children, childID) {
+		return parent, nil
+	}
+	children = append(children, strconv.FormatInt(childID, 10))
+	csv := strings.Join(children, ",")
+	return c.UpdateSystem(ctx, &System{ID: &parentID, Children: &csv})
+}
+
+// DetachSystemChild removes childID from parentID's children list and
+// delegates to UpdateSystem. A missing parent surfaces as ErrNotFound (the
+// caller treats it as idempotent success); a child already absent is a
+// no-op.
+func (c *Client) DetachSystemChild(ctx context.Context, parentID, childID int64) (*System, error) {
+	if parentID <= 0 {
+		return nil, fmt.Errorf("DetachSystemChild: parentID must be positive, got %d", parentID)
+	}
+	if childID <= 0 {
+		return nil, fmt.Errorf("DetachSystemChild: childID must be positive, got %d", childID)
+	}
+	parent, err := c.GetSystem(ctx, parentID)
+	if err != nil {
+		return nil, err
+	}
+	children := splitChildren(deref(parent.Children))
+	if !containsID(children, childID) {
+		return parent, nil
+	}
+	remaining := make([]string, 0, len(children))
+	target := strconv.FormatInt(childID, 10)
+	for _, id := range children {
+		if id != target {
+			remaining = append(remaining, id)
+		}
+	}
+	csv := strings.Join(remaining, ",")
+	return c.UpdateSystem(ctx, &System{ID: &parentID, Children: &csv})
+}
+
+// containsID reports whether the int64 id appears in a slice of id strings.
+func containsID(ids []string, id int64) bool {
+	target := strconv.FormatInt(id, 10)
+	for _, s := range ids {
+		if s == target {
+			return true
+		}
+	}
+	return false
+}
+
 // DeleteSystem soft-deletes an application. ZenTao returns result:success
 // even on a re-delete or missing row, so the call is idempotent; a
 // not-found reason also collapses to nil.
