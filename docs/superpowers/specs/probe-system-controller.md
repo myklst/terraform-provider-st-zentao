@@ -13,7 +13,7 @@ The `system` module's application entity (`browse` / `create` / `edit` / `active
 | List all | `/system-showAll.json` | GET | `?zentaosid=` | — | `CtrlEnvelope`; `data.appList` map keyed by id. **Includes `deleted=1` rows.** |
 | List by product | `/system-browse-{productID}.json` | GET | `?zentaosid=` | — | requires `productID` arg; `showAll` is the simpler list primitive |
 | Read one | `/system-edit-{id}.json` | GET | `?zentaosid=` | — | `CtrlEnvelope`; `data.system` = full row, or `false` if id never existed |
-| Find by name | `/system-getbyname-{base64(name)}.json` | GET | `?zentaosid=` | — | name is **base64-encoded** (PHP `base64_encode`); `CtrlEnvelope`; `data.appInfo` = full row, or `false` if no match. Matches by name only; does **not** filter tombstones. Custom endpoint. |
+| Find by name | `/system-getbyname-{hex(name)}.json` | GET | `?zentaosid=` | — | name is **hex-encoded** (`bin2hex` / `hex2bin`) so the arg avoids `/` (path separator) and `-` (ZenTao's segment separator); `CtrlEnvelope`; `data.appInfo` = full row, or `false` if no match. Matches by name only; does **not** filter tombstones. Custom endpoint. |
 | Create | `/system-create-{productID}.json` | POST | `?zentaosid=` | form-urlencoded | `productID` is a **URL arg**, not a form key; bare `/system-create.json` errors `productID should pass value` |
 | Update | `/system-edit-{id}.json` | POST | `?zentaosid=` | form-urlencoded | `CtrlSimpleResponse`; **not PATCH** — omitted form keys reset to default |
 | Activate | `/system-active-{id}.json` | POST | `?zentaosid=` | — | sets `status=active` |

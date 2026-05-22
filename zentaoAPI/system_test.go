@@ -2,7 +2,7 @@ package zentaoapi
 
 import (
 	"context"
-	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -87,7 +87,7 @@ func TestGetSystem_NotFound_DeletedTombstone(t *testing.T) {
 // system-getbyname-{base64(name)} and refetches the full row.
 func TestCreateSystem_Happy_CreateLookupRefetch(t *testing.T) {
 	var createPath, getByNamePath, createBody string
-	wantB64 := base64.StdEncoding.EncodeToString([]byte("app-x")) // YXBwLXg=
+	wantHex := hex.EncodeToString([]byte("app-x")) // 6170702d78
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		switch {
@@ -114,8 +114,8 @@ func TestCreateSystem_Happy_CreateLookupRefetch(t *testing.T) {
 	if createPath != "/system-create-1.json" {
 		t.Errorf("create path = %q, want /system-create-1.json (productID is URL arg)", createPath)
 	}
-	if getByNamePath != "/system-getbyname-"+wantB64+".json" {
-		t.Errorf("getbyname path = %q, want /system-getbyname-%s.json", getByNamePath, wantB64)
+	if getByNamePath != "/system-getbyname-"+wantHex+".json" {
+		t.Errorf("getbyname path = %q, want /system-getbyname-%s.json", getByNamePath, wantHex)
 	}
 	if got.ID == nil || *got.ID != 685 {
 		t.Errorf("returned id = %v, want 685", got.ID)
