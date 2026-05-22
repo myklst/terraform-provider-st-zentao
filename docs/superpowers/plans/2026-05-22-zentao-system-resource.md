@@ -29,7 +29,7 @@ Upstream `module/system/config/form.php`:
 |---|---|---|---|
 | 1 | **Read = `system-edit-{id}` GET (full row)**; `showAll` only for data source list | Canonical controller read primitive returns the complete row; more precise than list-filter | `program.go` edit-{id} GET |
 | 2 | **`product` = Required FK, RequiresReplace** | `control.php create($productID)` scopes an application under a product | program parent-style Required FK |
-| 3 | **`children` → standalone attachment resource** (`st-zentao_system_child_attachment`) | Self-referential system→system membership; avoids `for_each` self-reference cycle | `resource_program_parent_attachment.go` (§6b-ter) |
+| 3 | **`children` → standalone attachment resource** (`st-zentao_system_child_attachment`) | Self-referential system→system membership; avoids `for_each` self-reference cycle. Non-exclusive + additive → idempotent-adopt Create (no refuse). `(parent, child)` both Required+RequiresReplace, id `{parent}-{child}`. Edge ops (`AttachSystemChild`/`DetachSystemChild`) delegate the write to `UpdateSystem`. | `resource_program_parent_attachment.go` (§6b-ter) |
 | 4 | **`integrated` = Computed read-only** | Server derives it from presence of children; user never sets it | program `parent`/`grade` server-derived |
 | 5 | **`status` = Optional+Computed String** (`active`/`inactive`) + stringvalidator; Update calls `system-active-{id}` / `system-inactive-{id}` | Probe: wire column is `status` enum, not bool `active` → wire-name hard rule | project `multiple` user-toggle |
 | 6 | **`name` Required; `desc` Optional+Computed; `id`/`created_date`/`last_edited_date` Computed** | form.php required flags + standard identity fields | product/program schema |

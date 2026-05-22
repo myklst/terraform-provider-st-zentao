@@ -89,7 +89,7 @@ list:                        {"status":"success","data":"{...\"appList\":{id:{..
 |---|---|---|
 | 1 | Read = `system-edit-{id}` GET full row; `showAll` for DS | ✅ Confirmed. ➕ not-found = `system==false` OR `deleted==1`; `showAll` includes deleted rows. |
 | 2 | `product` Required FK, RequiresReplace | ✅ Confirmed — URL arg `system-create-{productID}`, immutable. |
-| 3 | `children` → attachment resource | 🔄 Field-style comma-string on parent. P3 collision guard applies. Edit-POST resets if omitted → main Update must M-Z preserve. **Re-grill attachment CRUD shape when building it.** |
+| 3 | `children` → attachment resource | 🔄 Field-style comma-string on parent. Edit-POST resets if omitted → main Update must M-Z preserve. Membership is **non-exclusive** (a child can sit in several parents' lists) and **additive** (probe: attaching the same child to two parents left both lists intact), so the attachment uses an **idempotent-adopt** Create (no refuse branch) rather than program's single-FK P3 guard. Modelled as `st-zentao_system_child_attachment(parent, child)`, both Required+RequiresReplace, id `{parent}-{child}`. |
 | 4 | `integrated` Computed read-only | ✅ Confirmed — server ignores form `integrated`, not flipped by children. |
 | 5 | `active` Optional+Computed toggle | 🔄 Wire column is **`status`** (string enum `active`/`inactive`). Per wire-name rule expose `status` String, not bool `active`. Toggle via active/inactive endpoints. **Re-grilled — see plan.** |
 | 6 | name Required / desc O+C / dates Computed | ✅ Confirmed. + `created_by`/`edited_by` Computed. |
