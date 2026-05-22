@@ -101,6 +101,7 @@ func (p *zentaoProvider) Resources(_ context.Context) []func() resource.Resource
 		NewGroupResource,
 		NewGroupPrivsResource,
 		NewSystemResource,
+		NewSystemChildAttachmentResource,
 	}
 }
 
