@@ -37,8 +37,34 @@ for project-scoped) — one path serves both scopes. Modelled as the standalone
 `st-zentao_group_privs` resource, never an inline field on the group entity.
 _Avoid_: "permission" (ambiguous between group membership and module/method grant).
 
+**System** (应用):
+A ZenTao *application* — a named entity owned by a **Product**, managed through
+the `system` controller module's `create` / `edit` / `delete` actions. Carries
+`name`, `desc`, an **Integrated** flag, and a list of **Child Systems**.
+_Avoid_: conflating with the DevOps system-admin surface (backup / upgrade /
+domain / OSS) that shares the `system` module name but is a different concern.
+
+**Integrated**:
+A server-set flag on a **System** indicating it aggregates **Child Systems**.
+Read-only from the provider's view — ZenTao derives it; the provider never
+sets it directly.
+
+**Child System**:
+A **System** that belongs to another (integrated) **System**. The parent's
+membership list is the `children` array on the parent row; the provider models
+each parent→child edge as a standalone attachment, never an inline field.
+
+**Status** (`status`):
+A **System**'s enabled state — the `status` enum (`active` / `inactive`),
+toggled via the `system-active-{id}` / `system-inactive-{id}` actions rather
+than the edit form.
+_Avoid_: calling it `active` — the stored column is `status`.
+
 ## Relationships
 
+- A **System** belongs to exactly one **Product**.
+- An **Integrated System** aggregates zero or more **Child Systems**; each
+  parent→child edge is a separate attachment.
 - A **Workflow Group** has exactly one **Workflow Group Type** (`product` | `project`).
 - The `product` catalog ships a single default row whose **Project Model** is empty.
 - The `project` catalog subdivides rows by (**Project Model** × **Project Type**).
@@ -58,3 +84,8 @@ _Avoid_: "permission" (ambiguous between group membership and module/method gran
   discriminator already covered by `projectType`. Resolved: `type` is the
   **Workflow Group Type** (catalog/endpoint selector), a distinct axis from
   **Project Type**.
+- `system` is overloaded in ZenTao: the module name covers both the
+  DevOps system-admin surface (backup, upgrade, domain, OSS) and the
+  **System** application entity (`browse` / `create` / `edit` / `active`).
+  Resolved: the provider's `st-zentao_system` resource models only the
+  **System** application entity.
