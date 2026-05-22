@@ -13,6 +13,7 @@ The `system` module's application entity (`browse` / `create` / `edit` / `active
 | List all | `/system-showAll.json` | GET | `?zentaosid=` | — | `CtrlEnvelope`; `data.appList` map keyed by id. **Includes `deleted=1` rows.** |
 | List by product | `/system-browse-{productID}.json` | GET | `?zentaosid=` | — | requires `productID` arg; `showAll` is the simpler list primitive |
 | Read one | `/system-edit-{id}.json` | GET | `?zentaosid=` | — | `CtrlEnvelope`; `data.system` = full row, or `false` if id never existed |
+| Find by name | `/system-getbyname-{base64(name)}.json` | GET | `?zentaosid=` | — | name is **base64-encoded** (PHP `base64_encode`); `CtrlEnvelope`; `data.appInfo` = full row, or `false` if no match. Matches by name only; does **not** filter tombstones. Custom endpoint. |
 | Create | `/system-create-{productID}.json` | POST | `?zentaosid=` | form-urlencoded | `productID` is a **URL arg**, not a form key; bare `/system-create.json` errors `productID should pass value` |
 | Update | `/system-edit-{id}.json` | POST | `?zentaosid=` | form-urlencoded | `CtrlSimpleResponse`; **not PATCH** — omitted form keys reset to default |
 | Activate | `/system-active-{id}.json` | POST | `?zentaosid=` | — | sets `status=active` |
@@ -63,7 +64,7 @@ The `system` module's application entity (`browse` / `create` / `edit` / `active
 - **`integrated`** — int 0/1. Server-owned: edit form cannot set it, and adding children did not flip it. → **Computed read-only**.
 - **`children`** — comma-separated id string on the **parent** row (`"686"` for one child, `""` for none). Set via `children[]=<id>` array form keys. **Field-style FK on a shared parent column** (§6b-ter): edit-POST resets it when omitted, so resource_system's Update must M-Z-preserve it. Owned by the attachment resource.
 - **`status`** — string enum. Observed: `active`, `inactive` (`wait` not observed). Toggled by `system-active` / `system-inactive`, **not** the edit form.
-- **`name`** — Required.
+- **`name`** — Required. **Unique** across live *and* soft-deleted rows: create rejects a duplicate with `{"result":"fail","message":{"name":["...已经有...这条记录了..."]}}`. This makes `getbyname` (name-only) unambiguous, so post-create id lookup uses it instead of a full `showAll` scan. Because `getbyname` does not filter tombstones, a `deleted=1` hit or `appInfo:false` both read as ErrNotFound.
 - **`desc`** — Optional; resets to `''` if omitted on edit.
 - **`createdBy` / `createdDate`** — server, create-time, immutable.
 - **`editedBy` / `editedDate`** — server, updated each edit.

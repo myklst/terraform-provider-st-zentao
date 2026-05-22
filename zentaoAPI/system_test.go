@@ -2,6 +2,7 @@ package zentaoapi
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -82,11 +83,11 @@ func TestGetSystem_NotFound_DeletedTombstone(t *testing.T) {
 }
 
 // CreateSystem posts to system-create-{productID}, then — because the
-// create response carries no id — discovers the id via system-showAll
-// filtered by name+product, and refetches the full row.
+// create response carries no id — discovers the id via
+// system-getbyname-{base64(name)} and refetches the full row.
 func TestCreateSystem_Happy_CreateLookupRefetch(t *testing.T) {
-	var createPath string
-	var createBody string
+	var createPath, getByNamePath, createBody string
+	wantB64 := base64.StdEncoding.EncodeToString([]byte("app-x")) // YXBwLXg=
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		switch {
@@ -94,8 +95,9 @@ func TestCreateSystem_Happy_CreateLookupRefetch(t *testing.T) {
 			createPath = r.URL.Path
 			createBody = readAllString(r.Body)
 			_, _ = w.Write([]byte(`{"load":true,"result":"success","message":"保存成功"}`))
-		case r.URL.Path == "/system-showAll.json":
-			_, _ = w.Write([]byte(`{"status":"success","data":"{\"appList\":{\"685\":{\"id\":685,\"name\":\"app-x\",\"product\":1,\"integrated\":0,\"children\":\"\",\"status\":\"active\",\"desc\":\"\",\"deleted\":0}}}"}`))
+		case strings.HasPrefix(r.URL.Path, "/system-getbyname-"):
+			getByNamePath = r.URL.Path
+			_, _ = w.Write([]byte(`{"status":"success","data":"{\"appInfo\":{\"id\":685,\"name\":\"app-x\",\"product\":1,\"children\":\"\",\"status\":\"active\",\"deleted\":0},\"pager\":null}"}`))
 		case r.URL.Path == "/system-edit-685.json":
 			_, _ = w.Write([]byte(`{"status":"success","data":"{\"system\":{\"id\":685,\"name\":\"app-x\",\"product\":1,\"integrated\":0,\"children\":\"\",\"status\":\"active\",\"desc\":\"hi\",\"createdBy\":\"admin\",\"createdDate\":\"2026-05-22 15:36:56\",\"deleted\":0}}"}`))
 		default:
@@ -112,12 +114,45 @@ func TestCreateSystem_Happy_CreateLookupRefetch(t *testing.T) {
 	if createPath != "/system-create-1.json" {
 		t.Errorf("create path = %q, want /system-create-1.json (productID is URL arg)", createPath)
 	}
+	if getByNamePath != "/system-getbyname-"+wantB64+".json" {
+		t.Errorf("getbyname path = %q, want /system-getbyname-%s.json", getByNamePath, wantB64)
+	}
 	if got.ID == nil || *got.ID != 685 {
 		t.Errorf("returned id = %v, want 685", got.ID)
 	}
 	form, _ := url.ParseQuery(createBody)
 	if form.Get("name") != "app-x" {
 		t.Errorf("create form name = %q, want app-x", form.Get("name"))
+	}
+}
+
+// getbyname does not filter tombstones: a soft-deleted hit (deleted=1) or a
+// `false` payload both mean no live row -> the post-create lookup fails.
+func TestCreateSystem_LookupRejectsTombstoneAndMissing(t *testing.T) {
+	cases := map[string]string{
+		"tombstone": `{"status":"success","data":"{\"appInfo\":{\"id\":685,\"name\":\"app-x\",\"product\":1,\"status\":\"active\",\"deleted\":1},\"pager\":null}"}`,
+		"missing":   `{"status":"success","data":"{\"appInfo\":false,\"pager\":null}"}`,
+	}
+	for name, getByNameResp := range cases {
+		t.Run(name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				switch {
+				case strings.HasPrefix(r.URL.Path, "/system-create-"):
+					_, _ = w.Write([]byte(`{"load":true,"result":"success","message":"ok"}`))
+				case strings.HasPrefix(r.URL.Path, "/system-getbyname-"):
+					_, _ = w.Write([]byte(getByNameResp))
+				default:
+					t.Errorf("unexpected req %s %s", r.Method, r.URL.Path)
+				}
+			}))
+			defer srv.Close()
+			c := newTestClient(t, "tok-1", srv.URL)
+			_, err := c.CreateSystem(context.Background(), &System{Product: int64ptr(1), Name: strptr("app-x")})
+			if err == nil {
+				t.Fatal("expected post-create lookup to fail")
+			}
+		})
 	}
 }
 

@@ -2,6 +2,7 @@ package zentaoapi
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -14,8 +15,8 @@ type systemEditInner struct {
 	System json.RawMessage `json:"system"`
 }
 
-type systemListInner struct {
-	AppList map[string]json.RawMessage `json:"appList"`
+type systemGetByNameInner struct {
+	AppInfo json.RawMessage `json:"appInfo"`
 }
 
 // System represents a ZenTao application (the `system` module's
@@ -164,7 +165,7 @@ func (c *Client) GetSystem(ctx context.Context, id int64) (*System, error) {
 	}
 	var env CtrlResp
 	if err := json.Unmarshal(body, &env); err != nil {
-		return nil, fmt.Errorf("decode get-system envelope: %w (body=%s)", err, string(body))
+		return nil, fmt.Errorf("decode get-system response: %w (body=%s)", err, string(body))
 	}
 	if env.Status != "success" {
 		return nil, classifyCtrlError(status, env, body)
@@ -229,12 +230,16 @@ func (c *Client) CreateSystem(ctx context.Context, s *System) (*System, error) {
 	return c.GetSystem(ctx, id)
 }
 
-// findSystemIDByName resolves a newly-created application's id from
-// system-showAll, matching name + product. showAll includes soft-deleted
-// tombstones, so deleted rows are skipped; the highest matching id wins
-// (the most recently created row).
+// findSystemIDByName resolves an application's id via the
+// system-getbyname-{base64(name)} endpoint. Application names are unique
+// across live and soft-deleted rows (create rejects duplicates), so the
+// lookup is unambiguous. The endpoint matches by name only and does not
+// filter tombstones, so a soft-deleted hit (`deleted=1`) or a `false`
+// payload both mean "no live row" -> ErrNotFound; the product is verified
+// defensively.
 func (c *Client) findSystemIDByName(ctx context.Context, productID int64, name string) (int64, error) {
-	body, status, err := c.doController(ctx, "system", "showAll", nil, nil, nil)
+	arg := base64.StdEncoding.EncodeToString([]byte(name))
+	body, status, err := c.doController(ctx, "system", "getbyname", []string{arg}, nil, nil)
 	if err != nil {
 		return 0, err
 	}
@@ -243,32 +248,33 @@ func (c *Client) findSystemIDByName(ctx context.Context, productID int64, name s
 	}
 	var env CtrlResp
 	if err := json.Unmarshal(body, &env); err != nil {
-		return 0, fmt.Errorf("decode list-system envelope: %w (body=%s)", err, string(body))
+		return 0, fmt.Errorf("decode getbyname envelope: %w (body=%s)", err, string(body))
 	}
 	if env.Status != "success" {
 		return 0, classifyCtrlError(status, env, body)
 	}
-	var inner systemListInner
+	var inner systemGetByNameInner
 	if err := env.DecodeData(&inner); err != nil {
-		return 0, fmt.Errorf("decode list-system data: %w (body=%s)", err, string(body))
+		return 0, fmt.Errorf("decode getbyname data: %w (body=%s)", err, string(body))
 	}
-	var best int64
-	for _, raw := range inner.AppList {
-		var row System
-		if err := json.Unmarshal(raw, &row); err != nil {
-			return 0, fmt.Errorf("decode list-system row: %w (body=%s)", err, string(body))
-		}
-		if deref(row.Deleted) {
-			continue
-		}
-		if deref(row.Name) == name && deref(row.Product) == productID && deref(row.ID) > best {
-			best = deref(row.ID)
-		}
-	}
-	if best == 0 {
+	if len(inner.AppInfo) == 0 || string(inner.AppInfo) == "false" || string(inner.AppInfo) == "null" {
 		return 0, ErrNotFound
 	}
-	return best, nil
+	var row System
+	if err := json.Unmarshal(inner.AppInfo, &row); err != nil {
+		return 0, fmt.Errorf("decode getbyname appInfo: %w (body=%s)", err, string(body))
+	}
+	if deref(row.Deleted) {
+		return 0, ErrNotFound
+	}
+	if productID > 0 && deref(row.Product) != productID {
+		return 0, fmt.Errorf("getbyname: %q resolved to id %d under product %d, want product %d: %w",
+			name, deref(row.ID), deref(row.Product), productID, ErrNotFound)
+	}
+	if deref(row.ID) == 0 {
+		return 0, ErrNotFound
+	}
+	return deref(row.ID), nil
 }
 
 // UpdateSystem M-Z-merges caller overrides onto the baseline, submits the
