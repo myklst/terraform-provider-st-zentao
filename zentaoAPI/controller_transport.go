@@ -69,7 +69,7 @@ func (c *Client) doController(
 			return nil, 0, fmt.Errorf("marshal body: %w", err)
 		}
 	}
-	return c.doWithRefresh(ctx, isControllerSessionExpired, func(token string) ([]byte, int, string, error) {
+	return c.doWithRefresh(ctx, c.ctrlCredential(), isControllerSessionExpired, func(token string) ([]byte, int, string, error) {
 		return c.sendHTTP(ctx, httpMethod, path, query, bodyBytes, "application/json", token, true)
 	})
 }
@@ -90,7 +90,7 @@ func (c *Client) doControllerForm(
 ) ([]byte, int, error) {
 	path := controllerPath(module, method, pathArgs)
 	encoded := []byte(form.Encode())
-	return c.doWithRefresh(ctx, isControllerSessionExpired, func(token string) ([]byte, int, string, error) {
+	return c.doWithRefresh(ctx, c.ctrlCredential(), isControllerSessionExpired, func(token string) ([]byte, int, string, error) {
 		return c.sendHTTP(ctx, http.MethodPost, path, query, encoded, "application/x-www-form-urlencoded", token, true)
 	})
 }
@@ -130,7 +130,7 @@ func isControllerSessionExpired(httpStatus int, body []byte, location string) bo
 // Controller wire envelopes + their helpers
 // ============================================================================
 
-// CtrlResp is the envelope returned by ZenTao Controller endpoints
+// CtrlResp is the response returned by ZenTao Controller endpoints
 // (PATH_INFO `.json`). The resource payload sits inside Data, sometimes
 // as a JSON-encoded string, sometimes as a direct object/array. Use
 // DecodeData to unwrap it.

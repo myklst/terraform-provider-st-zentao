@@ -5,8 +5,27 @@ export ZENTAO_URL="http://zentao.example.com/zentao"
 export ZENTAO_ACCOUNT="admin"
 export ZENTAO_PASSWORD="123456"
 
-# Export session for local cURL operations
-ZENTAO_SESSION=$(curl -s -X POST -d "{\"account\": \"$ZENTAO_ACCOUNT\", \"password\": \"$ZENTAO_PASSWORD\"}" "$ZENTAO_URL/api.php/v1/tokens" | jq -r '.token')
+# ==============================================================================
+# Authentication method for controller-transport
+# ==============================================================================
+
+# cURL /api-getsessionid.json
+GETSESSIONID_RESP=$(curl -s "$ZENTAO_URL/api-getsessionid.json")
+ZENTAO_SESSION=$(echo "$GETSESSIONID_RESP" | jq -r '.data | fromjson | .sessionID')
 export ZENTAO_SESSION
-# FOR EXAMPLE:
-# curl -s -H "Content-Type: application/json" -X GET "$ZENTAO_URL/program-edit-70.json?zentaosid=$ZENTAO_SESSION"
+
+# cURL /user-login.json
+USERLOGIN_RESP=$(curl -s "$ZENTAO_URL/user-login.json?account=$ZENTAO_ACCOUNT&password=$ZENTAO_PASSWORD&zentaosid=$ZENTAO_SESSION" | jq -r '.token')
+echo "$USERLOGIN_RESP" > /dev/null
+
+# ==============================================================================
+# Authentication method for API v2 transport
+# ==============================================================================
+
+# ZENTAO_SESSION=$(curl -s -X POST -d "{\"account\": \"$ZENTAO_ACCOUNT\", \"password\": \"$ZENTAO_PASSWORD\"}" "$ZENTAO_URL/api.php/v1/tokens" | jq -r '.token')
+# export ZENTAO_SESSION
+
+# ==============================================================================
+# Call Controller methods
+# ==============================================================================
+# curl -s -H "Content-Type: application/json" -X GET "$ZENTAO_URL/product-view-1.json?zentaosid=$ZENTAO_SESSION"

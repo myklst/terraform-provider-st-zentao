@@ -140,13 +140,16 @@ func TestDoController_QueryPlumbed(t *testing.T) {
 }
 
 func TestDoController_RedirectToLogin_TriggersRefreshSmoke(t *testing.T) {
-	var apiCalls, loginCalls atomic.Int32
+	// Controller session expiry (302 → user-login) must refresh via the
+	// apilogin credential — NOT the V1 token endpoint. The stale ctrlSID
+	// ("old-sid") rotates to the apilogin-issued one ("new-sid") on replay.
+	var apiCalls, ctrlLogins atomic.Int32
 	srv := newV1LoginServer(t, v1Opts{
-		sessionID:  "new-tok",
-		loginCalls: &loginCalls,
-		apiCalls:   &apiCalls,
+		ctrlSID:        "new-sid",
+		ctrlLoginCalls: &ctrlLogins,
+		apiCalls:       &apiCalls,
 		handler: func(w http.ResponseWriter, r *http.Request) {
-			if r.Header.Get("Token") == "old-tok" {
+			if r.URL.Query().Get("zentaosid") == "old-sid" {
 				w.Header().Set("Location", "/zentao/user-login.html")
 				w.WriteHeader(http.StatusFound)
 				return
@@ -157,7 +160,7 @@ func TestDoController_RedirectToLogin_TriggersRefreshSmoke(t *testing.T) {
 	})
 	defer srv.Close()
 
-	c := newTestClient(t, "old-tok", srv.URL)
+	c := newTestClient(t, "old-sid", srv.URL)
 	_, status, err := c.doController(context.Background(), "user", "view", []string{"admin"}, nil, nil)
 	if err != nil {
 		t.Fatalf("doController: %v", err)
@@ -165,8 +168,8 @@ func TestDoController_RedirectToLogin_TriggersRefreshSmoke(t *testing.T) {
 	if status != http.StatusOK {
 		t.Fatalf("status = %d (post-replay should be 200)", status)
 	}
-	if loginCalls.Load() != 1 {
-		t.Fatalf("login calls = %d, want 1", loginCalls.Load())
+	if ctrlLogins.Load() != 1 {
+		t.Fatalf("apilogin rounds = %d, want 1", ctrlLogins.Load())
 	}
 	if apiCalls.Load() != 2 {
 		t.Fatalf("api calls = %d, want 2 (initial + replay)", apiCalls.Load())
@@ -244,13 +247,13 @@ func TestDoControllerForm_QueryPlumbed(t *testing.T) {
 }
 
 func TestDoControllerForm_RefreshAndReplay(t *testing.T) {
-	var apiCalls, loginCalls atomic.Int32
+	var apiCalls, ctrlLogins atomic.Int32
 	srv := newV1LoginServer(t, v1Opts{
-		sessionID:  "new-tok",
-		loginCalls: &loginCalls,
-		apiCalls:   &apiCalls,
+		ctrlSID:        "new-sid",
+		ctrlLoginCalls: &ctrlLogins,
+		apiCalls:       &apiCalls,
 		handler: func(w http.ResponseWriter, r *http.Request) {
-			if r.URL.Query().Get("zentaosid") == "old-tok" {
+			if r.URL.Query().Get("zentaosid") == "old-sid" {
 				w.Header().Set("Location", "/zentao/user-login.html")
 				w.WriteHeader(http.StatusFound)
 				return
@@ -261,7 +264,7 @@ func TestDoControllerForm_RefreshAndReplay(t *testing.T) {
 	})
 	defer srv.Close()
 
-	c := newTestClient(t, "old-tok", srv.URL)
+	c := newTestClient(t, "old-sid", srv.URL)
 	form := map[string][]string{"name": {"x"}}
 	_, status, err := c.doControllerForm(context.Background(), "user", "create", nil, nil, form)
 	if err != nil {
@@ -270,8 +273,8 @@ func TestDoControllerForm_RefreshAndReplay(t *testing.T) {
 	if status != http.StatusOK {
 		t.Fatalf("status = %d (post-replay should be 200)", status)
 	}
-	if loginCalls.Load() != 1 {
-		t.Fatalf("login calls = %d, want 1", loginCalls.Load())
+	if ctrlLogins.Load() != 1 {
+		t.Fatalf("apilogin rounds = %d, want 1", ctrlLogins.Load())
 	}
 	if apiCalls.Load() != 2 {
 		t.Fatalf("api calls = %d, want 2", apiCalls.Load())
@@ -384,14 +387,14 @@ func TestDoController_RespectsCallerSuppliedZentaosid(t *testing.T) {
 // --- 200 + please-login envelope drives refresh on Controller transport ---
 
 func TestDoController_SessionExpiry_ViaPleaseLoginBody(t *testing.T) {
-	var apiCalls, loginCalls atomic.Int32
+	var apiCalls, ctrlLogins atomic.Int32
 	srv := newV1LoginServer(t, v1Opts{
-		sessionID:  "new-tok",
-		loginCalls: &loginCalls,
-		apiCalls:   &apiCalls,
+		ctrlSID:        "new-sid",
+		ctrlLoginCalls: &ctrlLogins,
+		apiCalls:       &apiCalls,
 		handler: func(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Content-Type", "application/json")
-			if r.URL.Query().Get("zentaosid") == "old-tok" {
+			if r.URL.Query().Get("zentaosid") == "old-sid" {
 				_, _ = w.Write([]byte(`{"status":"failed","reason":"please login"}`))
 				return
 			}
@@ -400,7 +403,7 @@ func TestDoController_SessionExpiry_ViaPleaseLoginBody(t *testing.T) {
 	})
 	defer srv.Close()
 
-	c := newTestClient(t, "old-tok", srv.URL)
+	c := newTestClient(t, "old-sid", srv.URL)
 	_, status, err := c.doController(context.Background(), "user", "view", []string{"admin"}, nil, nil)
 	if err != nil {
 		t.Fatalf("doController: %v", err)
@@ -408,8 +411,8 @@ func TestDoController_SessionExpiry_ViaPleaseLoginBody(t *testing.T) {
 	if status != http.StatusOK {
 		t.Fatalf("status = %d (post-replay)", status)
 	}
-	if loginCalls.Load() != 1 {
-		t.Fatalf("login calls = %d, want 1", loginCalls.Load())
+	if ctrlLogins.Load() != 1 {
+		t.Fatalf("apilogin rounds = %d, want 1", ctrlLogins.Load())
 	}
 	if apiCalls.Load() != 2 {
 		t.Fatalf("api calls = %d, want 2", apiCalls.Load())

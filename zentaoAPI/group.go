@@ -224,7 +224,7 @@ func (c *Client) findGroupIDByName(ctx context.Context, projectID int64, name st
 	}
 	var env CtrlResp
 	if err := json.Unmarshal(body, &env); err != nil {
-		return 0, fmt.Errorf("decode list-group envelope: %w (body=%s)", err, string(body))
+		return 0, fmt.Errorf("decode list-group response: %w (body=%s)", err, string(body))
 	}
 	if env.Status != "success" {
 		return 0, classifyCtrlError(status, env, body)

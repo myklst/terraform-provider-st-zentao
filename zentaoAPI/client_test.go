@@ -52,6 +52,11 @@ func TestNewClient_CheckRedirectDisabled(t *testing.T) {
 
 // --- shared test helpers (consumed by every *_transport_test.go) ---
 
+// newTestClient builds a *Client without going through NewClient's login
+// round-trips. Both credentials (token for API V1/V2 transport, ctrlSID for the
+// Controller transport) are seeded to the same value so Controller tests
+// that assert zentaosid=<token> keep working under the dual-credential
+// split; tests that need them to differ can set c.ctrlSID afterwards.
 func newTestClient(t *testing.T, token string, srvURL string) *Client {
 	t.Helper()
 	jar, _ := cookiejar.New(nil)
@@ -60,6 +65,7 @@ func newTestClient(t *testing.T, token string, srvURL string) *Client {
 		account:  "admin",
 		password: "p",
 		token:    token,
+		ctrlSID:  token,
 		http: &http.Client{
 			Jar: jar,
 			CheckRedirect: func(*http.Request, []*http.Request) error {
