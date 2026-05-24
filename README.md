@@ -133,6 +133,30 @@ resource "st-zentao_group_privs" "developers" {
 
 Required: `group`, `privs`. This resource owns the group's **entire** privilege set — applying replaces it, destroying clears it. Each priv is `module-method`; an empty `privs = []` asserts the group has no privileges. Works for both system (`project = 0`) and project-scoped groups.
 
+### `st-zentao_system`
+
+```hcl
+resource "st-zentao_system" "example" {
+  product = 1
+  name    = "Back Office"
+  desc    = "Created by Terraform"
+  status  = "active" # active | inactive
+}
+```
+
+Manages a ZenTao application. Required: `product`, `name`. `product` is the owning product id and is immutable — changing it replaces the application. `status` (`active` | `inactive`) is Optional+Computed and toggled in place. `integrated`, `created_by` / `created_date`, and `last_edited_by` / `last_edited_date` are read-only.
+
+### `st-zentao_system_child_attachment`
+
+```hcl
+resource "st-zentao_system_child_attachment" "edge" {
+  parent = st-zentao_system.platform.id
+  child  = st-zentao_system.billing.id
+}
+```
+
+Attaches a child application under a parent application. Required: `parent`, `child` (both immutable — changing either replaces the edge). A child may belong to several parents; attaching is additive and idempotent. Use this instead of an inline field because applications reference each other by id within one `for_each` block.
+
 ## Data Sources
 
 Each resource has a matching data source that takes `id`:
