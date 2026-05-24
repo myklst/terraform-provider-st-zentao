@@ -27,11 +27,20 @@ type Client struct {
 	tokenMu sync.Mutex
 	token   string
 
+	// ctrlSID is the Controller-transport credential — a logged-in PHP
+	// sessionID from the two-step apilogin (loginController). It is kept
+	// separate from token because on some deployments the API token store
+	// and the PHP session store don't share state (see auth.go).
+	ctrlMu  sync.Mutex
+	ctrlSID string
+
 	// refreshMu serializes refreshSession attempts so that concurrent
 	// session-expired signals trigger only a single Login round-trip.
 	// The first goroutine to acquire it performs Login; subsequent
-	// goroutines see a refreshed token and no-op.
-	refreshMu sync.Mutex
+	// goroutines see a refreshed token and no-op. ctrlRefreshMu plays the
+	// same role for the independent Controller (apilogin) credential.
+	refreshMu     sync.Mutex
+	ctrlRefreshMu sync.Mutex
 
 	http *http.Client
 
@@ -86,7 +95,47 @@ func NewClient(baseURL, account, password string) (*Client, error) {
 	if err := c.Login(context.Background()); err != nil {
 		return nil, err
 	}
+	// Establish the independent Controller-transport session up front so
+	// credential problems fail fast at construction rather than on the
+	// first Controller call. Both credentials share c.http's cookie jar.
+	if err := c.loginController(context.Background()); err != nil {
+		return nil, err
+	}
 	return c, nil
+}
+
+// credential abstracts the observe/refresh pair for a single auth carrier
+// so doWithRefresh can serve both the V1-token transports (V1/V2) and the
+// Controller transport's independent apilogin sessionID without duplicating
+// the send → detect → refresh → replay loop.
+type credential struct {
+	observe func() string
+	refresh func(ctx context.Context, observed string) error
+}
+
+// tokenCredential is the V1/V2 carrier: the V1 token rotated by Login.
+func (c *Client) tokenCredential() credential {
+	return credential{
+		observe: func() string {
+			c.tokenMu.Lock()
+			defer c.tokenMu.Unlock()
+			return c.token
+		},
+		refresh: c.refreshSession,
+	}
+}
+
+// ctrlCredential is the Controller carrier: the apilogin sessionID rotated
+// by loginController.
+func (c *Client) ctrlCredential() credential {
+	return credential{
+		observe: func() string {
+			c.ctrlMu.Lock()
+			defer c.ctrlMu.Unlock()
+			return c.ctrlSID
+		},
+		refresh: c.refreshControllerSession,
+	}
 }
 
 // ============================================================================
@@ -183,22 +232,23 @@ func (c *Client) sendHTTP(
 }
 
 // doWithRefresh implements the "send → detect expiry → refresh once →
-// replay" pattern shared by every transport. The transport supplies its
-// own expiry detector (V1: 401/403, V2: 401, Controller: 302/please-login)
-// and a send closure that knows how to actually issue the request with
-// the supplied token.
+// replay" pattern shared by every transport. The transport supplies the
+// credential to use (cred — V1 token for V1/V2, apilogin sessionID for
+// Controller), its own expiry detector (V1: 401/403, V2: 401, Controller:
+// 302/please-login), and a send closure that issues the request with the
+// supplied token.
 //
-// Refresh contention is handled inside refreshSession: concurrent callers
-// observing the same expired token serialize on refreshMu and only one
-// Login round-trip fires; the rest no-op once the token has rotated.
+// Refresh contention is handled inside the credential's refresh func:
+// concurrent callers observing the same expired token serialize on the
+// matching mutex and only one login round-trip fires; the rest no-op once
+// the token has rotated.
 func (c *Client) doWithRefresh(
 	ctx context.Context,
+	cred credential,
 	isExpired func(status int, body []byte, location string) bool,
 	send func(token string) (body []byte, status int, location string, err error),
 ) ([]byte, int, error) {
-	c.tokenMu.Lock()
-	observedToken := c.token
-	c.tokenMu.Unlock()
+	observedToken := cred.observe()
 
 	rawBody, status, location, err := send(observedToken)
 	if err != nil {
@@ -208,13 +258,11 @@ func (c *Client) doWithRefresh(
 		return rawBody, status, nil
 	}
 
-	if err := c.refreshSession(ctx, observedToken); err != nil {
+	if err := cred.refresh(ctx, observedToken); err != nil {
 		return nil, status, fmt.Errorf("session refresh: %w", err)
 	}
 
-	c.tokenMu.Lock()
-	newToken := c.token
-	c.tokenMu.Unlock()
+	newToken := cred.observe()
 
 	rawBody, status, location, err = send(newToken)
 	if err != nil {

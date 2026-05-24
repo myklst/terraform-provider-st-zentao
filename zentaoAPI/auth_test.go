@@ -27,6 +27,18 @@ func TestLogin_V1_Success(t *testing.T) {
 	var gotAccount, gotPassword string
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// NewClient now also runs the Controller apilogin; serve those two
+		// routes so construction completes and the V1 assertions can run.
+		if r.URL.Path == getSessionIDPath {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = io.WriteString(w, `{"status":"success","data":"{\"sessionID\":\"ctrl-sid-1\",\"sessionName\":\"zentaosid\"}"}`)
+			return
+		}
+		if r.URL.Path == userLoginPath {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = io.WriteString(w, `{"status":"success","token":"ctrl-sid-1","user":{"account":"admin"}}`)
+			return
+		}
 		if r.URL.Path != apiV1PathPrefix+"tokens" {
 			t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
 			w.WriteHeader(http.StatusNotFound)
@@ -201,6 +213,133 @@ func TestRefreshSession_DoubleCheck(t *testing.T) {
 	}
 }
 
+// --- Controller apilogin (two-step) ---
+
+func TestLoginController_Success(t *testing.T) {
+	var gotSessionIDHit, gotLoginHit bool
+	var gotAccount, gotPassword, gotZentaosid string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case getSessionIDPath:
+			gotSessionIDHit = true
+			http.SetCookie(w, &http.Cookie{Name: "zentaosid", Value: "sid-42", Path: "/", HttpOnly: true})
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = io.WriteString(w, `{"status":"success","data":"{\"sessionID\":\"sid-42\",\"sessionName\":\"zentaosid\"}"}`)
+		case userLoginPath:
+			gotLoginHit = true
+			gotAccount = r.URL.Query().Get("account")
+			gotPassword = r.URL.Query().Get("password")
+			gotZentaosid = r.URL.Query().Get("zentaosid")
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = io.WriteString(w, `{"status":"success","token":"sid-42","user":{"account":"admin"}}`)
+		default:
+			t.Errorf("unexpected path: %s", r.URL.Path)
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer srv.Close()
+
+	c := newTestClient(t, "v1-token", srv.URL)
+	c.password = "s3cret"
+	if err := c.loginController(context.Background()); err != nil {
+		t.Fatalf("loginController: %v", err)
+	}
+	if !gotSessionIDHit || !gotLoginHit {
+		t.Fatalf("expected both apilogin steps to fire (getsessionid=%v, login=%v)", gotSessionIDHit, gotLoginHit)
+	}
+	if c.ctrlSID != "sid-42" {
+		t.Fatalf("ctrlSID = %q, want sid-42", c.ctrlSID)
+	}
+	if c.token != "v1-token" {
+		t.Fatalf("loginController must not touch the V1 token, got %q", c.token)
+	}
+	if gotAccount != "admin" || gotPassword != "s3cret" || gotZentaosid != "sid-42" {
+		t.Fatalf("apilogin query = account:%q password:%q zentaosid:%q", gotAccount, gotPassword, gotZentaosid)
+	}
+}
+
+func TestLoginController_NoUser_IsFailure(t *testing.T) {
+	// A silent form re-render returns status:success WITHOUT a user — must
+	// be treated as a login failure rather than a phantom success.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case getSessionIDPath:
+			_, _ = io.WriteString(w, `{"status":"success","data":"{\"sessionID\":\"sid-1\"}"}`)
+		case userLoginPath:
+			_, _ = io.WriteString(w, `{"status":"success","data":"{\"title\":\"用户登录\"}"}`)
+		}
+	}))
+	defer srv.Close()
+
+	c := newTestClient(t, "tok", srv.URL)
+	err := c.loginController(context.Background())
+	if err == nil {
+		t.Fatal("expected error when apilogin returns no user")
+	}
+}
+
+func TestLoginController_EmptySessionID_IsFailure(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Path == getSessionIDPath {
+			_, _ = io.WriteString(w, `{"status":"success","data":"{\"sessionID\":\"\"}"}`)
+		}
+	}))
+	defer srv.Close()
+
+	c := newTestClient(t, "tok", srv.URL)
+	err := c.loginController(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "empty sessionID") {
+		t.Fatalf("err = %v, want empty sessionID error", err)
+	}
+}
+
+func TestNewClient_EstablishesBothCredentials(t *testing.T) {
+	srv := newV1LoginServer(t, v1Opts{sessionID: "v1-tok", ctrlSID: "ctrl-sid"})
+	defer srv.Close()
+
+	c, err := NewClient(srv.URL, "admin", "p")
+	if err != nil {
+		t.Fatalf("NewClient: %v", err)
+	}
+	if c.token != "v1-tok" {
+		t.Fatalf("token = %q, want v1-tok", c.token)
+	}
+	if c.ctrlSID != "ctrl-sid" {
+		t.Fatalf("ctrlSID = %q, want ctrl-sid (independent apilogin credential)", c.ctrlSID)
+	}
+}
+
+func TestRefreshControllerSession_DoubleCheck(t *testing.T) {
+	var ctrlLogins atomic.Int32
+	srv := newV1LoginServer(t, v1Opts{ctrlSID: "new-sid", ctrlLoginCalls: &ctrlLogins})
+	defer srv.Close()
+
+	c := newTestClient(t, "old-sid", srv.URL)
+
+	// Peer already rotated the sessionID → no apilogin.
+	c.ctrlSID = "already-refreshed"
+	if err := c.refreshControllerSession(context.Background(), "old-sid"); err != nil {
+		t.Fatalf("refreshControllerSession: %v", err)
+	}
+	if ctrlLogins.Load() != 0 {
+		t.Fatalf("apilogin should not fire when sessionID already changed, got %d", ctrlLogins.Load())
+	}
+
+	// Matched observer → apilogin fires and rotates ctrlSID.
+	c.ctrlSID = "old-sid"
+	if err := c.refreshControllerSession(context.Background(), "old-sid"); err != nil {
+		t.Fatalf("refreshControllerSession: %v", err)
+	}
+	if ctrlLogins.Load() != 1 {
+		t.Fatalf("apilogin should fire once, got %d", ctrlLogins.Load())
+	}
+	if c.ctrlSID != "new-sid" {
+		t.Fatalf("ctrlSID = %q, want new-sid", c.ctrlSID)
+	}
+}
+
 // --- V1 login mock factory (shared across every transport test) ---
 
 type v1Opts struct {
@@ -212,10 +351,19 @@ type v1Opts struct {
 	loginStatus int
 	// loginCalls, when non-nil, increments on each /api.php/v1/tokens hit.
 	loginCalls *atomic.Int32
-	// apiCalls, when non-nil, increments on every non-login path hit.
+	// apiCalls, when non-nil, increments on every non-login, non-apilogin path hit.
 	apiCalls *atomic.Int32
-	// handler, when non-nil, serves any non-login path.
+	// handler, when non-nil, serves any non-login, non-apilogin path.
 	handler http.HandlerFunc
+
+	// --- Controller-transport apilogin (two-step) mock knobs ---
+	// ctrlSID is the sessionID handed out by GET /api-getsessionid.json and
+	// echoed by GET /user-login.json. Default: "ctrl-sid-1". Tests use a
+	// value distinct from sessionID to assert which credential a request carries.
+	ctrlSID string
+	// ctrlLoginCalls, when non-nil, increments once per apilogin round
+	// (counted on the GET /api-getsessionid.json hit).
+	ctrlLoginCalls *atomic.Int32
 }
 
 // newV1LoginServer returns an httptest.Server that emulates ZenTao's
@@ -226,6 +374,9 @@ func newV1LoginServer(t *testing.T, opts v1Opts) *httptest.Server {
 	t.Helper()
 	if opts.sessionID == "" {
 		opts.sessionID = "tok-1"
+	}
+	if opts.ctrlSID == "" {
+		opts.ctrlSID = "ctrl-sid-1"
 	}
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == apiV1PathPrefix+"tokens" && r.Method == http.MethodPost {
@@ -244,6 +395,21 @@ func newV1LoginServer(t *testing.T, opts v1Opts) *httptest.Server {
 				return
 			}
 			_, _ = fmt.Fprintf(w, `{"token":"%s"}`, opts.sessionID)
+			return
+		}
+		// --- Controller-transport apilogin (two-step) ---
+		if r.URL.Path == getSessionIDPath {
+			if opts.ctrlLoginCalls != nil {
+				opts.ctrlLoginCalls.Add(1)
+			}
+			http.SetCookie(w, &http.Cookie{Name: "zentaosid", Value: opts.ctrlSID, Path: "/", HttpOnly: true})
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = fmt.Fprintf(w, `{"status":"success","data":"{\"sessionID\":\"%s\",\"sessionName\":\"zentaosid\"}"}`, opts.ctrlSID)
+			return
+		}
+		if r.URL.Path == userLoginPath {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = fmt.Fprintf(w, `{"status":"success","token":"%s","user":{"account":"admin"}}`, opts.ctrlSID)
 			return
 		}
 		if opts.apiCalls != nil {

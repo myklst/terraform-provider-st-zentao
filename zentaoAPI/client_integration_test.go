@@ -53,7 +53,7 @@ func TestIntegration_V1Login_AndCallController(t *testing.T) {
 		t.Fatalf("status = %d (body=%s)", status, body)
 	}
 
-	var env CtrlEnvelope
+	var env CtrlResp
 	if err := json.Unmarshal(body, &env); err != nil {
 		t.Fatalf("envelope decode: %v (body=%s)", err, body)
 	}

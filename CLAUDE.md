@@ -42,9 +42,12 @@ The HTTP client supports all three because no single surface covers every entity
 
 **Critical invariants** (probed and documented in `docs/superpowers/specs/probe-controller-auth.md`):
 
-- A single `POST /api.php/v1/tokens` produces **one** sessionID that authenticates **all three** surfaces. Refresh stays a single round-trip even when multiple transports run concurrently.
+- **Two independent credentials.** The API token store and the PHP session store are *separate*: `POST /api.php/v1/tokens` drives V1/V2 but its sessionID does **not** authenticate Controller routes (it never writes `$_SESSION['user']`). The client holds two credentials sharing one cookie jar:
+  - `c.token` — `POST /api.php/v1/tokens`, carries V1/V2 (`Token:` header).
+  - `c.ctrlSID` — two-step apilogin (`GET /api-getsessionid.json` → `GET /user-login.json?account&password&zentaosid`), carries Controller (`?zentaosid=` query). Apilogin success = `status:success` **and** a non-empty `user.account`; status alone is not enough (a form re-render also returns `status:success`).
+  - Both are established eagerly in `NewClient` and refreshed independently (`refreshSession` / `refreshControllerSession`, each with its own mutex).
 - V2 must **not** receive `?zentaosid=` query — Max 8.x mis-parses it on PUT as a record id, yielding `Unknown column` SQL errors. `sendHTTP`'s `injectZentaosid` flag guards this.
-- Controller routes authenticate **exclusively** via `?zentaosid=` query — cookie + Token header alone yields 302 → `/user-login`.
+- Controller routes authenticate **exclusively** via `?zentaosid=` query (carrying `c.ctrlSID`) — cookie + Token header alone yields 302 → `/user-login`.
 - The HTTP client's `CheckRedirect` is set to `http.ErrUseLastResponse` so the 302→login signal stays visible to `isControllerSessionExpired` instead of being silently followed.
 
 ### File layout in `zentaoAPI/`
@@ -52,10 +55,12 @@ The HTTP client supports all three because no single surface covers every entity
 Each transport owns its full request lifecycle. Shared plumbing lives in `client.go`:
 
 ```
-client.go                  *Client struct, NewClient, sendHTTP (URL build + 5xx backoff),
-                           doWithRefresh (observe-token → send → detect-expiry → refresh → replay)
-auth.go                    Login (POST /api.php/v1/tokens), refreshSession,
-                           loginAPIV1Wire — credential lifecycle, transport-agnostic
+client.go                  *Client struct (token + ctrlSID), NewClient, sendHTTP
+                           (URL build + 5xx backoff), credential{observe,refresh},
+                           doWithRefresh (observe-cred → send → detect-expiry → refresh → replay)
+auth.go                    Login (POST /api.php/v1/tokens) + refreshSession (V1/V2 cred);
+                           loginController (two-step apilogin) + refreshControllerSession
+                           (Controller cred); credential lifecycle, transport-agnostic
 errors.go                  ErrNotFound, ErrUnauthorized sentinels; *APIError
                            with password redaction; isNotFoundReason,
                            isUnauthorizedReason; zentaoFailReason
@@ -84,9 +89,9 @@ Test files mirror sources 1:1: every `*.go` has a co-named `*_test.go`. Shared t
 
 ### How the refresh loop works
 
-`*Client.doWithRefresh(ctx, isExpired, send)` is the shared "send → detect-expiry → refresh-once → replay" loop. Each transport's `doXRequest` is essentially a one-line dispatch into it, supplying a transport-specific `isExpired` predicate and a `send` closure that calls `sendHTTP` with the right body/contentType/`injectZentaosid` flag.
+`*Client.doWithRefresh(ctx, cred, isExpired, send)` is the shared "send → detect-expiry → refresh-once → replay" loop. Each transport's `doXRequest` is essentially a one-line dispatch into it, supplying the `credential` to use (`c.tokenCredential()` for V1/V2, `c.ctrlCredential()` for Controller), a transport-specific `isExpired` predicate, and a `send` closure that calls `sendHTTP` with the right body/contentType/`injectZentaosid` flag. The `credential{observe, refresh}` pair is what lets one loop serve both the V1-token and the apilogin sessionID without branching.
 
-Concurrent expiry is serialised by `refreshMu` inside `refreshSession`: the first goroutine to acquire it runs `Login()`; later goroutines re-check the token under the lock and no-op if it's already been rotated.
+Concurrent expiry is serialised inside each credential's refresh func: `refreshSession` (guarded by `refreshMu`) re-runs `Login()`; `refreshControllerSession` (guarded by `ctrlRefreshMu`) re-runs `loginController()`. The first goroutine to acquire the lock performs the login; later goroutines re-check the credential under the lock and no-op if it's already been rotated.
 
 ### Path prefix constants
 
@@ -101,7 +106,7 @@ Tests assert on the exact wire path also via the constants (e.g. `gotPath != api
 
 When unsure how ZenTao behaves on a real server, write a curl probe and record findings in `docs/superpowers/specs/`. The current probe documents are the source of truth for "why the code is shaped this way":
 
-- `probe-controller-auth.md` — auth flow + cross-transport sessionID compatibility (2026-05-06 + 2026-05-08 addendum)
+- `probe-controller-auth.md` — auth flow + the two-credential model (token store vs PHP session store)
 - `probe-user-controller.md` — User controller response shapes + verifyPassword sudo gate
 - `2026-05-06-controller-extension-stage1.md` — design contract feeding the original Controller transport
 - `2026-05-03-zentao-provider-design.md` — initial provider design
@@ -111,7 +116,7 @@ ZenTao Max 8.1 has several behavioural quirks that aren't documented upstream (e
 ## Editing conventions specific to this repo
 
 - **Don't reintroduce a generic `doRequest`** — the per-transport split exists deliberately so each surface owns its own URL prefix knowledge, body encoding, and expiry detector. A new transport gets a new `*_transport.go` file, not a flag added to a generic helper.
-- **Rename impacts on tests are large** — the `c.token` field, `tokenMu`, `refreshMu`, `backoffInitialInterval`, and `backoffMaxElapsed` are read directly by `newTestClient` and several tests. Renaming any of them touches multiple test files.
+- **Rename impacts on tests are large** — the `c.token` / `c.ctrlSID` fields, `tokenMu`, `refreshMu`, `ctrlRefreshMu`, `backoffInitialInterval`, and `backoffMaxElapsed` are read directly by `newTestClient` and several tests. `newTestClient` seeds `token` and `ctrlSID` to the *same* value so Controller tests asserting `zentaosid=<token>` keep working; the `newV1LoginServer` factory also serves the apilogin routes (`api-getsessionid`, `user-login`) so `NewClient` completes. Renaming any of these touches multiple test files.
 - **Integration test env vars** match `.envrc.sample` exactly — `ZENTAO_URL` / `ZENTAO_ACCOUNT` / `ZENTAO_PASSWORD` (no `_INTEGRATION_` infix). The same vars feed both Go integration tests and Terraform acceptance tests.
 - **`CallController` is the escape hatch**, not the primary surface — typed wrappers should be added for any endpoint that gets called more than once.
 - **Don't git push**

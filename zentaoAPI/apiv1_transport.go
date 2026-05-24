@@ -36,7 +36,7 @@ func (c *Client) doV1Request(
 			return nil, 0, fmt.Errorf("marshal body: %w", err)
 		}
 	}
-	return c.doWithRefresh(ctx, isV1SessionExpired, func(token string) ([]byte, int, string, error) {
+	return c.doWithRefresh(ctx, c.tokenCredential(), isV1SessionExpired, func(token string) ([]byte, int, string, error) {
 		return c.sendHTTP(ctx, method, path, query, bodyBytes, "application/json", token, false)
 	})
 }
