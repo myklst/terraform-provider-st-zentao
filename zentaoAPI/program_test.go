@@ -56,6 +56,27 @@ func TestGetProgram_FullFieldSet(t *testing.T) {
 	}
 }
 
+// htmlspecialchars(ENT_QUOTES) on the server side encodes a written
+// apostrophe to `&#039;`; GetProgram must decode it so Terraform's
+// round-trip stays consistent (see TestGetProduct_DecodesHTMLEntitiesInName).
+func TestGetProgram_DecodesHTMLEntitiesInName(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"status":"success","data":"{\"program\":{\"id\":7,\"name\":\"Werewolf&#039;s Hunt &amp; &lt;tag&gt;\"}}"}`))
+	}))
+	defer srv.Close()
+
+	c := newTestClient(t, "tok-1", srv.URL)
+	p, err := c.GetProgram(context.Background(), 7)
+	if err != nil {
+		t.Fatalf("GetProgram: %v", err)
+	}
+	want := "Werewolf's Hunt & <tag>"
+	if deref(p.Name) != want {
+		t.Fatalf("Name = %q, want %q", deref(p.Name), want)
+	}
+}
+
 // On Max 8.1, a missing-id GET returns HTTP 200 with `program:false`
 // inside the data wrapper. The wrapper must surface this as ErrNotFound
 // so Terraform Read clears the resource from state.

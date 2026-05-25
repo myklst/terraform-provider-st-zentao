@@ -84,6 +84,29 @@ func TestGetProduct_HappyPath(t *testing.T) {
 	}
 }
 
+// Some ZenTao deployments persist name through htmlspecialchars(ENT_QUOTES),
+// so a written apostrophe reads back as `&#039;` (and `&`→`&amp;`, `<`→`&lt;`).
+// GetProduct must decode it to the canonical form, otherwise Terraform's
+// create round-trip trips "inconsistent result after apply": config `'` vs
+// state `&#039;`.
+func TestGetProduct_DecodesHTMLEntitiesInName(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"status":"success","data":"{\"product\":{\"id\":42,\"name\":\"PG | Game | [0161] Werewolf&#039;s Hunt &amp; &lt;tag&gt;\"}}"}`))
+	}))
+	defer srv.Close()
+
+	c := newTestClient(t, "tok-1", srv.URL)
+	p, err := c.GetProduct(context.Background(), 42)
+	if err != nil {
+		t.Fatalf("GetProduct: %v", err)
+	}
+	want := "PG | Game | [0161] Werewolf's Hunt & <tag>"
+	if deref(p.Name) != want {
+		t.Fatalf("Name = %q, want %q", deref(p.Name), want)
+	}
+}
+
 func TestGetProduct_ReviewerEmpty(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")

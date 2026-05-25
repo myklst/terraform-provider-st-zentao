@@ -92,6 +92,27 @@ func TestGetProject_HappyPath_RowAndProducts(t *testing.T) {
 	}
 }
 
+// htmlspecialchars(ENT_QUOTES) on the server side encodes a written
+// apostrophe to `&#039;`; GetProject must decode it so Terraform's
+// round-trip stays consistent (see TestGetProduct_DecodesHTMLEntitiesInName).
+func TestGetProject_DecodesHTMLEntitiesInName(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"status":"success","data":"{\"project\":{\"id\":28,\"name\":\"Werewolf&#039;s Hunt &amp; &lt;tag&gt;\"},\"products\":{}}"}`))
+	}))
+	defer srv.Close()
+
+	c := newTestClient(t, "tok-1", srv.URL)
+	p, err := c.GetProject(context.Background(), 28)
+	if err != nil {
+		t.Fatalf("GetProject: %v", err)
+	}
+	want := "Werewolf's Hunt & <tag>"
+	if deref(p.Name) != want {
+		t.Fatalf("Name = %q, want %q", deref(p.Name), want)
+	}
+}
+
 func TestGetProject_NoProductsLinked(t *testing.T) {
 	// project-view on a project with no linked products → .data.products
 	// is an empty object. Wrapper should produce a non-nil empty slice.

@@ -184,6 +184,7 @@ func (c *Client) GetSystem(ctx context.Context, id int64) (*System, error) {
 	if deref(s.Deleted) {
 		return nil, ErrNotFound
 	}
+	s.Name = decodeEntitiesPtr(s.Name)
 	return &s, nil
 }
 
