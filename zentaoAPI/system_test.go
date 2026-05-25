@@ -50,6 +50,27 @@ func TestGetSystem_FullFieldSet(t *testing.T) {
 	}
 }
 
+// htmlspecialchars(ENT_QUOTES) on the server side encodes a written
+// apostrophe to `&#039;`; GetSystem must decode it so Terraform's
+// round-trip stays consistent (see TestGetProduct_DecodesHTMLEntitiesInName).
+func TestGetSystem_DecodesHTMLEntitiesInName(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"status":"success","data":"{\"system\":{\"id\":685,\"name\":\"Werewolf&#039;s Hunt &amp; &lt;tag&gt;\",\"deleted\":\"0\"}}"}`))
+	}))
+	defer srv.Close()
+
+	c := newTestClient(t, "tok-1", srv.URL)
+	got, err := c.GetSystem(context.Background(), 685)
+	if err != nil {
+		t.Fatalf("GetSystem: %v", err)
+	}
+	want := "Werewolf's Hunt & <tag>"
+	if deref(got.Name) != want {
+		t.Fatalf("Name = %q, want %q", deref(got.Name), want)
+	}
+}
+
 // A never-existed id returns HTTP 200 with `system:false`. Surface as
 // ErrNotFound so Terraform Read clears the resource.
 func TestGetSystem_NotFound_SystemFalse(t *testing.T) {

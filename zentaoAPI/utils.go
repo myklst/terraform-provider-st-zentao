@@ -3,6 +3,7 @@ package zentaoapi
 import (
 	"encoding/json"
 	"fmt"
+	"html"
 	"sort"
 	"strings"
 )
@@ -83,6 +84,30 @@ func jsonNumberToInt64(n json.Number, field string) (int64, error) {
 
 func jsonNumberToBool(n json.Number) bool {
 	return n == "1"
+}
+
+// decodeEntitiesPtr HTML-entity-decodes the pointee in place and returns
+// the same pointer (nil stays nil). ZenTao persist title/name fields through
+// htmlspecialchars(ENT_QUOTES), so a written
+// apostrophe `'` reads back as `&#039;` (likewise `&`→`&amp;`, `<`→`&lt;`,
+// `"`→`&quot;`); Decoding on read makes Get* return the canonical un-encoded
+// form, which:
+//   - keeps Terraform's create/update round-trip consistent (the configured
+//     `'` equals the value the provider writes to state), and
+//   - keeps the M-Z merge safe: Update resubmits the decoded baseline, so a
+//     partial update (e.g. SetProgramParent, which leaves Name nil) cannot
+//     re-encode an already-encoded value into `&amp;#039;`.
+//
+// html.UnescapeString is idempotent on already-raw text, so decoding a
+// non-encoding server's response is a no-op. Decode belongs here in the API
+// client (not the provider mapping) precisely because the merge baseline
+// must be canonical before resubmission.
+func decodeEntitiesPtr(p *string) *string {
+	if p == nil {
+		return nil
+	}
+	s := html.UnescapeString(*p)
+	return &s
 }
 
 func strptr(s string) *string          { return &s }

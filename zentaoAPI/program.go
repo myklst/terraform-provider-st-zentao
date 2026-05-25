@@ -184,6 +184,7 @@ func (c *Client) GetProgram(ctx context.Context, id int64) (*Program, error) {
 	if err := json.Unmarshal(inner.Program, &prog); err != nil {
 		return nil, fmt.Errorf("decode get-program wire: %w (body=%s)", err, string(body))
 	}
+	prog.Name = decodeEntitiesPtr(prog.Name)
 	return &prog, nil
 }
 

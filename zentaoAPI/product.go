@@ -237,6 +237,7 @@ func (c *Client) GetProduct(ctx context.Context, id int64) (*Product, error) {
 	if err := json.Unmarshal(inner.Product, &prod); err != nil {
 		return nil, fmt.Errorf("decode get-product wire: %w (body=%s)", err, string(body))
 	}
+	prod.Name = decodeEntitiesPtr(prod.Name)
 	return &prod, nil
 }
 

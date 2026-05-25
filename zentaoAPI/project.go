@@ -244,6 +244,7 @@ func (c *Client) GetProject(ctx context.Context, id int64) (*Project, error) {
 		return nil, fmt.Errorf("decode get-project products map: %w (body=%s)", err, string(body))
 	}
 	prod.Products = &ids
+	prod.Name = decodeEntitiesPtr(prod.Name)
 	return &prod, nil
 }
 
