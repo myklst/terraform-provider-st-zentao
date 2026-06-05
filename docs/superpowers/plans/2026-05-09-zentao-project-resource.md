@@ -58,7 +58,7 @@ Decisions reached during the 2026-05-09 grill-me session.
 - **Note:** `custom` does not pull a whitelist — first version exposes the enum only; whitelist write path deferred.
 
 ### 3.8 Roles & description
-- **Decision:** `pm / po / qd / rd` are `Optional + Computed` with no static default (mirrors product role fields, [resource_product.go:130-156](../../../zentao/resource_product.go#L130-L156)). Wire JSON keys: `PM / PO / QD / RD`.
+- **Decision:** `pm` is `Optional + Computed` with no static default (mirrors product role fields, [resource_product.go:130-156](../../../zentao/resource_product.go#L130-L156)). Wire JSON key: `PM`.
 - **Decision:** `description` is `Optional + Computed` with `static default ""`, wire key `desc` (mirrors product/program convention).
 
 ### 3.9 Server-managed read-only fields

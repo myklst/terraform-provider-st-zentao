@@ -98,7 +98,7 @@ resource "st-zentao_project" "demo" {
 }
 ```
 
-Required: `name`, `model`, `begin`, `end`, `workflow_group`. Optional: `program`, `products`, `multiple`, `pm`, `desc`, `acl`, `po`, `qd`, `rd`. Changing `model` forces resource replacement.
+Required: `name`, `model`, `begin`, `end`, `workflow_group`. Optional: `program`, `products`, `multiple`, `pm`, `desc`, `acl`. Changing `model` forces resource replacement.
 
 ### `st-zentao_group`
 

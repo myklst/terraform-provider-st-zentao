@@ -57,7 +57,7 @@ The public V2 docs list `name / model / begin / end / parent / desc / PM / acl`.
 | `type` | string | optional | Defaults to `"project"`. Sending `"project"` explicitly is accepted and recommended for our resource (defensive). |
 | `acl` | string | optional | Default `"private"`. Enum: `open / private / custom`. `custom` accepted without whitelist (probe 7). |
 | `desc` | string | optional | Default `""`. |
-| `PM`, `PO`, `QD`, `RD` | string | optional | All default to `""`. |
+| `PM` | string | optional | Default to `""`. |
 
 > The validator-name vs wire-name mismatch (`productsBox` in errors, `products` in body) is a ZenTao internal: the controller name comes from the form-field name in the web UI, while the JSON API accepts a flat `products` array.
 

@@ -48,9 +48,6 @@ type projectResourceModel struct {
 	Multiple      types.Bool   `tfsdk:"multiple"`
 	ACL           types.String `tfsdk:"acl"`
 	PM            types.String `tfsdk:"pm"`
-	PO            types.String `tfsdk:"po"`
-	QD            types.String `tfsdk:"qd"`
-	RD            types.String `tfsdk:"rd"`
 	Desc          types.String `tfsdk:"desc"`
 	Status        types.String `tfsdk:"status"`
 }
@@ -126,24 +123,6 @@ func (r *projectResource) Schema(_ context.Context, _ resource.SchemaRequest, re
 			},
 			"pm": schema.StringAttribute{
 				Description:   "Project Manager username.",
-				Optional:      true,
-				Computed:      true,
-				PlanModifiers: useStateForString,
-			},
-			"po": schema.StringAttribute{
-				Description:   "Product Owner username.",
-				Optional:      true,
-				Computed:      true,
-				PlanModifiers: useStateForString,
-			},
-			"qd": schema.StringAttribute{
-				Description:   "QA Lead username.",
-				Optional:      true,
-				Computed:      true,
-				PlanModifiers: useStateForString,
-			},
-			"rd": schema.StringAttribute{
-				Description:   "Release Lead username.",
 				Optional:      true,
 				Computed:      true,
 				PlanModifiers: useStateForString,
@@ -299,9 +278,6 @@ func (m *projectResourceModel) toAPI(ctx context.Context) (*zentaoapi.Project, d
 		Multiple:      optBool(m.Multiple),
 		ACL:           optString(m.ACL),
 		PM:            optString(m.PM),
-		PO:            optString(m.PO),
-		QD:            optString(m.QD),
-		RD:            optString(m.RD),
 		Desc:          optString(m.Desc),
 	}, diags
 }
@@ -324,9 +300,6 @@ func projectFromAPI(ctx context.Context, p *zentaoapi.Project) (projectResourceM
 		Multiple:      types.BoolValue(deref(p.Multiple)),
 		ACL:           types.StringValue(deref(p.ACL)),
 		PM:            types.StringValue(deref(p.PM)),
-		PO:            types.StringValue(deref(p.PO)),
-		QD:            types.StringValue(deref(p.QD)),
-		RD:            types.StringValue(deref(p.RD)),
 		Desc:          types.StringValue(deref(p.Desc)),
 		Status: types.StringValue(deref(p.Status)),
 	}, diags

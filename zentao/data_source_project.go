@@ -35,9 +35,6 @@ type projectDataSourceModel struct {
 	Multiple      types.Bool   `tfsdk:"multiple"`
 	ACL           types.String `tfsdk:"acl"`
 	PM            types.String `tfsdk:"pm"`
-	PO            types.String `tfsdk:"po"`
-	QD            types.String `tfsdk:"qd"`
-	RD            types.String `tfsdk:"rd"`
 	Desc          types.String `tfsdk:"desc"`
 	Status        types.String `tfsdk:"status"`
 }
@@ -66,9 +63,6 @@ func (d *projectDataSource) Schema(_ context.Context, _ datasource.SchemaRequest
 			"multiple":       schema.BoolAttribute{Description: "Whether iterations (sprints) are enabled.", Computed: true},
 			"acl":            schema.StringAttribute{Description: "Access control (`open` / `private` / `custom`).", Computed: true},
 			"pm":             schema.StringAttribute{Description: "Project Manager username.", Computed: true},
-			"po":             schema.StringAttribute{Description: "Product Owner username.", Computed: true},
-			"qd":             schema.StringAttribute{Description: "QA Lead username.", Computed: true},
-			"rd":             schema.StringAttribute{Description: "Release Lead username.", Computed: true},
 			"desc":           schema.StringAttribute{Description: "Description.", Computed: true},
 			"status":         schema.StringAttribute{Description: "Lifecycle status (wait / doing / suspended / closed).", Computed: true},
 		},
@@ -138,9 +132,6 @@ func (d *projectDataSource) Read(ctx context.Context, req datasource.ReadRequest
 		Multiple:      types.BoolValue(deref(fetched.Multiple)),
 		ACL:           types.StringValue(deref(fetched.ACL)),
 		PM:            types.StringValue(deref(fetched.PM)),
-		PO:            types.StringValue(deref(fetched.PO)),
-		QD:            types.StringValue(deref(fetched.QD)),
-		RD:            types.StringValue(deref(fetched.RD)),
 		Desc:          types.StringValue(deref(fetched.Desc)),
 		Status:        types.StringValue(deref(fetched.Status)),
 	})...)

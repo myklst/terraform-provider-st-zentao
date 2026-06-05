@@ -28,9 +28,6 @@ type Project struct {
 	Status        *string  `json:"-"`                  // READ-ONLY; lifecycle column, edited via project-start/suspend/close
 	ACL           *string  `json:"acl,omitempty"`
 	PM            *string  `json:"PM,omitempty"`
-	PO            *string  `json:"PO,omitempty"`
-	QD            *string  `json:"QD,omitempty"`
-	RD            *string  `json:"RD,omitempty"`
 	Desc          *string  `json:"desc,omitempty"`
 	Deleted       *bool    `json:"deleted,omitempty"`
 }
@@ -58,9 +55,6 @@ func (p *Project) UnmarshalJSON(data []byte) error {
 		Status        *string     `json:"status"`
 		ACL           *string     `json:"acl"`
 		PM            *string     `json:"PM"`
-		PO            *string     `json:"PO"`
-		QD            *string     `json:"QD"`
-		RD            *string     `json:"RD"`
 		Desc          *string     `json:"desc"`
 	}
 	if err := json.Unmarshal(data, &raw); err != nil {
@@ -102,9 +96,6 @@ func (p *Project) UnmarshalJSON(data []byte) error {
 	p.Status = raw.Status
 	p.ACL = raw.ACL
 	p.PM = raw.PM
-	p.PO = raw.PO
-	p.QD = raw.QD
-	p.RD = raw.RD
 	p.Desc = raw.Desc
 	return nil
 }
@@ -121,9 +112,6 @@ func (p *Project) toForm() url.Values {
 	form.Set("multiple", boolToOnOff(deref(p.Multiple)))  // uses HTML-checkbox semantics (`on`/`off`), NOT `0`/`1`
 	form.Set("acl", deref(p.ACL))
 	form.Set("PM", deref(p.PM))
-	form.Set("PO", deref(p.PO))
-	form.Set("QD", deref(p.QD))
-	form.Set("RD", deref(p.RD))
 	form.Set("desc", deref(p.Desc))
 	form.Set("deleted", boolToIntStr(deref(p.Deleted)))
 	// products[] — empty list still needs an empty-array marker for
@@ -180,15 +168,6 @@ func mergeProjectBaseline(input, baseline *Project) *Project {
 	}
 	if input.PM != nil {
 		out.PM = input.PM
-	}
-	if input.PO != nil {
-		out.PO = input.PO
-	}
-	if input.QD != nil {
-		out.QD = input.QD
-	}
-	if input.RD != nil {
-		out.RD = input.RD
 	}
 	if input.Desc != nil {
 		out.Desc = input.Desc
