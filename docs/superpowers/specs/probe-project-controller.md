@@ -34,7 +34,7 @@ Empirical required set (validated against live Max 8.x; upstream source review n
 | `hasProduct` | recommended | observed as `1` in all live rows |
 | `multiple` | optional, **create-only** | "迭代开关". **Wire is HTML checkbox semantics — form value `on` (checked) / `off` (unchecked), NOT `1`/`0`/`yes`/`no`.** Probe matrix: `multiple=on` → stored `1` ✓; `multiple=off` → stored `0` ✓; `multiple=1` / `multiple=yes` → stored `0` (form filter only matches the literal `"on"`); omitted → `0`. Persisted as int `0`/`1` in `zt_project`. **Settable only on `project-create`; `project-edit` POST does not change it** (per project owner). Wrapper needs a custom `boolToOnOff` serializer for `toForm()` (program's `boolToIntStr` won't work). TF resource attribute should have `RequiresReplace` so a flip triggers destroy+create. |
 | `parent` | optional | parent **program** id (zt_project is a hierarchy: program > project > sprint). `parent=0` for top-level project; positive int attaches under that program. Server recomputes `path` and `grade` |
-| `PM` / `PO` / `QD` / `RD` | optional | username strings |
+| `PM` | optional | PM username |
 | `desc` | optional | rich-text body |
 | `budget` / `budgetUnit` | optional | budget="0.00" budgetUnit="CNY" by default |
 | `whitelist[]` | optional | only meaningful when `acl=custom` |
@@ -93,7 +93,7 @@ For id=28 (real project) the inner `.project` returned the full `zt_project` row
 Numeric columns mix native ints (`id`, `parent`, `multiple`, `deleted`, …) and stringified decimals (`budget`, `progress`, `estimate`, …) — `json.Number` locals handle both.
 
 **Fields the wrapper should surface** (writeable + identity + key system fields):
-`ID`, `Name`, `Model`, `Type`, `Begin`, `End`, `Parent`, `Products` (read from join — see §5), `WorkflowGroup`, `Multiple`, `ACL`, `PM`, `PO`, `QD`, `RD`, `Desc`, `Deleted`.
+`ID`, `Name`, `Model`, `Type`, `Begin`, `End`, `Parent`, `Products` (read from join — see §5), `WorkflowGroup`, `Multiple`, `ACL`, `PM`, `Desc`, `Deleted`.
 
 **Fields to OMIT** (audit / derived / presentation internals — same reasoning as program/product):
 `project`, `isTpl`, `charter`, `category`, `lifetime`, `attribute`, `percent`, `milestone`, `output`, `auth`, `storyType`, `code`, `hasProduct`, `path`, `grade`, `firstEnd`, `realBegan`, `realEnd`, `days`, `status`, `subStatus`, `pri`, `version`, `parentVersion`, `planDuration`, `realDuration`, `progress`, `estimate`, `left`, `consumed`, `teamCount`, `market`, `openedBy`, `openedDate`, `openedVersion`, `lastEditedBy`, `lastEditedDate`, `closedBy`, `closedDate`, `closedReason`, `canceledBy`, `canceledDate`, `suspendedDate`, `team`, `whitelist`, `tplAcl`, `tplWhiteList`, `order`, `stageBy`, `displayCards`, `fluidBoard`, `parallel`, `enabled`, `linkType`, `taskDateLimit`, `colWidth`, `minColWidth`, `maxColWidth`, `coverExecutionPriv`, `vision`, `frozen`, `budget`, `budgetUnit`.

@@ -2,6 +2,10 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Important
+
+- Always reply in Simple Chinese
+
 ## Common commands
 
 ```bash

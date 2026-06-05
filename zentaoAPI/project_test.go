@@ -17,7 +17,7 @@ func TestProject_UnmarshalJSON_FullPayload(t *testing.T) {
 		"id":28,"name":"Alpha","model":"scrum","type":"project",
 		"begin":"2026-05-09","end":"2099-12-31",
 		"parent":4,"workflowGroup":2,"multiple":1,
-		"acl":"private","PM":"pm","PO":"po","QD":"qd","RD":"rd",
+		"acl":"private","PM":"pm",
 		"desc":"d","deleted":0
 	}`)
 	var p Project
@@ -73,7 +73,7 @@ func TestGetProject_HappyPath_RowAndProducts(t *testing.T) {
 		// .data is a JSON-encoded string carrying both .project (row) and
 		// .products (id-keyed map of joined product rows). Wrapper splices
 		// product ids into Project.Products.
-		_, _ = w.Write([]byte(`{"status":"success","data":"{\"project\":{\"id\":28,\"name\":\"LB-Maint\",\"model\":\"scrum\",\"type\":\"project\",\"begin\":\"2026-05-09\",\"end\":\"2099-12-31\",\"parent\":4,\"workflowGroup\":2,\"multiple\":0,\"acl\":\"private\",\"PM\":\"pm\",\"PO\":\"\",\"QD\":\"\",\"RD\":\"\",\"desc\":\"\",\"deleted\":0},\"products\":{\"3\":{\"id\":3,\"name\":\"p3\"},\"1\":{\"id\":1,\"name\":\"p1\"}}}"}`))
+		_, _ = w.Write([]byte(`{"status":"success","data":"{\"project\":{\"id\":28,\"name\":\"LB-Maint\",\"model\":\"scrum\",\"type\":\"project\",\"begin\":\"2026-05-09\",\"end\":\"2099-12-31\",\"parent\":4,\"workflowGroup\":2,\"multiple\":0,\"acl\":\"private\",\"PM\":\"pm\",\"desc\":\"\",\"deleted\":0},\"products\":{\"3\":{\"id\":3,\"name\":\"p3\"},\"1\":{\"id\":1,\"name\":\"p1\"}}}"}`))
 	}))
 	defer srv.Close()
 
@@ -439,7 +439,7 @@ func TestUpdateProject_BaselineMergeThenRefetch(t *testing.T) {
 			w.Header().Set("Content-Type", "application/json")
 			// Baseline: model=scrum, parent=4, wfg=2, multiple=true,
 			// PM=alice, products=[1,2] — none of which input touches.
-			_, _ = w.Write([]byte(`{"status":"success","data":"{\"project\":{\"id\":5,\"name\":\"OldName\",\"model\":\"scrum\",\"type\":\"project\",\"begin\":\"2026-01-01\",\"end\":\"2026-12-31\",\"parent\":4,\"workflowGroup\":2,\"multiple\":1,\"acl\":\"private\",\"PM\":\"alice\",\"PO\":\"bob\",\"QD\":\"carol\",\"RD\":\"dave\",\"desc\":\"old\",\"deleted\":0},\"products\":{\"1\":{\"id\":1},\"2\":{\"id\":2}}}"}`))
+			_, _ = w.Write([]byte(`{"status":"success","data":"{\"project\":{\"id\":5,\"name\":\"OldName\",\"model\":\"scrum\",\"type\":\"project\",\"begin\":\"2026-01-01\",\"end\":\"2026-12-31\",\"parent\":4,\"workflowGroup\":2,\"multiple\":1,\"acl\":\"private\",\"PM\":\"alice\",\"desc\":\"old\",\"deleted\":0},\"products\":{\"1\":{\"id\":1},\"2\":{\"id\":2}}}"}`))
 		default:
 			t.Errorf("unexpected request %s %s", r.Method, r.URL.Path)
 			w.WriteHeader(http.StatusInternalServerError)
@@ -460,7 +460,7 @@ func TestUpdateProject_BaselineMergeThenRefetch(t *testing.T) {
 	}
 	for _, mustPreserve := range []string{
 		"model=scrum", "parent=4", "workflowGroup=2",
-		"acl=private", "PM=alice", "PO=bob", "QD=carol", "RD=dave",
+		"acl=private", "PM=alice",
 		"desc=old", "multiple=on", // multiple=true → 'on'
 	} {
 		if !strings.Contains(postBody, mustPreserve) {
@@ -588,7 +588,7 @@ func TestDeleteProject_OtherFailure(t *testing.T) {
 
 func TestProjectToForm_AlwaysSetsAllWriteableFields(t *testing.T) {
 	form := (&Project{Name: strptr("x")}).toForm()
-	for _, k := range []string{"name", "model", "begin", "end", "parent", "workflowGroup", "multiple", "acl", "PM", "PO", "QD", "RD", "desc", "deleted"} {
+	for _, k := range []string{"name", "model", "begin", "end", "parent", "workflowGroup", "multiple", "acl", "PM", "desc", "deleted"} {
 		if _, ok := form[k]; !ok {
 			t.Errorf("form must always carry key %q (always-set rule): %v", k, form)
 		}
@@ -642,7 +642,7 @@ func TestMergeProjectBaseline_PreservesBaselineWhenInputNil(t *testing.T) {
 		Begin: strptr("2026-01-01"), End: strptr("2026-12-31"),
 		Parent: int64ptr(3), WorkflowGroup: int64ptr(2),
 		Multiple: boolptr(true), ACL: strptr("private"),
-		PM: strptr("alice"), PO: strptr("bob"), QD: strptr("carol"), RD: strptr("dave"),
+		PM: strptr("alice"),
 		Desc: strptr("old"), Deleted: boolptr(false),
 		Products: &[]int64{1, 2},
 	}
@@ -654,7 +654,7 @@ func TestMergeProjectBaseline_PreservesBaselineWhenInputNil(t *testing.T) {
 	if deref(merged.Model) != "scrum" || deref(merged.Parent) != 3 || deref(merged.WorkflowGroup) != 2 {
 		t.Errorf("baseline scalars not preserved: %+v", merged)
 	}
-	if deref(merged.PM) != "alice" || deref(merged.PO) != "bob" || deref(merged.Desc) != "old" {
+	if deref(merged.PM) != "alice" || deref(merged.Desc) != "old" {
 		t.Errorf("baseline string fields not preserved: %+v", merged)
 	}
 	if !reflect.DeepEqual(deref(merged.Products), []int64{1, 2}) {

@@ -19,7 +19,7 @@ func TestProjectDataSource_Schema(t *testing.T) {
 	}
 	for _, attr := range []string{
 		"name", "model", "begin", "end", "program", "products",
-		"workflow_group", "multiple", "acl", "pm", "po", "qd", "rd", "desc",
+		"workflow_group", "multiple", "acl", "pm", "desc",
 		"status",
 	} {
 		a := resp.Schema.Attributes[attr]

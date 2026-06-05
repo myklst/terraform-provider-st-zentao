@@ -75,7 +75,7 @@ func TestProjectResource_Schema(t *testing.T) {
 		}
 	}
 
-	for _, optional := range []string{"program", "multiple", "pm", "po", "qd", "rd", "desc"} {
+	for _, optional := range []string{"program", "multiple", "pm", "desc"} {
 		a := resp.Schema.Attributes[optional]
 		if !a.IsOptional() || !a.IsComputed() {
 			t.Errorf("%s must be Optional+Computed (got optional=%v computed=%v)",
@@ -162,9 +162,6 @@ func TestProjectResource_RoundTrip(t *testing.T) {
 		Multiple:      types.BoolValue(true),
 		ACL:           types.StringValue("private"),
 		PM:            types.StringValue("alice"),
-		PO:            types.StringValue("bob"),
-		QD:            types.StringValue("carol"),
-		RD:            types.StringValue("dave"),
 		Desc:          types.StringValue("hello"),
 	}
 
