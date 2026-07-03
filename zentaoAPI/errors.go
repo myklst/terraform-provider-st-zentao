@@ -22,6 +22,12 @@ var (
 	// mutator that rejects a parent assignment forming a cycle (self-attach
 	// or multi-level ancestry loop). Not program-specific.
 	ErrCycleDetected = errors.New("zentao: parent cycle detected")
+	// ErrNameConflict is the sentinel for ZenTao's sibling-name uniqueness
+	// rule: a create/edit is rejected because another row under the SAME
+	// (target) parent already uses the name. Notably hit when detaching a
+	// program to top level while a same-name top-level program exists —
+	// see probe-program-controller.md F5.
+	ErrNameConflict = errors.New("zentao: name already used at the target level")
 )
 
 // APIError is the structured failure surfaced when a response neither
@@ -65,6 +71,20 @@ func zentaoFailReason(err, message, reason string) string {
 func isNotFoundReason(reason string) bool {
 	r := strings.ToLower(reason)
 	return strings.Contains(r, "not exist") || strings.Contains(r, "not found")
+}
+
+// isDuplicateNameReason recognises ZenTao's unique-check rejection
+// ("『%s』已经有『%s』这条记录了。" / en "%s has been used."). The zh-CN
+// wording was observed live on Max 8.1 program-edit; the en fragment
+// follows ZenTao's stock lang pack for the same dao unique validator.
+func isDuplicateNameReason(reason string) bool {
+	if reason == "" {
+		return false
+	}
+	if strings.Contains(reason, "已经有") && strings.Contains(reason, "这条记录") {
+		return true
+	}
+	return strings.Contains(strings.ToLower(reason), "has been used")
 }
 
 // isUnauthorizedReason recognises a clear "credentials are wrong"

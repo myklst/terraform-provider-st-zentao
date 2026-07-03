@@ -667,6 +667,47 @@ func TestSetProgramParent_RejectsCycleViaPath(t *testing.T) {
 	}
 }
 
+// Detach-to-top-level can collide with ZenTao's sibling-name uniqueness
+// rule: the edit POST is rejected when another top-level program already
+// uses the child's name. SetProgramParent must surface that as
+// ErrNameConflict so callers (the attachment resource's Delete) can
+// distinguish it from other write failures.
+func TestSetProgramParent_DetachDuplicateNameReturnsErrNameConflict(t *testing.T) {
+	mock := newProgramParentMockServer()
+	mock.rows[10] = `{"id":10,"name":"Business Support","begin":"2026-01-01","end":"2026-12-31","parent":5,"path":",5,10,"}`
+	mock.postRespBody = `{"result":"fail","message":{"name":["『项目集名称』已经有『Business Support』这条记录了。"]}}`
+	srv := httptest.NewServer(mock.handler(t))
+	defer srv.Close()
+
+	c := newTestClient(t, "tok-1", srv.URL)
+	_, err := c.SetProgramParent(context.Background(), 10, 0)
+	if !errors.Is(err, ErrNameConflict) {
+		t.Fatalf("err = %v, want errors.Is(ErrNameConflict)", err)
+	}
+	// The server's own reason must stay visible for diagnostics.
+	if !strings.Contains(err.Error(), "已经有") {
+		t.Errorf("err = %v, want server reason retained", err)
+	}
+}
+
+// A non-uniqueness validation failure must NOT map to ErrNameConflict.
+func TestSetProgramParent_OtherValidationFailureIsNotNameConflict(t *testing.T) {
+	mock := newProgramParentMockServer()
+	mock.rows[10] = `{"id":10,"name":"c","begin":"2026-01-01","end":"2026-12-31","parent":5,"path":",5,10,"}`
+	mock.postRespBody = `{"result":"fail","message":{"end":["『计划完成』不能为空。"]}}`
+	srv := httptest.NewServer(mock.handler(t))
+	defer srv.Close()
+
+	c := newTestClient(t, "tok-1", srv.URL)
+	_, err := c.SetProgramParent(context.Background(), 10, 0)
+	if err == nil {
+		t.Fatal("err = nil, want error")
+	}
+	if errors.Is(err, ErrNameConflict) {
+		t.Fatalf("err = %v, must not be ErrNameConflict", err)
+	}
+}
+
 func TestSetProgramParent_ChildNotFound(t *testing.T) {
 	mock := newProgramParentMockServer()
 	// Parent 5 exists so the cycle check passes; child 999 is absent, so the

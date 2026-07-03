@@ -59,6 +59,30 @@ func TestIsNotFoundReason(t *testing.T) {
 	}
 }
 
+func TestIsDuplicateNameReason(t *testing.T) {
+	cases := []struct {
+		reason string
+		want   bool
+	}{
+		// observed: real ZenTao Max 8.1 reply on program-edit with a
+		// same-name sibling at the target parent level
+		{"name: 『项目集名称』已经有『Business Support』这条记录了。", true},
+		{"『名称』已经有『X』这条记录了。", true},
+		{"name: Program Name 'X' has been used.", true}, // en locale
+		{"『项目集名称』不能为空。", false},                          // notempty, not unique
+		{"Product does not exist.", false},
+		{"please login", false},
+		{"", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.reason, func(t *testing.T) {
+			if got := isDuplicateNameReason(tc.reason); got != tc.want {
+				t.Fatalf("isDuplicateNameReason(%q) = %v, want %v", tc.reason, got, tc.want)
+			}
+		})
+	}
+}
+
 func TestIsUnauthorizedReason(t *testing.T) {
 	cases := []struct {
 		reason string
