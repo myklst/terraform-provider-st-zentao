@@ -19,6 +19,7 @@ resource "st-zentao_project" "example" {
   begin = "2026-01-01"
   end   = "2026-12-31"
   acl   = "open"
+  auth  = "extend"
 
   workflow_group = 2
 
@@ -28,6 +29,9 @@ resource "st-zentao_project" "example" {
   program = 1
   pm      = "testPM"
   desc    = "Created by Terraform"
+
+  task_date_limit = "auto"
+  story_types     = ["story", "requirement"]
 }
 ```
 
@@ -37,11 +41,14 @@ resource "st-zentao_project" "example" {
 ### Required
 
 - `acl` (String) Access control. One of: "open", "private", "custom".
+- `auth` (String) Permission mode. One of: "extend", "reset". Defaults to extend.
 - `begin` (String) Planned start date (YYYY-MM-DD).
 - `end` (String) Planned end date (YYYY-MM-DD).
 - `model` (String) Project execution model. One of: "scrum", "waterfall", "kanban", "agileplus", "waterfallplus", "cmmi". Changing this forces resource replacement.
 - `name` (String) Project display name.
 - `products` (Set of Number) Associated product IDs (at least one required).
+- `story_types` (Set of String) Story concepts enabled for the project. Elements: "story", "requirement", "epic". ZenTao always keeps story enabled; include it when setting this. Defaults to [story].
+- `task_date_limit` (String) Task date constraint. One of: "auto", "limit". Defaults to auto.
 - `workflow_group` (Number) Workflow scheme id. Changing this forces resource replacement.
 
 ### Optional
@@ -49,10 +56,7 @@ resource "st-zentao_project" "example" {
 - `desc` (String) Description.
 - `multiple` (Boolean) Whether iterations (sprints) are enabled. Create-only; changing this forces resource replacement.
 - `pm` (String) Project Manager username.
-- `po` (String) Product Owner username.
 - `program` (Number) Parent program id (0 = no parent program).
-- `qd` (String) QA Lead username.
-- `rd` (String) Release Lead username.
 
 ### Read-Only
 

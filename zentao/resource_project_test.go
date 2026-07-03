@@ -56,7 +56,7 @@ func TestProjectResource_Schema(t *testing.T) {
 		t.Fatalf("schema diagnostics: %v", resp.Diagnostics)
 	}
 
-	for _, required := range []string{"name", "model", "begin", "end", "workflow_group", "acl", "products"} {
+	for _, required := range []string{"name", "model", "begin", "end", "workflow_group", "acl", "auth", "products", "task_date_limit", "story_types"} {
 		a := resp.Schema.Attributes[required]
 		if !a.IsRequired() {
 			t.Errorf("%s must be Required", required)
@@ -151,6 +151,11 @@ func TestProjectResource_RoundTrip(t *testing.T) {
 		t.Fatalf("build products set: %v", diags)
 	}
 
+	storyTypeSet, diags := types.SetValueFrom(ctx, types.StringType, []string{"story", "requirement"})
+	if diags.HasError() {
+		t.Fatalf("build story_types set: %v", diags)
+	}
+
 	original := projectResourceModel{
 		Name:          types.StringValue("acme"),
 		Model:         types.StringValue("scrum"),
@@ -163,6 +168,8 @@ func TestProjectResource_RoundTrip(t *testing.T) {
 		ACL:           types.StringValue("private"),
 		PM:            types.StringValue("alice"),
 		Desc:          types.StringValue("hello"),
+		TaskDateLimit: types.StringValue("limit"),
+		StoryTypes:    storyTypeSet,
 	}
 
 	api, diags := original.toAPI(ctx)
@@ -187,6 +194,13 @@ func TestProjectResource_RoundTrip(t *testing.T) {
 	}
 	if deref(api.Desc) != "hello" {
 		t.Errorf("desc wrong: got %q", deref(api.Desc))
+	}
+	if deref(api.TaskDateLimit) != "limit" {
+		t.Errorf("taskDateLimit wrong: got %q", deref(api.TaskDateLimit))
+	}
+	gotStoryTypes := deref(api.StoryTypes)
+	if len(gotStoryTypes) != 2 || gotStoryTypes[0] != "story" || gotStoryTypes[1] != "requirement" {
+		t.Errorf("storyType wrong: got %v", gotStoryTypes)
 	}
 
 	// Simulate the wire shape coming back from GetProject (id assigned,
@@ -224,6 +238,37 @@ func TestProjectResource_RoundTrip(t *testing.T) {
 	}
 	if !roundtripped.Multiple.ValueBool() {
 		t.Errorf("multiple wrong: got %v, want true", roundtripped.Multiple.ValueBool())
+	}
+	if roundtripped.TaskDateLimit.ValueString() != "limit" {
+		t.Errorf("task_date_limit wrong: got %q", roundtripped.TaskDateLimit.ValueString())
+	}
+	var gotStory []string
+	if d := roundtripped.StoryTypes.ElementsAs(ctx, &gotStory, false); d.HasError() {
+		t.Fatalf("story_types extraction: %v", d)
+	}
+	if len(gotStory) != 2 {
+		t.Errorf("story_types roundtrip wrong: got %v", gotStory)
+	}
+}
+
+func TestProjectFromAPI_NilStoryTypeBecomesEmptySet(t *testing.T) {
+	ctx := context.Background()
+	id := int64(1)
+	name := "x"
+	p := &zentaoapi.Project{ID: &id, Name: &name, StoryTypes: nil}
+	m, diags := projectFromAPI(ctx, p)
+	if diags.HasError() {
+		t.Fatalf("diags: %v", diags)
+	}
+	if m.StoryTypes.IsNull() {
+		t.Errorf("story_types should be empty set, not null")
+	}
+	var got []string
+	if d := m.StoryTypes.ElementsAs(ctx, &got, false); d.HasError() {
+		t.Fatalf("ElementsAs: %v", d)
+	}
+	if len(got) != 0 {
+		t.Errorf("expected empty set, got %v", got)
 	}
 }
 
@@ -264,9 +309,12 @@ resource "st-zentao_project" "p" {
   model          = "scrum"
   begin          = "2026-01-01"
   end            = "2026-12-31"
-  acl            = "open"
-  products       = [%d]
-  workflow_group = %d
+  acl             = "open"
+  auth            = "extend"
+  products        = [%d]
+  workflow_group  = %d
+  task_date_limit = "auto"
+  story_types     = ["story"]
   desc           = "initial"
 }`, name, productID, workflowGroup),
 				Check: tfresource.ComposeAggregateTestCheckFunc(
@@ -286,15 +334,71 @@ resource "st-zentao_project" "p" {
   model          = "scrum"
   begin          = "2026-02-01"
   end            = "2026-11-30"
-  acl            = "open"
-  products       = [%d]
-  workflow_group = %d
+  acl             = "open"
+  auth            = "extend"
+  products        = [%d]
+  workflow_group  = %d
+  task_date_limit = "auto"
+  story_types     = ["story"]
   desc           = "updated"
 }`, name+"-renamed", productID, workflowGroup),
 				Check: tfresource.ComposeAggregateTestCheckFunc(
 					tfresource.TestCheckResourceAttr("st-zentao_project.p", "name", name+"-renamed"),
 					tfresource.TestCheckResourceAttr("st-zentao_project.p", "begin", "2026-02-01"),
 					tfresource.TestCheckResourceAttr("st-zentao_project.p", "desc", "updated"),
+				),
+			},
+		},
+	})
+}
+
+// Covers the taskDateLimit / storyType form fields end-to-end: create with
+// non-default values, then flip task_date_limit back in-place.
+func TestAccProjectResource_taskDateLimitAndStoryType(t *testing.T) {
+	name := uniqueName("tdl-proj")
+	productID, workflowGroup := projectAccDefaults()
+	tfresource.Test(t, tfresource.TestCase{
+		PreCheck:                 func() { testAccPreCheck(t) },
+		ProtoV6ProviderFactories: protoV6Factories,
+		Steps: []tfresource.TestStep{
+			{
+				Config: providerBlock() + fmt.Sprintf(`
+resource "st-zentao_project" "p" {
+  name            = %q
+  model           = "scrum"
+  begin           = "2026-01-01"
+  end             = "2026-12-31"
+  acl             = "open"
+  auth            = "extend"
+  products        = [%d]
+  workflow_group  = %d
+  task_date_limit = "limit"
+  story_types     = ["story", "requirement"]
+}`, name, productID, workflowGroup),
+				Check: tfresource.ComposeAggregateTestCheckFunc(
+					tfresource.TestCheckResourceAttr("st-zentao_project.p", "task_date_limit", "limit"),
+					tfresource.TestCheckResourceAttr("st-zentao_project.p", "story_types.#", "2"),
+					tfresource.TestCheckTypeSetElemAttr("st-zentao_project.p", "story_types.*", "story"),
+					tfresource.TestCheckTypeSetElemAttr("st-zentao_project.p", "story_types.*", "requirement"),
+				),
+			},
+			{
+				Config: providerBlock() + fmt.Sprintf(`
+resource "st-zentao_project" "p" {
+  name            = %q
+  model           = "scrum"
+  begin           = "2026-01-01"
+  end             = "2026-12-31"
+  acl             = "open"
+  auth            = "extend"
+  products        = [%d]
+  workflow_group  = %d
+  task_date_limit = "auto"
+  story_types     = ["story"]
+}`, name, productID, workflowGroup),
+				Check: tfresource.ComposeAggregateTestCheckFunc(
+					tfresource.TestCheckResourceAttr("st-zentao_project.p", "task_date_limit", "auto"),
+					tfresource.TestCheckResourceAttr("st-zentao_project.p", "story_types.#", "1"),
 				),
 			},
 		},
@@ -315,9 +419,12 @@ resource "st-zentao_project" "p" {
   model          = "scrum"
   begin          = "2026-01-01"
   end            = "2026-12-31"
-  acl            = "open"
-  products       = [%d]
-  workflow_group = %d
+  acl             = "open"
+  auth            = "extend"
+  products        = [%d]
+  workflow_group  = %d
+  task_date_limit = "auto"
+  story_types     = ["story"]
 }`, name, productID, workflowGroup),
 			},
 			{
@@ -350,9 +457,12 @@ resource "st-zentao_project" "p" {
   model          = "scrum"
   begin          = "2026-01-01"
   end            = "2026-12-31"
-  acl            = "open"
-  products       = [%d]
-  workflow_group = %d
+  acl             = "open"
+  auth            = "extend"
+  products        = [%d]
+  workflow_group  = %d
+  task_date_limit = "auto"
+  story_types     = ["story"]
 }`, name, productID, workflowGroup),
 				Check: tfresource.ComposeTestCheckFunc(
 					func(s *terraform.State) error {
@@ -390,9 +500,12 @@ resource "st-zentao_project" "p" {
   model          = "scrum"
   begin          = "not-a-date"
   end            = "2026-12-31"
-  acl            = "open"
-  products       = [1]
-  workflow_group = 2
+  acl             = "open"
+  auth            = "extend"
+  products        = [1]
+  workflow_group  = 2
+  task_date_limit = "auto"
+  story_types     = ["story"]
 }`, name),
 				ExpectError: regexp.MustCompile(`(?i)YYYY-MM-DD`),
 			},
@@ -413,9 +526,12 @@ resource "st-zentao_project" "p" {
   model          = "not-a-real-model"
   begin          = "2026-01-01"
   end            = "2026-12-31"
-  acl            = "open"
-  products       = [1]
-  workflow_group = 2
+  acl             = "open"
+  auth            = "extend"
+  products        = [1]
+  workflow_group  = 2
+  task_date_limit = "auto"
+  story_types     = ["story"]
 }`, name),
 				ExpectError: regexp.MustCompile(`(?i)must be one of`),
 			},

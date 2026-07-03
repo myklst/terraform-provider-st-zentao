@@ -19,8 +19,8 @@ func TestProjectDataSource_Schema(t *testing.T) {
 	}
 	for _, attr := range []string{
 		"name", "model", "begin", "end", "program", "products",
-		"workflow_group", "multiple", "acl", "pm", "desc",
-		"status",
+		"workflow_group", "multiple", "acl", "auth", "pm", "desc",
+		"task_date_limit", "story_types", "status",
 	} {
 		a := resp.Schema.Attributes[attr]
 		if !a.IsComputed() {

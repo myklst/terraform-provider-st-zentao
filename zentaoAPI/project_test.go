@@ -17,7 +17,8 @@ func TestProject_UnmarshalJSON_FullPayload(t *testing.T) {
 		"id":28,"name":"Alpha","model":"scrum","type":"project",
 		"begin":"2026-05-09","end":"2099-12-31",
 		"parent":4,"workflowGroup":2,"multiple":1,
-		"acl":"private","PM":"pm",
+		"acl":"private","auth":"reset","PM":"pm",
+		"storyType":"story,requirement","taskDateLimit":"limit",
 		"desc":"d","deleted":0
 	}`)
 	var p Project
@@ -35,6 +36,32 @@ func TestProject_UnmarshalJSON_FullPayload(t *testing.T) {
 	}
 	if deref(p.Deleted) {
 		t.Fatalf("Deleted = %v, want false", deref(p.Deleted))
+	}
+	if deref(p.Auth) != "reset" {
+		t.Fatalf("Auth = %q, want reset", deref(p.Auth))
+	}
+	if deref(p.TaskDateLimit) != "limit" {
+		t.Fatalf("TaskDateLimit = %q, want limit", deref(p.TaskDateLimit))
+	}
+	// Wire carries storyType comma-joined; the decoder splits it.
+	if !reflect.DeepEqual(deref(p.StoryTypes), []string{"story", "requirement"}) {
+		t.Fatalf("StoryTypes = %v, want [story requirement]", deref(p.StoryTypes))
+	}
+}
+
+// zt_project rows can hold storyType=” (observed on live Max 8.x, see
+// probe-project-controller.md). The decoder must map that to a non-nil
+// empty slice — distinct from "field absent" (nil).
+func TestProject_UnmarshalJSON_EmptyStoryType(t *testing.T) {
+	var p Project
+	if err := json.Unmarshal([]byte(`{"id":28,"storyType":""}`), &p); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if p.StoryTypes == nil {
+		t.Fatalf("StoryType must be non-nil empty slice for wire \"\"")
+	}
+	if len(*p.StoryTypes) != 0 {
+		t.Fatalf("StoryType = %v, want empty", *p.StoryTypes)
 	}
 }
 
@@ -61,6 +88,9 @@ func TestProject_UnmarshalJSON_AbsentFieldsStayNil(t *testing.T) {
 	}
 	if p.Multiple != nil || p.Deleted != nil || p.Parent != nil || p.WorkflowGroup != nil {
 		t.Fatalf("absent fields must stay nil: %+v", p)
+	}
+	if p.StoryTypes != nil || p.TaskDateLimit != nil {
+		t.Fatalf("absent storyType/taskDateLimit must stay nil: %+v", p)
 	}
 }
 
@@ -439,7 +469,7 @@ func TestUpdateProject_BaselineMergeThenRefetch(t *testing.T) {
 			w.Header().Set("Content-Type", "application/json")
 			// Baseline: model=scrum, parent=4, wfg=2, multiple=true,
 			// PM=alice, products=[1,2] — none of which input touches.
-			_, _ = w.Write([]byte(`{"status":"success","data":"{\"project\":{\"id\":5,\"name\":\"OldName\",\"model\":\"scrum\",\"type\":\"project\",\"begin\":\"2026-01-01\",\"end\":\"2026-12-31\",\"parent\":4,\"workflowGroup\":2,\"multiple\":1,\"acl\":\"private\",\"PM\":\"alice\",\"desc\":\"old\",\"deleted\":0},\"products\":{\"1\":{\"id\":1},\"2\":{\"id\":2}}}"}`))
+			_, _ = w.Write([]byte(`{"status":"success","data":"{\"project\":{\"id\":5,\"name\":\"OldName\",\"model\":\"scrum\",\"type\":\"project\",\"begin\":\"2026-01-01\",\"end\":\"2026-12-31\",\"parent\":4,\"workflowGroup\":2,\"multiple\":1,\"acl\":\"private\",\"PM\":\"alice\",\"storyType\":\"story,requirement\",\"taskDateLimit\":\"limit\",\"desc\":\"old\",\"deleted\":0},\"products\":{\"1\":{\"id\":1},\"2\":{\"id\":2}}}"}`))
 		default:
 			t.Errorf("unexpected request %s %s", r.Method, r.URL.Path)
 			w.WriteHeader(http.StatusInternalServerError)
@@ -461,6 +491,8 @@ func TestUpdateProject_BaselineMergeThenRefetch(t *testing.T) {
 	for _, mustPreserve := range []string{
 		"model=scrum", "parent=4", "workflowGroup=2",
 		"acl=private", "PM=alice",
+		"taskDateLimit=limit",
+		"storyType%5B%5D=story", "storyType%5B%5D=requirement",
 		"desc=old", "multiple=on", // multiple=true → 'on'
 	} {
 		if !strings.Contains(postBody, mustPreserve) {
@@ -588,7 +620,7 @@ func TestDeleteProject_OtherFailure(t *testing.T) {
 
 func TestProjectToForm_AlwaysSetsAllWriteableFields(t *testing.T) {
 	form := (&Project{Name: strptr("x")}).toForm()
-	for _, k := range []string{"name", "model", "begin", "end", "parent", "workflowGroup", "multiple", "acl", "PM", "desc", "deleted"} {
+	for _, k := range []string{"name", "model", "begin", "end", "parent", "workflowGroup", "multiple", "acl", "auth", "PM", "desc", "deleted"} {
 		if _, ok := form[k]; !ok {
 			t.Errorf("form must always carry key %q (always-set rule): %v", k, form)
 		}
@@ -627,6 +659,40 @@ func TestProjectToForm_MultipleOnOffSerialization(t *testing.T) {
 	}
 }
 
+// taskDateLimit / storyType[] are conditional form fields: when the caller
+// (or M-Z baseline) has no value, they are omitted so project-create falls
+// back to the server defaults (auto / story). Edits always carry them
+// because the baseline read is never nil.
+func TestProjectToForm_TaskDateLimitAndStoryTypeConditional(t *testing.T) {
+	form := (&Project{Name: strptr("x")}).toForm()
+	if _, ok := form["taskDateLimit"]; ok {
+		t.Errorf("nil TaskDateLimit must omit the key, got %v", form)
+	}
+	if _, ok := form["storyType[]"]; ok {
+		t.Errorf("nil StoryType must omit the key, got %v", form)
+	}
+
+	form = (&Project{
+		TaskDateLimit: strptr("limit"),
+		StoryTypes:     &[]string{"story", "requirement"},
+	}).toForm()
+	if got := form.Get("taskDateLimit"); got != "limit" {
+		t.Errorf("taskDateLimit = %q, want limit", got)
+	}
+	if !reflect.DeepEqual(form["storyType[]"], []string{"story", "requirement"}) {
+		t.Errorf("storyType[] = %v, want [story requirement]", form["storyType[]"])
+	}
+
+	// empty slice / empty string behave like nil — omitted, server keeps its value
+	form = (&Project{TaskDateLimit: strptr(""), StoryTypes: &[]string{}}).toForm()
+	if _, ok := form["taskDateLimit"]; ok {
+		t.Errorf("empty TaskDateLimit must omit the key")
+	}
+	if _, ok := form["storyType[]"]; ok {
+		t.Errorf("empty StoryType must omit the key")
+	}
+}
+
 func TestProjectToForm_ProductsArrayExpansion(t *testing.T) {
 	form := (&Project{Products: &[]int64{3, 1, 2}}).toForm()
 	got := form["products[]"]
@@ -642,13 +708,29 @@ func TestMergeProjectBaseline_PreservesBaselineWhenInputNil(t *testing.T) {
 		Begin: strptr("2026-01-01"), End: strptr("2026-12-31"),
 		Parent: int64ptr(3), WorkflowGroup: int64ptr(2),
 		Multiple: boolptr(true), ACL: strptr("private"),
-		PM: strptr("alice"),
-		Desc: strptr("old"), Deleted: boolptr(false),
+		Auth:          strptr("extend"),
+		PM:            strptr("alice"),
+		TaskDateLimit: strptr("auto"),
+		StoryTypes:     &[]string{"story"},
+		Desc:          strptr("old"), Deleted: boolptr(false),
 		Products: &[]int64{1, 2},
 	}
-	merged := mergeProjectBaseline(&Project{ID: int64ptr(5), Name: strptr("NewName")}, baseline)
+	merged := mergeProjectBaseline(&Project{
+		ID: int64ptr(5), Name: strptr("NewName"), Auth: strptr("reset"),
+		TaskDateLimit: strptr("limit"),
+		StoryTypes:     &[]string{"story", "epic"},
+	}, baseline)
 	if deref(merged.Name) != "NewName" {
 		t.Errorf("Name override failed: %q", deref(merged.Name))
+	}
+	if deref(merged.Auth) != "reset" {
+		t.Errorf("Auth override failed: %q", deref(merged.Auth))
+	}
+	if deref(merged.TaskDateLimit) != "limit" {
+		t.Errorf("TaskDateLimit override failed: %q", deref(merged.TaskDateLimit))
+	}
+	if !reflect.DeepEqual(deref(merged.StoryTypes), []string{"story", "epic"}) {
+		t.Errorf("StoryType override failed: %v", deref(merged.StoryTypes))
 	}
 	// Every other field comes from baseline.
 	if deref(merged.Model) != "scrum" || deref(merged.Parent) != 3 || deref(merged.WorkflowGroup) != 2 {

@@ -244,21 +244,21 @@ func (c *Client) findSystemIDByName(ctx context.Context, productID int64, name s
 	}
 	var env CtrlResp
 	if err := json.Unmarshal(body, &env); err != nil {
-		return 0, fmt.Errorf("decode getbyname envelope: %w (body=%s)", err, string(body))
+		return 0, fmt.Errorf("decode system-getbyname response: %w (body=%s)", err, string(body))
 	}
 	if env.Status != "success" {
 		return 0, classifyCtrlError(status, env, body)
 	}
 	var inner systemGetByNameInner
 	if err := env.DecodeData(&inner); err != nil {
-		return 0, fmt.Errorf("decode getbyname data: %w (body=%s)", err, string(body))
+		return 0, fmt.Errorf("decode system-getbyname data: %w (body=%s)", err, string(body))
 	}
 	if len(inner.AppInfo) == 0 || string(inner.AppInfo) == "false" || string(inner.AppInfo) == "null" {
 		return 0, ErrNotFound
 	}
 	var row System
 	if err := json.Unmarshal(inner.AppInfo, &row); err != nil {
-		return 0, fmt.Errorf("decode getbyname appInfo: %w (body=%s)", err, string(body))
+		return 0, fmt.Errorf("decode system-getbyname appInfo: %w (body=%s)", err, string(body))
 	}
 	if deref(row.Deleted) {
 		return 0, ErrNotFound
