@@ -34,8 +34,11 @@ type projectDataSourceModel struct {
 	WorkflowGroup types.Int64  `tfsdk:"workflow_group"`
 	Multiple      types.Bool   `tfsdk:"multiple"`
 	ACL           types.String `tfsdk:"acl"`
+	Auth          types.String `tfsdk:"auth"`
 	PM            types.String `tfsdk:"pm"`
 	Desc          types.String `tfsdk:"desc"`
+	TaskDateLimit types.String `tfsdk:"task_date_limit"`
+	StoryTypes    types.List   `tfsdk:"story_types"`
 	Status        types.String `tfsdk:"status"`
 }
 
@@ -53,18 +56,21 @@ func (d *projectDataSource) Schema(_ context.Context, _ datasource.SchemaRequest
 				Description: "Numeric ZenTao project ID.",
 				Required:    true,
 			},
-			"name":           schema.StringAttribute{Description: "Project display name.", Computed: true},
-			"model":          schema.StringAttribute{Description: "Project methodology.", Computed: true},
-			"begin":          schema.StringAttribute{Description: "Planned start date (YYYY-MM-DD).", Computed: true},
-			"end":            schema.StringAttribute{Description: "Planned end date (YYYY-MM-DD).", Computed: true},
-			"program":        schema.Int64Attribute{Description: "Parent program id (0 = no parent).", Computed: true},
-			"products":       schema.ListAttribute{Description: "Associated product IDs.", Computed: true, ElementType: types.Int64Type},
-			"workflow_group": schema.Int64Attribute{Description: "Workflow scheme id.", Computed: true},
-			"multiple":       schema.BoolAttribute{Description: "Whether iterations (sprints) are enabled.", Computed: true},
-			"acl":            schema.StringAttribute{Description: "Access control (`open` / `private` / `custom`).", Computed: true},
-			"pm":             schema.StringAttribute{Description: "Project Manager username.", Computed: true},
-			"desc":           schema.StringAttribute{Description: "Description.", Computed: true},
-			"status":         schema.StringAttribute{Description: "Lifecycle status (wait / doing / suspended / closed).", Computed: true},
+			"name":            schema.StringAttribute{Description: "Project display name.", Computed: true},
+			"model":           schema.StringAttribute{Description: "Project methodology.", Computed: true},
+			"begin":           schema.StringAttribute{Description: "Planned start date (YYYY-MM-DD).", Computed: true},
+			"end":             schema.StringAttribute{Description: "Planned end date (YYYY-MM-DD).", Computed: true},
+			"program":         schema.Int64Attribute{Description: "Parent program id (0 = no parent).", Computed: true},
+			"products":        schema.ListAttribute{Description: "Associated product IDs.", Computed: true, ElementType: types.Int64Type},
+			"workflow_group":  schema.Int64Attribute{Description: "Workflow scheme id.", Computed: true},
+			"multiple":        schema.BoolAttribute{Description: "Whether iterations (sprints) are enabled.", Computed: true},
+			"acl":             schema.StringAttribute{Description: "Access control (`open` / `private` / `custom`).", Computed: true},
+			"auth":            schema.StringAttribute{Description: "Permission mode (`extend` / `reset`).", Computed: true},
+			"pm":              schema.StringAttribute{Description: "Project Manager username.", Computed: true},
+			"desc":            schema.StringAttribute{Description: "Description.", Computed: true},
+			"task_date_limit": schema.StringAttribute{Description: "Task date constraint (`auto` / `limit`).", Computed: true},
+			"story_types":     schema.ListAttribute{Description: "Story concepts enabled for the project (`story` / `requirement` / `epic`).", Computed: true, ElementType: types.StringType},
+			"status":          schema.StringAttribute{Description: "Lifecycle status (wait / doing / suspended / closed).", Computed: true},
 		},
 	}
 }
@@ -117,6 +123,8 @@ func (d *projectDataSource) Read(ctx context.Context, req datasource.ReadRequest
 	}
 	products, diags := types.ListValueFrom(ctx, types.Int64Type, productsSrc)
 	resp.Diagnostics.Append(diags...)
+	storyTypes, diags := stringListFromSlice(ctx, deref(fetched.StoryTypes))
+	resp.Diagnostics.Append(diags...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
@@ -131,8 +139,11 @@ func (d *projectDataSource) Read(ctx context.Context, req datasource.ReadRequest
 		WorkflowGroup: types.Int64Value(deref(fetched.WorkflowGroup)),
 		Multiple:      types.BoolValue(deref(fetched.Multiple)),
 		ACL:           types.StringValue(deref(fetched.ACL)),
+		Auth:          types.StringValue(deref(fetched.Auth)),
 		PM:            types.StringValue(deref(fetched.PM)),
 		Desc:          types.StringValue(deref(fetched.Desc)),
+		TaskDateLimit: types.StringValue(deref(fetched.TaskDateLimit)),
+		StoryTypes:    storyTypes,
 		Status:        types.StringValue(deref(fetched.Status)),
 	})...)
 }

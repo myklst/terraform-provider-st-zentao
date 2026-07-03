@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strconv"
 
+	"github.com/hashicorp/terraform-plugin-framework-validators/setvalidator"
 	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
 	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-framework/path"
@@ -14,6 +15,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/boolplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/int64planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/setplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
 	"github.com/hashicorp/terraform-plugin-framework/types"
@@ -28,8 +30,11 @@ var (
 )
 
 var (
-	projectModelEnum = []string{"scrum", "waterfall", "kanban", "agileplus", "waterfallplus", "cmmi"}
-	projectACLEnum   = []string{"open", "private", "custom"}
+	projectModelEnum         = []string{"scrum", "waterfall", "kanban", "agileplus", "waterfallplus", "cmmi"}
+	projectACLEnum           = []string{"open", "private", "custom"}
+	projectAuthEnum          = []string{"extend", "reset"}
+	projectTaskDateLimitEnum = []string{"auto", "limit"}
+	projectStoryTypeEnum     = []string{"story", "requirement", "epic"}
 )
 
 type projectResource struct {
@@ -47,8 +52,11 @@ type projectResourceModel struct {
 	WorkflowGroup types.Int64  `tfsdk:"workflow_group"`
 	Multiple      types.Bool   `tfsdk:"multiple"`
 	ACL           types.String `tfsdk:"acl"`
+	Auth          types.String `tfsdk:"auth"`
 	PM            types.String `tfsdk:"pm"`
 	Desc          types.String `tfsdk:"desc"`
+	TaskDateLimit types.String `tfsdk:"task_date_limit"`
+	StoryTypes    types.Set    `tfsdk:"story_types"`
 	Status        types.String `tfsdk:"status"`
 }
 
@@ -121,6 +129,12 @@ func (r *projectResource) Schema(_ context.Context, _ resource.SchemaRequest, re
 				Validators:    []validator.String{stringvalidator.OneOf(projectACLEnum...)},
 				PlanModifiers: useStateForString,
 			},
+			"auth": schema.StringAttribute{
+				Description:   "Permission mode. One of: " + commaJoin(projectAuthEnum) + ". Defaults to extend.",
+				Required:      true,
+				Validators:    []validator.String{stringvalidator.OneOf(projectAuthEnum...)},
+				PlanModifiers: useStateForString,
+			},
 			"pm": schema.StringAttribute{
 				Description:   "Project Manager username.",
 				Optional:      true,
@@ -132,6 +146,21 @@ func (r *projectResource) Schema(_ context.Context, _ resource.SchemaRequest, re
 				Optional:      true,
 				Computed:      true,
 				PlanModifiers: useStateForString,
+			},
+			"task_date_limit": schema.StringAttribute{
+				Description:   "Task date constraint. One of: " + commaJoin(projectTaskDateLimitEnum) + ". Defaults to auto.",
+				Required:      true,
+				Validators:    []validator.String{stringvalidator.OneOf(projectTaskDateLimitEnum...)},
+				PlanModifiers: useStateForString,
+			},
+			"story_types": schema.SetAttribute{
+				Description: "Story concepts enabled for the project. Elements: " + commaJoin(projectStoryTypeEnum) + ". ZenTao always keeps story enabled; include it when setting this. Defaults to [story].",
+				Required:    true,
+				ElementType: types.StringType,
+				Validators: []validator.Set{
+					setvalidator.ValueStringsAre(stringvalidator.OneOf(projectStoryTypeEnum...)),
+				},
+				PlanModifiers: []planmodifier.Set{setplanmodifier.UseStateForUnknown()},
 			},
 			"status": schema.StringAttribute{
 				Description: "Lifecycle status (wait / doing / suspended / closed). Server-managed; changes outside of Terraform are surfaced on next read.",
@@ -267,6 +296,8 @@ func (m *projectResourceModel) toAPI(ctx context.Context) (*zentaoapi.Project, d
 	var diags diag.Diagnostics
 	products, pdiags := optInt64Set(ctx, m.Products)
 	diags.Append(pdiags...)
+	storyTypes, sdiags := optStrSet(ctx, m.StoryTypes)
+	diags.Append(sdiags...)
 	return &zentaoapi.Project{
 		Name:          optString(m.Name),
 		Model:         optString(m.Model),
@@ -277,8 +308,11 @@ func (m *projectResourceModel) toAPI(ctx context.Context) (*zentaoapi.Project, d
 		WorkflowGroup: optInt64(m.WorkflowGroup),
 		Multiple:      optBool(m.Multiple),
 		ACL:           optString(m.ACL),
+		Auth:          optString(m.Auth),
 		PM:            optString(m.PM),
 		Desc:          optString(m.Desc),
+		TaskDateLimit: optString(m.TaskDateLimit),
+		StoryTypes:    storyTypes,
 	}, diags
 }
 
@@ -288,6 +322,12 @@ func projectFromAPI(ctx context.Context, p *zentaoapi.Project) (projectResourceM
 		products = []int64{}
 	}
 	productsList, diags := types.SetValueFrom(ctx, types.Int64Type, products)
+	storyTypes := deref(p.StoryTypes)
+	if storyTypes == nil {
+		storyTypes = []string{}
+	}
+	storyTypeSet, sdiags := types.SetValueFrom(ctx, types.StringType, storyTypes)
+	diags.Append(sdiags...)
 	return projectResourceModel{
 		ID:            types.StringValue(strconv.FormatInt(deref(p.ID), 10)),
 		Name:          types.StringValue(deref(p.Name)),
@@ -299,8 +339,11 @@ func projectFromAPI(ctx context.Context, p *zentaoapi.Project) (projectResourceM
 		WorkflowGroup: types.Int64Value(deref(p.WorkflowGroup)),
 		Multiple:      types.BoolValue(deref(p.Multiple)),
 		ACL:           types.StringValue(deref(p.ACL)),
+		Auth:          types.StringValue(deref(p.Auth)),
 		PM:            types.StringValue(deref(p.PM)),
 		Desc:          types.StringValue(deref(p.Desc)),
-		Status: types.StringValue(deref(p.Status)),
+		TaskDateLimit: types.StringValue(deref(p.TaskDateLimit)),
+		StoryTypes:    storyTypeSet,
+		Status:        types.StringValue(deref(p.Status)),
 	}, diags
 }

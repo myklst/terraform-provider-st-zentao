@@ -19,17 +19,17 @@ data "st-zentao_project" "by_id" {
 
 output "project" {
   value = {
-    name           = data.st-zentao_project.by_id.name
-    model          = data.st-zentao_project.by_id.model
-    begin          = data.st-zentao_project.by_id.begin
-    end            = data.st-zentao_project.by_id.end
-    program        = data.st-zentao_project.by_id.program
-    workflow_group = data.st-zentao_project.by_id.workflow_group
-    acl            = data.st-zentao_project.by_id.acl
-    status         = data.st-zentao_project.by_id.status
-    opened_by      = data.st-zentao_project.by_id.opened_by
-    progress       = data.st-zentao_project.by_id.progress
-    team_count     = data.st-zentao_project.by_id.team_count
+    name            = data.st-zentao_project.by_id.name
+    model           = data.st-zentao_project.by_id.model
+    begin           = data.st-zentao_project.by_id.begin
+    end             = data.st-zentao_project.by_id.end
+    program         = data.st-zentao_project.by_id.program
+    workflow_group  = data.st-zentao_project.by_id.workflow_group
+    acl             = data.st-zentao_project.by_id.acl
+    auth            = data.st-zentao_project.by_id.auth
+    task_date_limit = data.st-zentao_project.by_id.task_date_limit
+    story_types     = data.st-zentao_project.by_id.story_types
+    status          = data.st-zentao_project.by_id.status
   }
 }
 ```
@@ -44,6 +44,7 @@ output "project" {
 ### Read-Only
 
 - `acl` (String) Access control (`open` / `private` / `custom`).
+- `auth` (String) Permission mode (`extend` / `reset`).
 - `begin` (String) Planned start date (YYYY-MM-DD).
 - `desc` (String) Description.
 - `end` (String) Planned end date (YYYY-MM-DD).
@@ -51,10 +52,9 @@ output "project" {
 - `multiple` (Boolean) Whether iterations (sprints) are enabled.
 - `name` (String) Project display name.
 - `pm` (String) Project Manager username.
-- `po` (String) Product Owner username.
 - `products` (List of Number) Associated product IDs.
 - `program` (Number) Parent program id (0 = no parent).
-- `qd` (String) QA Lead username.
-- `rd` (String) Release Lead username.
 - `status` (String) Lifecycle status (wait / doing / suspended / closed).
+- `story_types` (List of String) Story concepts enabled for the project (`story` / `requirement` / `epic`).
+- `task_date_limit` (String) Task date constraint (`auto` / `limit`).
 - `workflow_group` (Number) Workflow scheme id.

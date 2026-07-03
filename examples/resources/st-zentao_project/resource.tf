@@ -4,6 +4,7 @@ resource "st-zentao_project" "example" {
   begin = "2026-01-01"
   end   = "2026-12-31"
   acl   = "open"
+  auth  = "extend"
 
   workflow_group = 2
 
@@ -13,4 +14,7 @@ resource "st-zentao_project" "example" {
   program = 1
   pm      = "testPM"
   desc    = "Created by Terraform"
+
+  task_date_limit = "auto"
+  story_types     = ["story", "requirement"]
 }

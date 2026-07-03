@@ -39,6 +39,17 @@ Empirical required set (validated against live Max 8.x; upstream source review n
 | `budget` / `budgetUnit` | optional | budget="0.00" budgetUnit="CNY" by default |
 | `whitelist[]` | optional | only meaningful when `acl=custom` |
 
+### Addendum 2026-07-03: `taskDateLimit` / `storyType` (read-only probe)
+
+Evidence source: `project-edit-{id}.html` form markup on live Max 8.x (`zentao2.sige.la`) — write probes were not run against this shared server, so create/edit persistence is validated by the acceptance tests instead.
+
+| Field | Form control | Values | Notes |
+|---|---|---|---|
+| `taskDateLimit` | radio, scalar `taskDateLimit` | `auto` (default, checked) / `limit` | 任务时间限制: `limit` = 限制子任务时间, `auto` = 自动延长父任务时间. Read echoes the scalar. |
+| `storyType` | checkbox array `storyType[]` | `epic` / `requirement` / `story` | 关联需求概念. `story` is rendered checked **and disabled** with a hidden `storyType[]=story` input — the UI always submits it; configs should include it. Read echoes a comma-joined SET string (`"story,requirement"`); live rows with `""` also exist (see §3 id=28). |
+
+Wrapper mapping: both fields are **omitted from the form when empty** (unlike the always-set core fields) so bare creates fall back to the server defaults (`auto` / `story`); M-Z edits always replay them because the baseline read carries a value.
+
 ### Create response shapes
 
 Success:

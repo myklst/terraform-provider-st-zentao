@@ -307,7 +307,7 @@ func (m *productResourceModel) toAPI(ctx context.Context) (*zentaoapi.Product, d
 		PO:        optString(m.PO),
 		QD:        optString(m.QD),
 		RD:        optString(m.RD),
-		Reviewers:  reviewers,
+		Reviewers: reviewers,
 		Whitelist: whitelist,
 	}, diags
 }

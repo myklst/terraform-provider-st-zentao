@@ -88,6 +88,21 @@ func optInt64Set(ctx context.Context, v types.Set) (*[]int64, diag.Diagnostics) 
 	return &out, diags
 }
 
+// optStrSet is the string-typed sibling of optInt64Set. story_types is a
+// set (order-independent) because ZenTao stores it as a SET column and
+// echoes elements in its own canonical order.
+func optStrSet(ctx context.Context, v types.Set) (*[]string, diag.Diagnostics) {
+	if v.IsNull() || v.IsUnknown() {
+		return nil, nil
+	}
+	var out []string
+	diags := v.ElementsAs(ctx, &out, true)
+	if out == nil {
+		out = []string{}
+	}
+	return &out, diags
+}
+
 // stringListFromSlice normalises a nil slice into an empty list value
 // (Terraform distinguishes null-list from empty-list and the latter is
 // what `flexibleStringList` decodes to when the wire returns an empty

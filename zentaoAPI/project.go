@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
 )
 
 type projectViewInner struct {
@@ -16,20 +17,23 @@ type projectViewInner struct {
 
 // Project represents a ZenTao project
 type Project struct {
-	ID            *int64   `json:"id,omitempty"`
-	Name          *string  `json:"name,omitempty"`
-	Model         *string  `json:"model,omitempty"`
-	Begin         *string  `json:"begin,omitempty"`
-	End           *string  `json:"end,omitempty"`
-	Parent        *int64   `json:"parent,omitempty"` // wire: program parent id (0 = top-level)
-	Products      *[]int64 `json:"-"`                // joined via zt_projectproduct
-	WorkflowGroup *int64   `json:"workflowGroup,omitempty"`
-	Multiple      *bool    `json:"multiple,omitempty"` // CREATE-ONLY; ignored by edit POST
-	Status        *string  `json:"-"`                  // READ-ONLY; lifecycle column, edited via project-start/suspend/close
-	ACL           *string  `json:"acl,omitempty"`
-	PM            *string  `json:"PM,omitempty"`
-	Desc          *string  `json:"desc,omitempty"`
-	Deleted       *bool    `json:"deleted,omitempty"`
+	ID            *int64    `json:"id,omitempty"`
+	Name          *string   `json:"name,omitempty"`
+	Model         *string   `json:"model,omitempty"`
+	Begin         *string   `json:"begin,omitempty"`
+	End           *string   `json:"end,omitempty"`
+	Parent        *int64    `json:"parent,omitempty"` // wire: program parent id (0 = top-level)
+	Products      *[]int64  `json:"-"`                // joined via zt_projectproduct
+	WorkflowGroup *int64    `json:"workflowGroup,omitempty"`
+	Multiple      *bool     `json:"multiple,omitempty"` // CREATE-ONLY; ignored by edit POST
+	Status        *string   `json:"-"`                  // READ-ONLY; lifecycle column, edited via project-start/suspend/close
+	ACL           *string   `json:"acl,omitempty"`
+	Auth          *string   `json:"auth,omitempty"` // permission mode: extend (inherit) | reset (override)
+	PM            *string   `json:"PM,omitempty"`
+	Desc          *string   `json:"desc,omitempty"`
+	TaskDateLimit *string   `json:"taskDateLimit,omitempty"` // auto (extend parent task) | limit (child tasks within parent range)
+	StoryTypes    *[]string `json:"-"`                       // wire reads comma-joined `storyType`, writes `storyType[]` array; values: story | requirement | epic
+	Deleted       *bool     `json:"deleted,omitempty"`
 }
 
 // UnmarshalJSON decodes the inner `.project` row of `project-view-{id}.json`.
@@ -54,8 +58,11 @@ func (p *Project) UnmarshalJSON(data []byte) error {
 		End           *string     `json:"end"`
 		Status        *string     `json:"status"`
 		ACL           *string     `json:"acl"`
+		Auth          *string     `json:"auth"`
 		PM            *string     `json:"PM"`
 		Desc          *string     `json:"desc"`
+		TaskDateLimit *string     `json:"taskDateLimit"`
+		StoryType     *string     `json:"storyType"`
 	}
 	if err := json.Unmarshal(data, &raw); err != nil {
 		return err
@@ -95,8 +102,22 @@ func (p *Project) UnmarshalJSON(data []byte) error {
 	p.End = raw.End
 	p.Status = raw.Status
 	p.ACL = raw.ACL
+	p.Auth = raw.Auth
 	p.PM = raw.PM
 	p.Desc = raw.Desc
+	p.TaskDateLimit = raw.TaskDateLimit
+	// storyType is a SET column serialised comma-joined ("story,requirement");
+	// empty string means "no concepts" and maps to a non-nil empty slice so
+	// callers can distinguish it from "wire omitted the column" (nil).
+	if raw.StoryType != nil {
+		parts := []string{}
+		for _, s := range strings.Split(*raw.StoryType, ",") {
+			if s != "" {
+				parts = append(parts, s)
+			}
+		}
+		p.StoryTypes = &parts
+	}
 	return nil
 }
 
@@ -109,10 +130,20 @@ func (p *Project) toForm() url.Values {
 	form.Set("end", deref(p.End))
 	form.Set("parent", strconv.FormatInt(deref(p.Parent), 10))
 	form.Set("workflowGroup", strconv.FormatInt(deref(p.WorkflowGroup), 10))
-	form.Set("multiple", boolToOnOff(deref(p.Multiple)))  // uses HTML-checkbox semantics (`on`/`off`), NOT `0`/`1`
+	form.Set("multiple", boolToOnOff(deref(p.Multiple))) // uses HTML-checkbox semantics (`on`/`off`), NOT `0`/`1`
 	form.Set("acl", deref(p.ACL))
+	form.Set("auth", deref(p.Auth)) // radioList: single scalar; server joins on ',' (no-op)
 	form.Set("PM", deref(p.PM))
 	form.Set("desc", deref(p.Desc))
+	// taskDateLimit / storyType[] are omitted when empty so project-create
+	// falls back to the server defaults (auto / story). M-Z edits always
+	// carry them because the baseline read is never empty for live rows.
+	if v := deref(p.TaskDateLimit); v != "" {
+		form.Set("taskDateLimit", v)
+	}
+	for _, s := range deref(p.StoryTypes) {
+		form.Add("storyType[]", s)
+	}
 	form.Set("deleted", boolToIntStr(deref(p.Deleted)))
 	// products[] — empty list still needs an empty-array marker for
 	// PHP, otherwise productsBox validation fires (see probe §2).
@@ -166,11 +197,20 @@ func mergeProjectBaseline(input, baseline *Project) *Project {
 	if input.ACL != nil {
 		out.ACL = input.ACL
 	}
+	if input.Auth != nil {
+		out.Auth = input.Auth
+	}
 	if input.PM != nil {
 		out.PM = input.PM
 	}
 	if input.Desc != nil {
 		out.Desc = input.Desc
+	}
+	if input.TaskDateLimit != nil {
+		out.TaskDateLimit = input.TaskDateLimit
+	}
+	if input.StoryTypes != nil {
+		out.StoryTypes = input.StoryTypes
 	}
 	if input.Deleted != nil {
 		out.Deleted = input.Deleted
