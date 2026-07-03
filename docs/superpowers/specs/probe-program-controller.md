@@ -239,3 +239,49 @@ ZenTao silently accepts the write, recomputes `path` to include the cycle, and r
 4. **Detach semantics** are simply `parent = 0` on the full-form submit.
 
 Cleanup: probe rows A=100, B=101, C=102 deleted at end of session.
+
+## 9. Addendum 2026-07-03 — sibling-name uniqueness blocks detach
+
+Probed after a live `terraform destroy` failure: the attachment resource's Delete
+(`SetProgramParent(child, 0)`) came back with
+`{"result":"fail","message":{"name":["『项目集名称』已经有『…』这条记录了。"]}}`.
+Probe rows: A=109 (top-level), B=110 (child of A, **same name** as A). Both deleted after the probe.
+
+### F5 — `name` must be unique among siblings of the **target** parent
+
+```
+program-create parent=0 name=X          → ok (A)
+program-create parent=A name=X          → ok (B) — same name legal on a different level
+POST program-edit-B parent=0 (full form) → fail: 『项目集名称』已经有『X』这条记录了。
+PUT /api.php/v2/programs/B {"parent":0} → same fail — V2 hits the same model check
+```
+
+The unique check runs against the siblings of the parent value being SUBMITTED,
+so a pure parent move can be rejected purely because of a name standing at the
+destination level. Detach-to-top-level vs. a same-name top-level row is the
+common trap: attach-then-create-clash is reachable, but the reverse detach is not.
+There is no server-side way around it (V2 included); renaming one row first is
+the only unblock.
+
+### F6 — `program-delete` refuses when live children exist
+
+```
+program-delete-A-yes (A still has child B) → {"result":"fail","message":"Can not delete the program has children."}
+program-delete-B-yes (B attached, no children) → success
+program-delete-A-yes (after B soft-deleted)    → success — tombstoned children don't count
+```
+
+So bottom-up deletion works even while children are still attached; detach is
+NOT a precondition for deleting the child itself.
+
+### Implications for the wrappers
+
+1. `SetProgramParent` classifies the duplicate-name rejection as `ErrNameConflict`
+   (`isDuplicateNameReason` in errors.go matches the zh "已经有…这条记录" and en
+   "has been used" wordings).
+2. The attachment resource's Delete downgrades `ErrNameConflict` to a warning and
+   removes the attachment from state — failing hard would wedge `terraform destroy`
+   with no in-band recovery (F5), while the destroy flow doesn't actually need the
+   detach (F6: the child can be deleted while attached).
+3. Create/Update keep failing loudly on `ErrNameConflict` — there the user asked
+   for that exact parent, so the conflict must surface.

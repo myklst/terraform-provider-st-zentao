@@ -227,6 +227,19 @@ func (r *programParentAttachmentResource) Delete(ctx context.Context, req resour
 		if errors.Is(err, zentaoapi.ErrNotFound) {
 			return
 		}
+		// ZenTao rejects the detach when a same-name program already sits
+		// at the top level (sibling-name uniqueness, probe F5). Nothing the
+		// provider can force server-side, and failing here would wedge
+		// `terraform destroy` permanently — so drop the attachment from
+		// state and tell the user the parent link stayed in ZenTao.
+		if errors.Is(err, zentaoapi.ErrNameConflict) {
+			resp.Diagnostics.AddWarning(
+				"Program left attached in ZenTao",
+				fmt.Sprintf("ZenTao refused to move program %d back to the top level because another top-level program already uses the same name, so its parent was left unchanged. "+
+					"The attachment was removed from Terraform state only. To really detach it, rename one of the two programs first. Original error: %s", child, err),
+			)
+			return
+		}
 		resp.Diagnostics.AddError("Detach program parent failed", err.Error())
 		return
 	}

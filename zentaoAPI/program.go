@@ -3,6 +3,7 @@ package zentaoapi
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -300,6 +301,16 @@ func (c *Client) SetProgramParent(ctx context.Context, childID, parentID int64) 
 	}
 	updated, err := c.UpdateProgram(ctx, &Program{ID: &childID, Parent: &parentID})
 	if err != nil {
+		// ZenTao enforces name uniqueness among siblings of the TARGET
+		// parent (probe F5), so a pure parent move can be rejected when a
+		// same-name program already sits at the destination level — most
+		// commonly on detach (parentID=0) vs. a same-name top-level row.
+		// Surface it as ErrNameConflict so callers can react specifically.
+		var apiErr *APIError
+		if errors.As(err, &apiErr) && isDuplicateNameReason(apiErr.Reason) {
+			return nil, fmt.Errorf("SetProgramParent: %w: a program named the same as %d already exists under parent %d (%v)",
+				ErrNameConflict, childID, parentID, err)
+		}
 		return nil, fmt.Errorf("SetProgramParent: %w", err)
 	}
 	return updated, nil

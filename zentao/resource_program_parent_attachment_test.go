@@ -199,6 +199,51 @@ resource "st-zentao_program_parent_attachment" "att" {
 	})
 }
 
+// Destroy with a top-level name conflict: attach child under parent, then
+// create ANOTHER top-level program reusing the child's name (legal — sibling
+// uniqueness is per-level). The final auto-destroy detaches the child back to
+// top level, which ZenTao rejects as a duplicate name; Delete must downgrade
+// that to a warning so `terraform destroy` still completes.
+func TestAccProgramParentAttachmentResource_destroyWithTopLevelNameConflict(t *testing.T) {
+	parentName := uniqueName("acc-pp-nc-parent")
+	childName := uniqueName("acc-pp-nc-child")
+	base := func(extra string) string {
+		return providerBlock() + fmt.Sprintf(`
+resource "st-zentao_program" "parent" {
+  name  = %q
+  begin = "2026-01-01"
+  end   = "2026-12-31"
+}
+resource "st-zentao_program" "child" {
+  name  = %q
+  begin = "2026-01-01"
+  end   = "2026-12-31"
+  # destroy order: child row must be gone before parent's delete
+  # (ZenTao refuses to delete a program that still has children)
+  depends_on = [st-zentao_program.parent]
+}
+resource "st-zentao_program_parent_attachment" "att" {
+  program = st-zentao_program.child.id
+  parent  = st-zentao_program.parent.id
+}`, parentName, childName) + extra
+	}
+	tfresource.Test(t, tfresource.TestCase{
+		PreCheck:                 func() { testAccPreCheck(t) },
+		ProtoV6ProviderFactories: protoV6Factories,
+		Steps: []tfresource.TestStep{
+			{Config: base("")},
+			// Reuse the child's name at top level — allowed while the
+			// child is nested, and exactly what blocks the later detach.
+			{Config: base(fmt.Sprintf(`
+resource "st-zentao_program" "clash" {
+  name  = %q
+  begin = "2026-01-01"
+  end   = "2026-12-31"
+}`, childName))},
+		},
+	})
+}
+
 // Out-of-band detach: remove the parent in ZenTao directly, then re-plan.
 // Read should drop the attachment and plan should recreate it.
 func TestAccProgramParentAttachmentResource_outOfBandDetach(t *testing.T) {
